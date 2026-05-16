@@ -52,6 +52,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -1370,6 +1371,7 @@ function AdminSettingsPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     {(snapshot.serviceListenModeOptions?.length
                       ? snapshot.serviceListenModeOptions
                       : ["loopback", "all_interfaces"]
@@ -1378,6 +1380,7 @@ function AdminSettingsPage() {
                         {t(SERVICE_LISTEN_MODE_LABELS[mode] || mode)}
                       </SelectItem>
                     ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -1602,10 +1605,12 @@ function AdminSettingsPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value="ordered">{t("顺序优先 (Ordered)")}</SelectItem>
                     <SelectItem value="balanced">
                       {t("均衡轮询 (Balanced)")}
                     </SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
@@ -1633,6 +1638,7 @@ function AdminSettingsPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     {(snapshot.freeAccountMaxModelOptions?.length
                       ? snapshot.freeAccountMaxModelOptions
                       : DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS
@@ -1641,6 +1647,7 @@ function AdminSettingsPage() {
                         {t(formatFreeAccountModelLabel(model))}
                       </SelectItem>
                     ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
@@ -1743,6 +1750,7 @@ function AdminSettingsPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     {(snapshot.gatewayResidencyRequirementOptions?.length
                       ? snapshot.gatewayResidencyRequirementOptions
                       : ["", "us"]
@@ -1754,6 +1762,7 @@ function AdminSettingsPage() {
                         {t(RESIDENCY_REQUIREMENT_LABELS[value] || value)}
                       </SelectItem>
                     ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
@@ -1974,6 +1983,7 @@ function AdminSettingsPage() {
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
+                    <SelectGroup>
                         {WORKER_PRESETS.map((preset) => (
                           <SelectItem key={preset.key} value={preset.key}>
                             {t(preset.simpleLabel)}
@@ -1984,6 +1994,7 @@ function AdminSettingsPage() {
                             {t("自定义（来自高级参数）")}
                           </SelectItem>
                         ) : null}
+                        </SelectGroup>
                       </SelectContent>
                     </Select>
                   </div>

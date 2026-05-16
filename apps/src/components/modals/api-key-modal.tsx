@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -446,6 +447,7 @@ export function ApiKeyModal({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
+                    <SelectGroup>
                   <SelectItem value="account_rotation">{t("账号轮转")}</SelectItem>
                   <SelectItem value="aggregate_api_rotation">
                     {t("聚合API轮转")}
@@ -453,6 +455,7 @@ export function ApiKeyModal({
                   <SelectItem value="hybrid_rotation">
                     {t("混合轮转（账号优先）")}
                   </SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>
@@ -505,6 +508,7 @@ export function ApiKeyModal({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
+                    <SelectGroup>
                   {Object.entries(ACCOUNT_PLAN_FILTER_LABELS).map(
                     ([value, label]) => (
                       <SelectItem key={value} value={value}>
@@ -512,6 +516,7 @@ export function ApiKeyModal({
                       </SelectItem>
                     ),
                   )}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
@@ -542,12 +547,14 @@ export function ApiKeyModal({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent align="start">
+                    <SelectGroup>
                 <SelectItem value="__none__">{t("未分配")}</SelectItem>
                 {billableUsers.map((user) => (
                   <SelectItem key={user.id} value={user.id}>
                     {appUserLabel(user)}
                   </SelectItem>
                 ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground">
@@ -583,8 +590,10 @@ export function ApiKeyModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">
+                    <SelectGroup>
                   <SelectItem value="k">{t("K")}</SelectItem>
                   <SelectItem value="m">{t("M")}</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>
@@ -622,9 +631,11 @@ export function ApiKeyModal({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
+                    <SelectGroup>
                   <SelectItem value="openai_compat">
                     {t("通配兼容 (Codex / Claude Code / Gemini CLI)")}
                   </SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <p className="min-h-[32px] text-[11px] text-muted-foreground">
@@ -652,12 +663,14 @@ export function ApiKeyModal({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
+                    <SelectGroup>
                   <SelectItem value="auto">{t("跟随请求")}</SelectItem>
                   {visibleModels.map((model) => (
                     <SelectItem key={model.slug} value={model.slug}>
                       {model.displayName || model.slug}
                     </SelectItem>
                   ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
@@ -684,11 +697,13 @@ export function ApiKeyModal({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
+                    <SelectGroup>
                   <SelectItem value="auto">{t("跟随请求")}</SelectItem>
                   <SelectItem value="low">{t("低 (low)")}</SelectItem>
                   <SelectItem value="medium">{t("中 (medium)")}</SelectItem>
                   <SelectItem value="high">{t("高 (high)")}</SelectItem>
                   <SelectItem value="xhigh">{t("极高 (xhigh)")}</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <p className="min-h-[32px] text-[11px] text-muted-foreground">
@@ -712,8 +727,10 @@ export function ApiKeyModal({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
+                    <SelectGroup>
                   <SelectItem value="auto">{t("跟随请求")}</SelectItem>
                   <SelectItem value="fast">Fast</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">

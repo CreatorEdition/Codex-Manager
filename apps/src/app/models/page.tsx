@@ -21,6 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -31,10 +32,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -681,6 +689,7 @@ export default function ModelsPage() {
                     <SelectValue>{currentFilterLabel}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value="all">{t("全部模型")}</SelectItem>
                     <SelectItem value="api">{t("仅 API 可用")}</SelectItem>
                     {isAdminMode ? (
@@ -689,6 +698,7 @@ export default function ModelsPage() {
                         <SelectItem value="edited">{t("仅本地覆写")}</SelectItem>
                       </>
                     ) : null}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -701,9 +711,11 @@ export default function ModelsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {!isServiceReady ? (
-              <div className="rounded-2xl border border-dashed border-border/70 bg-background/35 px-6 py-10 text-sm text-muted-foreground">
-                {t("服务未连接，当前无法读取模型目录。")}
-              </div>
+              <Empty className="min-h-40 border bg-background/35">
+                <EmptyHeader>
+                  <EmptyTitle>{t("服务未连接，当前无法读取模型目录。")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 6 }).map((_, index) => (
@@ -711,11 +723,15 @@ export default function ModelsPage() {
                 ))}
               </div>
             ) : filteredModels.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border/70 bg-background/35 px-6 py-10 text-sm text-muted-foreground">
-                {isAdminMode
-                  ? t("没有匹配的模型。你可以调整筛选条件，或直接新增一个自定义模型。")
-                  : t("没有匹配的模型。你可以调整筛选条件。")}
-              </div>
+              <Empty className="min-h-40 border bg-background/35">
+                <EmptyHeader>
+                  <EmptyTitle>
+                    {isAdminMode
+                      ? t("没有匹配的模型。你可以调整筛选条件，或直接新增一个自定义模型。")
+                      : t("没有匹配的模型。你可以调整筛选条件。")}
+                  </EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
@@ -868,6 +884,7 @@ export default function ModelsPage() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                  <DropdownMenuGroup>
                                 <DropdownMenuItem onClick={() => openRoutingDialog(model.slug)}>
                                   <Link2 className="h-4 w-4" />
                                   {t("关联来源")}
@@ -888,6 +905,7 @@ export default function ModelsPage() {
                                   <Trash2 className="h-4 w-4" />
                                   {t("删除模型")}
                                 </DropdownMenuItem>
+                                </DropdownMenuGroup>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
@@ -933,13 +951,17 @@ export default function ModelsPage() {
           </DialogHeader>
           <div className="space-y-4">
             {!isServiceReady ? (
-              <div className="rounded-2xl border border-dashed border-border/70 bg-background/35 px-6 py-10 text-sm text-muted-foreground">
-                {t("服务未连接，当前无法读取模型路由。")}
-              </div>
+              <Empty className="min-h-40 border bg-background/35">
+                <EmptyHeader>
+                  <EmptyTitle>{t("服务未连接，当前无法读取模型路由。")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : !activeModel ? (
-              <div className="rounded-2xl border border-dashed border-border/70 bg-background/35 px-6 py-10 text-sm text-muted-foreground">
-                {t("请先从模型目录选择一个模型。")}
-              </div>
+              <Empty className="min-h-40 border bg-background/35">
+                <EmptyHeader>
+                  <EmptyTitle>{t("请先从模型目录选择一个模型。")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               <>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1001,9 +1023,11 @@ export default function ModelsPage() {
                       </Badge>
                     </div>
                     {activeMappings.length === 0 ? (
-                      <div className="px-4 py-10 text-sm text-muted-foreground">
-                        {t("还没有关联来源。")}
-                      </div>
+                      <Empty className="min-h-32 border-0 bg-transparent">
+                        <EmptyHeader>
+                          <EmptyTitle>{t("还没有关联来源。")}</EmptyTitle>
+                        </EmptyHeader>
+                      </Empty>
                     ) : (
                       <div className="max-h-[520px] space-y-2 overflow-y-auto p-3">
                         {activeMappings.map((mapping) => (
@@ -1183,18 +1207,22 @@ export default function ModelsPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
+                    <SelectGroup>
                               <SelectItem value="all">{t("全部来源")}</SelectItem>
                               <SelectItem value="openai_account">{t("账号池")}</SelectItem>
                               <SelectItem value="aggregate_api">{t("聚合 API")}</SelectItem>
+                              </SelectGroup>
                             </SelectContent>
                           </Select>
                         </div>
 
                         <div className="max-h-[380px] space-y-2 overflow-y-auto pr-1">
                           {sourceCandidates.length === 0 ? (
-                            <div className="rounded-lg border border-dashed border-border/70 px-3 py-8 text-sm text-muted-foreground">
-                              {t("暂无可关联候选。")}
-                            </div>
+                            <Empty className="min-h-32 border bg-background/35">
+                              <EmptyHeader>
+                                <EmptyTitle>{t("暂无可关联候选。")}</EmptyTitle>
+                              </EmptyHeader>
+                            </Empty>
                           ) : (
                             sourceCandidates.slice(0, 80).map((sourceModel) => (
                               <div
@@ -1271,8 +1299,10 @@ export default function ModelsPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
+                    <SelectGroup>
                               <SelectItem value="aggregate_api">{t("聚合 API")}</SelectItem>
                               <SelectItem value="openai_account">{t("账号池")}</SelectItem>
+                              </SelectGroup>
                             </SelectContent>
                           </Select>
                           <Input

@@ -33,11 +33,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -305,7 +307,11 @@ function UserUsageDetail({
           </div>
           <div className="space-y-2">
             {summary.topKeys.length === 0 ? (
-              <div className="text-xs text-muted-foreground">{t("暂无 Key 用量")}</div>
+              <Empty className="min-h-20 border bg-muted/20 p-3">
+                <EmptyHeader>
+                  <EmptyTitle>{t("暂无 Key 用量")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               summary.topKeys.map((item) => (
                 <div
@@ -331,7 +337,11 @@ function UserUsageDetail({
           </div>
           <div className="space-y-2">
             {summary.topModels.length === 0 ? (
-              <div className="text-xs text-muted-foreground">{t("暂无模型用量")}</div>
+              <Empty className="min-h-20 border bg-muted/20 p-3">
+                <EmptyHeader>
+                  <EmptyTitle>{t("暂无模型用量")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             ) : (
               summary.topModels.map((item) => (
                 <div
@@ -352,7 +362,11 @@ function UserUsageDetail({
       <div className="rounded-xl bg-background/25 p-3">
         <div className="mb-2 text-sm font-semibold">{t("近期请求上下文")}</div>
         {summary.recentLogs.length === 0 ? (
-          <div className="text-xs text-muted-foreground">{t("暂无请求日志")}</div>
+          <Empty className="min-h-20 border bg-muted/20 p-3">
+            <EmptyHeader>
+              <EmptyTitle>{t("暂无请求日志")}</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <div className="divide-y divide-border/40">
             {summary.recentLogs.slice(0, 5).map((log) => (
@@ -697,7 +711,11 @@ export default function AccountManagerPage() {
                     colSpan={7}
                     className="h-24 text-center text-muted-foreground"
                   >
-                    {t("暂无登录账号")}
+                    <Empty className="min-h-20 border-0 bg-transparent">
+                      <EmptyHeader>
+                        <EmptyTitle>{t("暂无登录账号")}</EmptyTitle>
+                      </EmptyHeader>
+                    </Empty>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -844,8 +862,10 @@ export default function AccountManagerPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value="member">{t("成员")}</SelectItem>
                     <SelectItem value="admin">{t("管理员")}</SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -943,8 +963,10 @@ export default function AccountManagerPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value="member">{t("成员")}</SelectItem>
                     <SelectItem value="admin">{t("管理员")}</SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -965,8 +987,10 @@ export default function AccountManagerPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value="active">{t("启用")}</SelectItem>
                     <SelectItem value="disabled">{t("禁用")}</SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -1042,9 +1066,11 @@ export default function AccountManagerPage() {
           ) : usageDetailQuery.data ? (
             <UserUsageDetail user={usageUser} summary={usageDetailQuery.data} />
           ) : (
-            <div className="rounded-xl bg-background/35 p-4 text-sm text-muted-foreground">
-              {t("暂无用量详情")}
-            </div>
+            <Empty className="min-h-28 border bg-background/35">
+              <EmptyHeader>
+                <EmptyTitle>{t("暂无用量详情")}</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           )}
           <DialogFooter>
             <Button

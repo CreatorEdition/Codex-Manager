@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -311,6 +312,7 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
+                    <SelectGroup>
                 <SelectItem value="none" disabled={accountModeLocked}>
                   {t("不启用")}
                 </SelectItem>
@@ -318,6 +320,7 @@ export function WebPasswordModal({ open, onOpenChange }: WebPasswordModalProps) 
                   {t("访问密码")}
                 </SelectItem>
                 <SelectItem value="accounts">{t("账号系统")}</SelectItem>
+                </SelectGroup>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">

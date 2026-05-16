@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -579,8 +580,10 @@ export function AggregateApiModal({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
+                    <SelectGroup>
                       <SelectItem value="codex">Codex</SelectItem>
                       <SelectItem value="claude">Claude</SelectItem>
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </div>
@@ -612,8 +615,10 @@ export function AggregateApiModal({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
+                    <SelectGroup>
                       <SelectItem value="apikey">APIKey</SelectItem>
                       <SelectItem value="userpass">{t("账号密码")}</SelectItem>
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </div>
@@ -748,8 +753,10 @@ export function AggregateApiModal({
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
+                    <SelectGroup>
                               <SelectItem value="header">Header</SelectItem>
                               <SelectItem value="query">Query</SelectItem>
+                              </SelectGroup>
                             </SelectContent>
                           </Select>
                         </div>
@@ -789,8 +796,10 @@ export function AggregateApiModal({
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
+                    <SelectGroup>
                               <SelectItem value="bearer">Bearer</SelectItem>
                               <SelectItem value="raw">Raw</SelectItem>
+                              </SelectGroup>
                             </SelectContent>
                           </Select>
                         </div>
@@ -824,9 +833,11 @@ export function AggregateApiModal({
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
+                    <SelectGroup>
                             <SelectItem value="basic">{t("HTTP Basic")}</SelectItem>
                             <SelectItem value="headerPair">{t("Header 双字段")}</SelectItem>
                             <SelectItem value="queryPair">{t("Query 双字段")}</SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                       </div>
@@ -934,9 +945,11 @@ export function AggregateApiModal({
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
+                    <SelectGroup>
                           <SelectItem value="generic">{t("通用余额")}</SelectItem>
                           <SelectItem value="new_api">New API</SelectItem>
                           <SelectItem value="custom">Custom</SelectItem>
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
                     </div>
@@ -991,6 +1004,7 @@ export function AggregateApiModal({
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
+                    <SelectGroup>
                               <SelectItem value="provider_bearer">
                                 Provider key
                               </SelectItem>
@@ -998,6 +1012,7 @@ export function AggregateApiModal({
                                 Balance token
                               </SelectItem>
                               <SelectItem value="none">None</SelectItem>
+                              </SelectGroup>
                             </SelectContent>
                           </Select>
                         </div>

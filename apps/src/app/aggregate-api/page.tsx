@@ -33,6 +33,7 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -42,6 +43,7 @@ import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -994,10 +996,12 @@ export default function AggregateApiPage() {
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value="all">{t("全部类型")}</SelectItem>
                     <SelectItem value="codex">Codex</SelectItem>
                     <SelectItem value="claude">Claude</SelectItem>
                     <SelectItem value="gemini">Gemini</SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -1260,6 +1264,7 @@ export default function AggregateApiPage() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
+                                  <DropdownMenuGroup>
                                   <DropdownMenuItem
                                     onClick={() => void copySecret(api.id, "username")}
                                   >
@@ -1270,6 +1275,7 @@ export default function AggregateApiPage() {
                                   >
                                     {t("复制密码")}
                                   </DropdownMenuItem>
+                                  </DropdownMenuGroup>
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             ) : (
@@ -1446,6 +1452,7 @@ export default function AggregateApiPage() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                  <DropdownMenuGroup>
                                 <DropdownMenuItem
                                   className="gap-2"
                                   disabled={!isServiceReady}
@@ -1469,6 +1476,7 @@ export default function AggregateApiPage() {
                                 >
                                   <Trash2 className="h-4 w-4" /> {t("删除聚合 API")}
                                 </DropdownMenuItem>
+                                </DropdownMenuGroup>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>

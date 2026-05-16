@@ -33,6 +33,11 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
@@ -919,9 +924,11 @@ export default function PluginsPage() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-dashed border-border/60 p-10 text-center text-sm text-muted-foreground">
-                {t("还没有安装任何插件")}
-              </div>
+              <Empty className="min-h-40 border bg-muted/20">
+                <EmptyHeader>
+                  <EmptyTitle>{t("还没有安装任何插件")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             )
           ) : pluginViewFilter === "update" ? (
             updatableInstalledItems.length > 0 ? (
@@ -957,9 +964,11 @@ export default function PluginsPage() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-dashed border-border/60 p-10 text-center text-sm text-muted-foreground">
-                {t("当前市场没有可更新插件")}
-              </div>
+              <Empty className="min-h-40 border bg-muted/20">
+                <EmptyHeader>
+                  <EmptyTitle>{t("当前市场没有可更新插件")}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             )
           ) : notInstalledCatalogItems.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -976,11 +985,15 @@ export default function PluginsPage() {
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-border/60 p-10 text-center text-sm text-muted-foreground">
-              {marketMode === "custom" && !catalogQuery.data?.sourceUrl
-                ? t("当前还没有配置自定义源，所以这里不会显示未安装插件。")
-                : t("暂无未安装插件")}
-            </div>
+            <Empty className="min-h-40 border bg-muted/20">
+              <EmptyHeader>
+                <EmptyTitle>
+                  {marketMode === "custom" && !catalogQuery.data?.sourceUrl
+                    ? t("当前还没有配置自定义源，所以这里不会显示未安装插件。")
+                    : t("暂无未安装插件")}
+                </EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           )}
         </CardContent>
       </Card>

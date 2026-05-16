@@ -50,6 +50,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -353,6 +354,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
+                    <SelectGroup>
                 <SelectItem value="all">
                   {t("全部类型")} ({accounts.length})
                 </SelectItem>
@@ -362,6 +364,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                     {planType.count})
                   </SelectItem>
                 ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
             <Select
@@ -376,11 +379,13 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
+                    <SelectGroup>
                 {statusFilterOptions.map((filter) => (
                   <SelectItem key={filter.id} value={filter.id}>
                     {filter.label}
                   </SelectItem>
                 ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
           </div>
@@ -437,7 +442,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 align="end"
                 className="w-64 rounded-xl border border-border/70 bg-popover/95 p-2 shadow-xl backdrop-blur-md"
               >
-                <DropdownMenuGroup>
+                                  <DropdownMenuGroup>
                   <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80">
                     {t("刷新")}
                   </DropdownMenuLabel>
@@ -621,12 +626,14 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
+                    <SelectGroup>
                   <SelectItem value="multiple">
                     {formatAccountExportModeLabel("multiple", t)}
                   </SelectItem>
                   <SelectItem value="single">
                     {formatAccountExportModeLabel("single", t)}
                   </SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <div className="rounded-xl bg-accent/20 px-3 py-2">
@@ -976,6 +983,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                                  <DropdownMenuGroup>
                               <DropdownMenuItem
                                 className="gap-2"
                                 disabled={
@@ -1047,6 +1055,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                               >
                                 <Trash2 className="h-4 w-4" /> {t("删除")}
                               </DropdownMenuItem>
+                              </DropdownMenuGroup>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
@@ -1079,11 +1088,13 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                    <SelectGroup>
                 {["5", "10", "20", "50", "100", "500"].map((value) => (
                   <SelectItem key={value} value={value}>
                     {value}
                   </SelectItem>
                 ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
           </div>

@@ -558,7 +558,7 @@ export default function ApiKeysPage() {
               align="end"
               className="w-[min(92vw,390px)] rounded-xl border border-border/70 bg-popover/95 p-2 shadow-xl backdrop-blur-md"
             >
-              <DropdownMenuGroup>
+                                  <DropdownMenuGroup>
                 <DropdownMenuLabel className="px-2 py-1 text-[11px] uppercase text-muted-foreground/80">
                   {t("复制调用地址")}
                 </DropdownMenuLabel>
@@ -884,6 +884,7 @@ export default function ApiKeysPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                                  <DropdownMenuGroup>
                               <DropdownMenuItem
                                 className="gap-2"
                                 disabled={!isServiceReady}
@@ -905,6 +906,7 @@ export default function ApiKeysPage() {
                               >
                                 <Trash2 className="h-4 w-4" /> {t("删除密钥")}
                               </DropdownMenuItem>
+                              </DropdownMenuGroup>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>

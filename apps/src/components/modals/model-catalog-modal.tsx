@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -383,8 +384,10 @@ export function ModelCatalogModal({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value="custom">{t("自定义")}</SelectItem>
                     <SelectItem value="remote">{t("远端同步")}</SelectItem>
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -422,12 +425,14 @@ export function ModelCatalogModal({
                     <SelectValue placeholder={t("未设置")} />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value={UNSET_SELECT_VALUE}>{t("未设置")}</SelectItem>
                     {VISIBILITY_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
                     ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -446,12 +451,14 @@ export function ModelCatalogModal({
                     <SelectValue placeholder={t("未设置")} />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     <SelectItem value={UNSET_SELECT_VALUE}>{t("未设置")}</SelectItem>
                     {REASONING_EFFORT_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
                     ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>

@@ -42,6 +42,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -452,7 +453,7 @@ export default function ModelGroupsPage() {
                                 <MoreVertical className="h-4 w-4" />
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="w-40">
-                                <DropdownMenuGroup>
+                                  <DropdownMenuGroup>
                                   <DropdownMenuItem onClick={() => openGroupDialog(group, "base")}>
                                     <PencilLine className="h-4 w-4" />
                                     {t("基础信息")}
@@ -586,8 +587,10 @@ export default function ModelGroupsPage() {
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
+                    <SelectGroup>
                         <SelectItem value="active">{t("启用")}</SelectItem>
                         <SelectItem value="disabled">{t("禁用")}</SelectItem>
+                        </SelectGroup>
                       </SelectContent>
                     </Select>
                   </div>

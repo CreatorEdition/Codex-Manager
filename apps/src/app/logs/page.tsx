@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -2072,11 +2073,13 @@ function LogsPageContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     {["5", "10", "20", "50", "100", "200"].map((value) => (
                       <SelectItem key={value} value={value}>
                         {value}
                       </SelectItem>
                     ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -2135,12 +2138,14 @@ function LogsPageContent() {
                       <SelectValue>{gatewayStageFilterLabel}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
+                    <SelectGroup>
                       <SelectItem value="all">{t("全部阶段")}</SelectItem>
                       {gatewayStageOptions.map((stage) => (
                         <SelectItem key={stage} value={stage}>
                           {stage}
                         </SelectItem>
                     ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
                 </div>
@@ -2401,11 +2406,13 @@ function LogsPageContent() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectGroup>
                     {["10", "20", "50", "100"].map((value) => (
                       <SelectItem key={value} value={value}>
                         {value}
                       </SelectItem>
                     ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
