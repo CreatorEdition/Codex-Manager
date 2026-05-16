@@ -398,6 +398,14 @@ function AdminSettingsPage() {
   const snapshot = fetchedSnapshot ?? storedSettings;
   const modelForwardRulesInput =
     modelForwardRulesDraft ?? (snapshot?.modelForwardRules || "");
+  const compactModelOptions = snapshot?.compactModelOptions?.length
+    ? snapshot.compactModelOptions
+    : [...DEFAULT_COMPACT_MODEL_OPTIONS];
+  const compactModelValue = compactModelOptions.includes(
+    snapshot?.compactModel || "auto",
+  )
+    ? snapshot?.compactModel || "auto"
+    : "auto";
   usePageTransitionReady(
     "/settings/",
     !canAccessManagementRpc || Boolean(snapshot) || isSnapshotError,
@@ -1673,7 +1681,7 @@ function AdminSettingsPage() {
               <div className="grid gap-2">
                 <Label>{t("上下文压缩模型")}</Label>
                 <Select
-                  value={snapshot.compactModel || "auto"}
+                  value={compactModelValue}
                   onValueChange={(value) =>
                     updateSettings.mutate({
                       compactModel: value || "auto",
@@ -1689,10 +1697,7 @@ function AdminSettingsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {(snapshot.compactModelOptions?.length
-                        ? snapshot.compactModelOptions
-                        : DEFAULT_COMPACT_MODEL_OPTIONS
-                      ).map((model) => (
+                      {compactModelOptions.map((model) => (
                         <SelectItem key={model} value={model}>
                           {t(formatFreeAccountModelLabel(model))}
                         </SelectItem>

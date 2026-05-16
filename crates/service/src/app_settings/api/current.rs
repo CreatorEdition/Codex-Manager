@@ -55,8 +55,6 @@ const DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS: &[&str] = &[
     "gpt-5.4",
 ];
 
-const DEFAULT_COMPACT_MODEL_OPTIONS: &[&str] = &["auto", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5"];
-
 /// 函数 `normalize_service_bind_mode_value`
 ///
 /// 作者: gaohongshun
@@ -128,7 +126,7 @@ pub(super) fn current_app_settings_value(
     let gateway_residency_requirement = current_gateway_residency_requirement().unwrap_or_default();
     let free_account_max_model_options =
         load_free_account_max_model_options(&free_account_max_model);
-    let compact_model_options = collect_compact_model_options(&compact_model);
+    let compact_model_options = load_compact_model_options();
     let upstream_proxy_url = crate::gateway::current_upstream_proxy_url();
     let upstream_stream_timeout_ms = current_gateway_upstream_stream_timeout_ms();
     let upstream_total_timeout_ms = current_gateway_upstream_total_timeout_ms();
@@ -378,16 +376,19 @@ fn collect_free_account_max_model_options(current: &str, cached: &[ModelInfo]) -
     items
 }
 
-fn collect_compact_model_options(current: &str) -> Vec<String> {
-    let mut items = DEFAULT_COMPACT_MODEL_OPTIONS
-        .iter()
-        .map(|item| (*item).to_string())
-        .collect::<Vec<_>>();
-    let normalized_current = current.trim().to_ascii_lowercase();
-    if (normalized_current == "auto" || is_free_account_max_model_option(&normalized_current))
-        && !items.iter().any(|item| item == &normalized_current)
-    {
-        items.push(normalized_current);
+fn load_compact_model_options() -> Vec<String> {
+    let cached = crate::apikey_models::read_model_options(false)
+        .map(|result| result.models)
+        .unwrap_or_default();
+    collect_compact_model_options(&cached)
+}
+
+fn collect_compact_model_options(cached: &[ModelInfo]) -> Vec<String> {
+    let mut items = vec!["auto".to_string()];
+    for slug in cached.iter().map(|item| item.slug.trim().to_string()) {
+        if !slug.is_empty() && !items.iter().any(|item| item == &slug) {
+            items.push(slug);
+        }
     }
     items
 }
@@ -594,8 +595,7 @@ fn normalize_market_mode(raw: &str) -> &'static str {
 mod tests {
     use super::{
         collect_compact_model_options, collect_free_account_max_model_options,
-        normalize_market_mode, DEFAULT_COMPACT_MODEL_OPTIONS,
-        DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS,
+        normalize_market_mode, DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS,
     };
     use codexmanager_core::rpc::types::ModelInfo;
 
@@ -676,15 +676,33 @@ mod tests {
     }
 
     #[test]
-    fn compact_model_options_include_current_custom_gpt_model() {
-        let actual = collect_compact_model_options("gpt-5.3-codex");
-        let expected = DEFAULT_COMPACT_MODEL_OPTIONS
-            .iter()
-            .map(|item| (*item).to_string())
-            .chain(["gpt-5.3-codex".to_string()])
-            .collect::<Vec<_>>();
+    fn compact_model_options_reuse_managed_model_catalog_only() {
+        let actual = collect_compact_model_options(&[
+            ModelInfo {
+                slug: "gpt-5.4-mini".to_string(),
+                display_name: "gpt-5.4-mini".to_string(),
+                ..Default::default()
+            },
+            ModelInfo {
+                slug: "gpt-5.5".to_string(),
+                display_name: "gpt-5.5".to_string(),
+                ..Default::default()
+            },
+            ModelInfo {
+                slug: "gpt-5.4-mini".to_string(),
+                display_name: "gpt-5.4-mini".to_string(),
+                ..Default::default()
+            },
+        ]);
 
-        assert_eq!(actual, expected);
+        assert_eq!(
+            actual,
+            vec![
+                "auto".to_string(),
+                "gpt-5.4-mini".to_string(),
+                "gpt-5.5".to_string(),
+            ]
+        );
     }
 
     /// 函数 `plugin_market_mode_normalization_defaults_to_builtin`

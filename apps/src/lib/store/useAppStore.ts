@@ -87,7 +87,7 @@ export const useAppStore = create<AppState>((set) => ({
       "gpt-5.4",
     ],
     compactModel: "auto",
-    compactModelOptions: ["auto", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
+    compactModelOptions: ["auto"],
     modelForwardRules: "",
     accountMaxInflight: 1,
     gatewayOriginator: DEFAULT_CODEX_ORIGINATOR,

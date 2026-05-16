@@ -145,6 +145,20 @@ pub fn current_gateway_free_account_max_model() -> String {
 /// # 返回
 /// 返回函数执行结果
 pub fn set_gateway_compact_model(model: &str) -> Result<String, String> {
+    let normalized = model.trim();
+    if !normalized.eq_ignore_ascii_case("auto") {
+        let is_managed_model = crate::apikey_models::read_model_options(false)
+            .map(|result| {
+                result
+                    .models
+                    .iter()
+                    .any(|item| item.slug.trim().eq_ignore_ascii_case(normalized))
+            })
+            .unwrap_or(false);
+        if !is_managed_model {
+            return Err("compact model must be selected from model management".to_string());
+        }
+    }
     let applied = gateway::set_compact_model(model)?;
     save_persisted_app_setting(APP_SETTING_GATEWAY_COMPACT_MODEL_KEY, Some(&applied))?;
     Ok(applied)
