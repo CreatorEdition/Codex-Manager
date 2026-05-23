@@ -383,6 +383,7 @@ fn tokens_due_for_refresh_include_other_unavailable_accounts_but_skip_deactivate
 
     for (id, status) in [
         ("acc-active-refresh", "active"),
+        ("acc-region-blocked-refresh", "unavailable"),
         ("acc-unavailable-refresh", "unavailable"),
         ("acc-deactivated-refresh", "banned"),
     ] {
@@ -422,6 +423,14 @@ fn tokens_due_for_refresh_include_other_unavailable_accounts_but_skip_deactivate
             created_at: now + 1,
         })
         .expect("insert deactivated event");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-region-blocked-refresh".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=refresh_token_region_blocked".to_string(),
+            created_at: now + 1,
+        })
+        .expect("insert region blocked event");
 
     let due = storage
         .list_tokens_due_for_refresh(4_102_444_300, 4_102_444_900, 10)
@@ -437,6 +446,22 @@ fn tokens_due_for_refresh_include_other_unavailable_accounts_but_skip_deactivate
             "acc-unavailable-refresh".to_string()
         ]
     );
+
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-region-blocked-refresh".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=active reason=manual_enable".to_string(),
+            created_at: now + 2,
+        })
+        .expect("insert manual enable event");
+    let recovered_due = storage
+        .list_tokens_due_for_refresh(4_102_444_300, 4_102_444_900, 10)
+        .expect("list due after manual enable")
+        .into_iter()
+        .map(|token| token.account_id)
+        .collect::<Vec<_>>();
+    assert!(recovered_due.contains(&"acc-region-blocked-refresh".to_string()));
 }
 
 /// 函数 `storage_login_session_roundtrip`

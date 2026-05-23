@@ -251,6 +251,11 @@ codexmanager-service-bundle/
 - 用量查询请求
 - `refresh_token` 刷新 access token 的请求
 
+Safety note:
+
+- Login-state refresh paths such as `auth.openai.com` / `oauth/token` must exit from an OpenAI-supported region; do not include restricted locations such as Hong Kong in automatic rotation for this path.
+- If the refresh request returns `unsupported_country_region_territory`, Service marks the account as `refresh_token_region_blocked` and pauses subsequent automatic refresh attempts. Fix the proxy route, then manually restore the account.
+
 默认不接管的是：
 
 - 你本机浏览器 / 桌面端访问 `localhost` / `127.0.0.1` 的本地回环请求
