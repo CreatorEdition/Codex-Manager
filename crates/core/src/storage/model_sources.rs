@@ -211,14 +211,11 @@ impl Storage {
                AND source_id = ?2
                AND discovery_kind = ?3",
         )?;
-        let existing_rows = stmt
-            .query_map(params![&source_kind, &source_id, &discovery_kind], |row| {
-                row.get::<_, String>(0)
-            })?;
-        let existing_upstream_models: std::collections::BTreeSet<String> = existing_rows
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .collect();
+        let existing_rows = stmt.query_map(params![&source_kind, &source_id, &discovery_kind], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let existing_upstream_models: std::collections::BTreeSet<String> =
+            existing_rows.collect::<Result<Vec<_>>>()?.into_iter().collect();
         let stale_upstream_models = existing_upstream_models
             .difference(&seen)
             .cloned()
@@ -238,13 +235,6 @@ impl Storage {
                    AND upstream_model = ?3
                    AND discovery_kind = ?4",
                 params![&source_kind, &source_id, &upstream_model, &discovery_kind],
-            )?;
-            self.conn.execute(
-                "DELETE FROM model_source_mapping_preferences
-                 WHERE source_kind = ?1
-                   AND source_id = ?2
-                   AND upstream_model = ?3",
-                params![&source_kind, &source_id, &upstream_model],
             )?;
         }
         Ok(out)
