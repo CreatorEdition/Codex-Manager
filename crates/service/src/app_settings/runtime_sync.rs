@@ -194,6 +194,8 @@ pub fn sync_runtime_settings_from_storage() {
         "CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS",
         "CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED",
         "CODEXMANAGER_TOKEN_REFRESH_POLL_INTERVAL_SECS",
+        "CODEXMANAGER_WARMUP_CRON_ENABLED",
+        "CODEXMANAGER_WARMUP_CRON_EXPRESSION",
         "CODEXMANAGER_USAGE_REFRESH_WORKERS",
         "CODEXMANAGER_HTTP_WORKER_FACTOR",
         "CODEXMANAGER_HTTP_WORKER_MIN",
@@ -203,7 +205,14 @@ pub fn sync_runtime_settings_from_storage() {
         if let Some(raw) = settings.get(APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY) {
             match serde_json::from_str::<BackgroundTasksInput>(raw) {
                 Ok(input) => {
-                    usage_refresh::set_background_tasks_settings(input.into_patch());
+                    let patch = input.into_patch();
+                    if let Err(err) =
+                        usage_refresh::validate_background_tasks_settings_patch(&patch)
+                    {
+                        log::warn!("sync persisted background tasks failed: {err}");
+                    } else {
+                        usage_refresh::set_background_tasks_settings(patch);
+                    }
                 }
                 Err(err) => {
                     log::warn!("parse persisted background tasks failed: {err}");

@@ -1116,6 +1116,64 @@ function AdminSettingsPage() {
       .catch(() => undefined);
   };
 
+  const saveBackgroundTaskTextField = (
+    key: "warmupCronExpression",
+  ) => {
+    if (!snapshot) return;
+    const draftKey = String(key);
+    const sourceValue =
+      backgroundTaskDraft[draftKey] ??
+      String(snapshot.backgroundTasks[key] || "");
+    const nextValue = sourceValue.trim();
+    const schedules = nextValue
+      .split("|")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!nextValue && !snapshot.backgroundTasks.warmupCronEnabled) {
+      void updateSettings
+        .mutateAsync({
+          backgroundTasks: {
+            ...snapshot.backgroundTasks,
+            [key]: nextValue,
+          },
+        })
+        .then(() => {
+          setBackgroundTaskDraft((current) => {
+            const nextDraft = { ...current };
+            delete nextDraft[draftKey];
+            return nextDraft;
+          });
+        })
+        .catch(() => undefined);
+      return;
+    }
+    const allSchedulesValid =
+      schedules.length > 0 &&
+      schedules.every((item) => {
+        const partCount = item.split(/\s+/).filter(Boolean).length;
+        return partCount === 5 || partCount === 6;
+      });
+    if (!allSchedulesValid) {
+      toast.error(t("Cron 表达式需要 5 段，或带秒的 6 段"));
+      return;
+    }
+    void updateSettings
+      .mutateAsync({
+        backgroundTasks: {
+          ...snapshot.backgroundTasks,
+          [key]: nextValue,
+        },
+      })
+      .then(() => {
+        setBackgroundTaskDraft((current) => {
+          const nextDraft = { ...current };
+          delete nextDraft[draftKey];
+          return nextDraft;
+        });
+      })
+      .catch(() => undefined);
+  };
+
   /**
    * 函数 `saveAccountMaxInflightField`
    *
@@ -2070,6 +2128,55 @@ function AdminSettingsPage() {
                   </div>
                 </div>
               ))}
+              <div className="grid gap-3 rounded-lg bg-accent/20 p-3 lg:grid-cols-[minmax(180px,240px)_minmax(180px,1fr)] lg:items-end">
+                <div className="flex items-center gap-3 lg:self-center">
+                  <Switch
+                    checked={snapshot.backgroundTasks.warmupCronEnabled}
+                    onCheckedChange={(value) => {
+                      const expression = String(
+                        backgroundTaskDraft.warmupCronExpression ??
+                          snapshot.backgroundTasks.warmupCronExpression,
+                      ).trim();
+                      if (value && !expression) {
+                        toast.error(t("请先填写 Cron 表达式"));
+                        return;
+                      }
+                      updateBackgroundTasks({
+                        warmupCronEnabled: value,
+                        warmupCronExpression: expression,
+                      });
+                    }}
+                  />
+                  <Label>{t("定时账号预热")}</Label>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>{t("Cron 表达式")}</Label>
+                  <Input
+                    className="h-8 font-mono"
+                    value={
+                      backgroundTaskDraft.warmupCronExpression ??
+                      snapshot.backgroundTasks.warmupCronExpression
+                    }
+                    onChange={(event) =>
+                      setBackgroundTaskDraft((current) => ({
+                        ...current,
+                        warmupCronExpression: event.target.value,
+                      }))
+                    }
+                    onBlur={() =>
+                      saveBackgroundTaskTextField("warmupCronExpression")
+                    }
+                    placeholder="0 0 * * *|5 5 * * *|10 10 * * *"
+                  />
+                </div>
+                <div className="text-xs text-muted-foreground lg:col-span-2">
+                  <span>
+                    {snapshot.backgroundTasks.warmupCronEnabled
+                      ? t("定时账号预热已启用")
+                      : t("定时账号预热未启用。多个计划用 | 分隔。")}
+                  </span>
+                </div>
+              </div>
             </CardContent>
           </Card>
 

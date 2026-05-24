@@ -74,6 +74,8 @@ const DEFAULT_BACKGROUND_TASKS: BackgroundTaskSettings = {
   httpWorkerMin: 8,
   httpStreamWorkerFactor: 1,
   httpStreamWorkerMin: 2,
+  warmupCronEnabled: false,
+  warmupCronExpression: "",
 };
 
 const DEFAULT_QUOTA_GUARD: QuotaGuardSettings = {
@@ -1667,6 +1669,14 @@ export function normalizeBackgroundTasks(payload: unknown): BackgroundTaskSettin
       source.tokenRefreshPollIntervalSecs,
       DEFAULT_BACKGROUND_TASKS.tokenRefreshPollIntervalSecs,
       1
+    ),
+    warmupCronEnabled: asBoolean(
+      source.warmupCronEnabled,
+      DEFAULT_BACKGROUND_TASKS.warmupCronEnabled
+    ),
+    warmupCronExpression: asString(
+      source.warmupCronExpression,
+      DEFAULT_BACKGROUND_TASKS.warmupCronExpression
     ),
     usageRefreshWorkers: asInteger(
       source.usageRefreshWorkers,
