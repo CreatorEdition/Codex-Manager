@@ -20,8 +20,6 @@ import {
   QuotaGuardSettings,
   DeviceAuthInfo,
   EnvOverrideCatalogItem,
-  GatewayErrorLog,
-  GatewayErrorLogListResult,
   InstalledPluginSummary,
   LoginStartResult,
   ManagedModelCatalog,
@@ -1546,58 +1544,6 @@ export function normalizeRequestLogListResult(payload: unknown): RequestLogListR
     total: asInteger(source.total, items.length, 0),
     page: asInteger(source.page, 1, 1),
     pageSize: asInteger(source.pageSize, items.length || 20, 1),
-  };
-}
-
-export function normalizeGatewayErrorLogs(payload: unknown): GatewayErrorLog[] {
-  const source = asObject(payload);
-  const items = asArray(source.items ?? payload);
-  return items.reduce<GatewayErrorLog[]>((result, item) => {
-    const record = asObject(item);
-    const stage = asString(record.stage);
-    const method = asString(record.method);
-    const requestPath = asString(record.requestPath ?? record.request_path);
-    const createdAt = toNullableNumber(record.createdAt ?? record.created_at);
-    if (!stage || !method || !requestPath) {
-      return result;
-    }
-    result.push({
-      traceId: asString(record.traceId ?? record.trace_id),
-      keyId: asString(record.keyId ?? record.key_id),
-      accountId: asString(record.accountId ?? record.account_id),
-      requestPath,
-      method,
-      stage,
-      errorKind: asString(record.errorKind ?? record.error_kind),
-      upstreamUrl: asString(record.upstreamUrl ?? record.upstream_url),
-      cfRay: asString(record.cfRay ?? record.cf_ray),
-      statusCode: toNullableNumber(record.statusCode ?? record.status_code),
-      compressionEnabled: asBoolean(
-        record.compressionEnabled ?? record.compression_enabled,
-        false
-      ),
-      compressionRetryAttempted: asBoolean(
-        record.compressionRetryAttempted ?? record.compression_retry_attempted,
-        false
-      ),
-      message: asString(record.message),
-      createdAt,
-    });
-    return result;
-  }, []);
-}
-
-export function normalizeGatewayErrorLogListResult(
-  payload: unknown
-): GatewayErrorLogListResult {
-  const source = asObject(payload);
-  const items = normalizeGatewayErrorLogs(source.items ?? payload);
-  return {
-    items,
-    total: asInteger(source.total, items.length, 0),
-    page: asInteger(source.page, 1, 1),
-    pageSize: asInteger(source.pageSize, items.length || 10, 1),
-    stages: asArray(source.stages).map((item) => asString(item)).filter(Boolean),
   };
 }
 

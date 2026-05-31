@@ -4,7 +4,6 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use tiny_http::{HTTPVersion, Header, Request, Response, StatusCode};
 
-use crate::gateway::error_log::GatewayErrorLogInput;
 use crate::gateway::upstream::GatewayStreamResponse;
 
 use super::super::{GeminiStreamOutputMode, ResponseAdapter, ToolNameRestoreMap};
@@ -1815,16 +1814,6 @@ fn respond_invalid_compact_non_success_body(
     trace_id: Option<&str>,
 ) -> UpstreamResponseBridgeResult {
     let gateway_status_code = 502;
-    let request_method = request.method().as_str().to_string();
-    let request_path = request.url().to_string();
-    let error_kind = classify_compact_non_success_kind(
-        status_code,
-        content_type,
-        body,
-        cf_ray,
-        auth_error,
-        identity_error_code,
-    );
     let message = build_passthrough_non_success_message(
         status_code,
         content_type,
@@ -1834,20 +1823,6 @@ fn respond_invalid_compact_non_success_body(
         auth_error,
         identity_error_code,
     );
-    crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
-        trace_id,
-        request_path: request_path.as_str(),
-        method: request_method.as_str(),
-        stage: "compact_bridge_non_success",
-        error_kind: Some(error_kind),
-        cf_ray,
-        status_code: Some(gateway_status_code),
-        compression_enabled: false,
-        compression_retry_attempted: false,
-        message: message.as_str(),
-        ..GatewayErrorLogInput::default()
-    });
-
     with_bridge_debug_meta(
         respond_synthesized_compact_error_body(
             request,
@@ -1878,16 +1853,6 @@ fn respond_normalized_passthrough_non_success_body(
     identity_error_code: Option<&str>,
     trace_id: Option<&str>,
 ) -> UpstreamResponseBridgeResult {
-    let request_method = request.method().as_str().to_string();
-    let request_path = request.url().to_string();
-    let error_kind = classify_compact_non_success_kind(
-        502,
-        content_type,
-        body,
-        cf_ray,
-        auth_error,
-        identity_error_code,
-    );
     let message = build_passthrough_non_success_message(
         502,
         content_type,
@@ -1897,20 +1862,6 @@ fn respond_normalized_passthrough_non_success_body(
         auth_error,
         identity_error_code,
     );
-    crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
-        trace_id,
-        request_path: request_path.as_str(),
-        method: request_method.as_str(),
-        stage: "passthrough_bridge_non_success",
-        error_kind: Some(error_kind),
-        cf_ray,
-        status_code: Some(502),
-        compression_enabled: false,
-        compression_retry_attempted: false,
-        message: message.as_str(),
-        ..GatewayErrorLogInput::default()
-    });
-
     with_bridge_debug_meta(
         respond_synthesized_compact_error_body(
             request, 502, usage, message, request_id, cf_ray, trace_id,

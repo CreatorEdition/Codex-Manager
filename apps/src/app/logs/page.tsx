@@ -6,7 +6,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
-  Copy,
   Database,
   RefreshCw,
   Shield,
@@ -61,14 +60,12 @@ import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
-import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
 import { cn } from "@/lib/utils";
 import {
   AccountListResult,
   AggregateApi,
   ApiKey,
-  GatewayErrorLog,
   RequestLog,
   RequestLogFilterSummary,
   RequestLogListResult,
@@ -76,7 +73,7 @@ import {
 } from "@/types";
 
 type StatusFilter = "all" | "2xx" | "4xx" | "5xx";
-type LogsTab = "requests" | "gateway-errors";
+type LogsTab = "requests";
 type TimeRangePreset = "all" | "30m" | "2h" | "24h" | "today" | "custom";
 type TranslateFn = (message: string, values?: Record<string, string | number>) => string;
 
@@ -1402,14 +1399,9 @@ function LogsPageContent() {
   const [endTimeInput, setEndTimeInput] = useState("");
   const [pageSize, setPageSize] = useState("10");
   const [page, setPage] = useState(1);
-  const [gatewayPageSize, setGatewayPageSize] = useState("10");
-  const [gatewayPage, setGatewayPage] = useState(1);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [clearGatewayConfirmOpen, setClearGatewayConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<LogsTab>("requests");
-  const [gatewayStageFilter, setGatewayStageFilter] = useState("all");
   const pageSizeNumber = Number(pageSize) || 10;
-  const gatewayPageSizeNumber = Number(gatewayPageSize) || 10;
   const startTs = useMemo(
     () => fromDateTimeLocalValue(startTimeInput),
     [startTimeInput],
@@ -1516,25 +1508,6 @@ function LogsPageContent() {
         : undefined),
   });
 
-  const { data: gatewayLogsResult } = useQuery({
-    queryKey: [
-      "logs",
-      "gateway-error-list",
-      gatewayStageFilter,
-      gatewayPage,
-      gatewayPageSizeNumber,
-    ],
-    queryFn: () =>
-      serviceClient.listGatewayErrorLogs({
-        page: gatewayPage,
-        pageSize: gatewayPageSizeNumber,
-        stageFilter: gatewayStageFilter,
-      }),
-    enabled: areLogQueriesEnabled && isPageActive && isAdminMode,
-    refetchInterval: 5000,
-    retry: 1,
-  });
-
   const clearMutation = useMutation({
     mutationFn: () => serviceClient.clearRequestLogs(),
     onSuccess: async () => {
@@ -1544,20 +1517,6 @@ function LogsPageContent() {
         queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
       ]);
       toast.success(t("日志已清空"));
-    },
-    onError: (error: unknown) => {
-      toast.error(error instanceof Error ? error.message : String(error));
-    },
-  });
-
-  const clearGatewayMutation = useMutation({
-    mutationFn: () => serviceClient.clearGatewayErrorLogs(),
-    onSuccess: async () => {
-      setGatewayPage(1);
-      await queryClient.invalidateQueries({
-        queryKey: ["logs", "gateway-error-list"],
-      });
-      toast.success(t("诊断日志已清空"));
     },
     onError: (error: unknown) => {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -1632,7 +1591,6 @@ function LogsPageContent() {
     }
     const frameId = window.requestAnimationFrame(() => {
       setClearConfirmOpen(false);
-      setClearGatewayConfirmOpen(false);
     });
     return () => {
       window.cancelAnimationFrame(frameId);
@@ -1660,12 +1618,6 @@ function LogsPageContent() {
       window.cancelAnimationFrame(frameId);
     };
   }, [localDayRange.dayEndTs, localDayRange.dayStartTs, timePreset]);
-
-  useEffect(() => {
-    if (!isAdminMode && activeTab === "gateway-errors") {
-      setActiveTab("requests");
-    }
-  }, [activeTab, isAdminMode]);
 
   const currentFilterLabel =
     filter === "all"
@@ -1711,59 +1663,13 @@ function LogsPageContent() {
     setEndTimeInput(nextRange.endInput);
   };
 
-  const renderGatewayErrorContext = (item: GatewayErrorLog) => {
-    const parts = [
-      item.errorKind ? `kind=${item.errorKind}` : "",
-      item.cfRay ? `cf_ray=${item.cfRay}` : "",
-      item.compressionEnabled ? "compression=zstd" : "compression=none",
-      item.compressionRetryAttempted ? "retry=no-compression" : "",
-    ].filter(Boolean);
-    return parts.join(" · ");
-  };
-
-  const gatewayStageFilterLabel =
-    gatewayStageFilter === "all" ? t("全部阶段") : gatewayStageFilter;
-
-  const gatewayErrorLogs = gatewayLogsResult?.items || [];
-  const gatewayStageOptions = gatewayLogsResult?.stages || [];
-  const gatewayCurrentPage = gatewayLogsResult?.page || gatewayPage;
-  const gatewayTotal = gatewayLogsResult?.total || 0;
-  const gatewayTotalPages = Math.max(
-    1,
-    Math.ceil(gatewayTotal / gatewayPageSizeNumber),
-  );
-
-  const copyGatewayErrorSummary = async (item: GatewayErrorLog) => {
-    const payload = [
-      `time=${formatTsFromSeconds(item.createdAt)}`,
-      `stage=${item.stage || "-"}`,
-      `path=${item.requestPath || "-"}`,
-      `method=${item.method || "-"}`,
-      `status=${item.statusCode ?? "-"}`,
-      `cf_ray=${item.cfRay || "-"}`,
-      `kind=${item.errorKind || "-"}`,
-      `compression=${item.compressionEnabled ? "zstd" : "none"}`,
-      `retry_without_compression=${item.compressionRetryAttempted ? "yes" : "no"}`,
-      `account=${item.accountId || "-"}`,
-      `key=${item.keyId || "-"}`,
-      `message=${item.message || "-"}`,
-    ].join("\n");
-
-    try {
-      await copyTextToClipboard(payload);
-      toast.success(t("诊断信息已复制"));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("复制失败"));
-    }
-  };
-
   return (
     <div className="animate-in space-y-5 fade-in duration-500">
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
-          if (value === "requests" || (isAdminMode && value === "gateway-errors")) {
-            setActiveTab(value);
+          if (value === "requests") {
+            setActiveTab("requests");
           }
         }}
         className="w-full"
@@ -1772,11 +1678,6 @@ function LogsPageContent() {
           <TabsTrigger value="requests" className="gap-2 px-5 shrink-0">
             <Database className="h-4 w-4" /> {t("请求日志")}
           </TabsTrigger>
-          {isAdminMode ? (
-          <TabsTrigger value="gateway-errors" className="gap-2 px-5 shrink-0">
-            <Shield className="h-4 w-4" /> {t("网关错误诊断")}
-          </TabsTrigger>
-          ) : null}
         </TabsList>
 
         <TabsContent value="requests" className="space-y-5">
@@ -2162,345 +2063,6 @@ function LogsPageContent() {
           </div>
         </TabsContent>
 
-        {isAdminMode ? (
-        <TabsContent value="gateway-errors" className="space-y-5">
-          <Card className="glass-card shadow-sm">
-            <CardContent className="grid gap-4 pt-0 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-              <div className="space-y-1">
-                <div className="text-sm font-medium text-foreground">
-                  {t("网关错误诊断")}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {t("专门记录 challenge、无压缩重试和关键网关错误事件，便于排查 Cloudflare 拦截。")}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 xl:min-w-[520px] xl:justify-self-end">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="whitespace-nowrap text-xs text-muted-foreground">
-                    {t("阶段筛选")}
-                  </span>
-                  <Select
-                    value={gatewayStageFilter}
-                    onValueChange={(value) => {
-                      setGatewayStageFilter(value || "all");
-                      setGatewayPage(1);
-                    }}
-                  >
-                    <SelectTrigger className="h-9 min-w-[220px] text-xs">
-                      <SelectValue>{gatewayStageFilterLabel}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="all">{t("全部阶段")}</SelectItem>
-                      {gatewayStageOptions.map((stage) => (
-                        <SelectItem key={stage} value={stage}>
-                          {stage}
-                        </SelectItem>
-                    ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="glass-card h-9 rounded-xl px-3.5"
-                    onClick={() =>
-                      queryClient.invalidateQueries({
-                        queryKey: ["logs", "gateway-error-list"],
-                      })
-                    }
-                  >
-                    <RefreshCw className="mr-1.5 h-4 w-4" /> {t("刷新")}
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="h-9 rounded-xl px-3.5"
-                    onClick={() => setClearGatewayConfirmOpen(true)}
-                    disabled={clearGatewayMutation.isPending}
-                  >
-                    <Trash2 className="mr-1.5 h-4 w-4" /> {t("清空诊断")}
-                  </Button>
-                  <div className="whitespace-nowrap text-xs text-muted-foreground text-right">
-                    {t("当前页")} {gatewayErrorLogs.length} {t("条")} / {t("共")} {gatewayTotal} {t("条")}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card overflow-hidden gap-0 py-0 shadow-sm">
-            <CardHeader className="flex min-h-1 items-center border-b border-border/40 bg-[var(--table-section-bg)] py-3">
-              <div className="flex w-full flex-col gap-1 xl:flex-row xl:items-center xl:justify-between">
-                <div>
-                  <CardTitle className="text-[15px] font-semibold">
-                    {t("错误事件明细")}
-                  </CardTitle>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {t("challenge / retry / transport")}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="px-0">
-              <Table className="min-w-[1080px] table-fixed">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      {t("时间")}
-                    </TableHead>
-                    <TableHead className="w-[200px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      {t("阶段")}
-                    </TableHead>
-                    <TableHead className="w-[120px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      {t("方法 / 路径")}
-                    </TableHead>
-                    <TableHead className="w-[120px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      {t("状态")}
-                    </TableHead>
-                    <TableHead className="w-[200px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      {t("上下文")}
-                    </TableHead>
-                    <TableHead className="w-[290px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                      {t("消息")}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {gatewayErrorLogs.length ? (
-                    gatewayErrorLogs.map((item, index) => {
-                      const gatewayContext = renderGatewayErrorContext(item) || "-";
-                      const gatewayIdentity = item.accountId || item.keyId || "-";
-                      const gatewayMethod = String(item.method || "-").trim() || "-";
-                      const gatewayPath = String(item.requestPath || "-").trim() || "-";
-                      const gatewayMessage = String(item.message || "-").trim() || "-";
-                      const gatewayUpstreamUrl = String(item.upstreamUrl || "").trim();
-
-                      return (
-                        <TableRow
-                          key={`${item.createdAt || 0}-${item.stage}-${index}`}
-                        >
-                          <TableCell className="px-4 py-3 align-top text-xs">
-                            {formatTsFromSeconds(item.createdAt)}
-                          </TableCell>
-                          <TableCell className="px-4 py-3 align-top">
-                            <GatewayTooltipCell
-                              preview={
-                                <>
-                                  <div className="max-w-[180px] truncate font-mono text-[11px] text-foreground">
-                                    {item.stage}
-                                  </div>
-                                  <div className="mt-1 max-w-[180px] truncate text-[11px] text-muted-foreground">
-                                    {gatewayIdentity}
-                                  </div>
-                                </>
-                              }
-                              content={
-                                <div className="flex min-w-[240px] flex-col gap-2">
-                                  <div className="space-y-0.5">
-                                    <div className="text-[10px] text-background/70">
-                                      {t("阶段")}
-                                    </div>
-                                    <div className="font-mono text-[11px]">
-                                      {item.stage}
-                                    </div>
-                                  </div>
-                                  <div className="space-y-0.5">
-                                    <div className="text-[10px] text-background/70">
-                                      {t("账号 / 密钥")}
-                                    </div>
-                                    <div className="font-mono text-[11px]">
-                                      {gatewayIdentity}
-                                    </div>
-                                  </div>
-                                </div>
-                              }
-                            />
-                          </TableCell>
-                          <TableCell className="px-4 py-3 align-top">
-                            <GatewayTooltipCell
-                              preview={
-                                <>
-                                  <div className="max-w-[100px] truncate font-mono text-[11px] text-foreground">
-                                    {gatewayMethod}
-                                  </div>
-                                  <div className="mt-1 max-w-[100px] truncate font-mono text-[11px] text-muted-foreground">
-                                    {gatewayPath}
-                                  </div>
-                                </>
-                              }
-                              content={
-                                <div className="flex min-w-[220px] flex-col gap-2">
-                                  <div className="space-y-0.5">
-                                    <div className="text-[10px] text-background/70">
-                                      {t("方法")}
-                                    </div>
-                                    <div className="font-mono text-[11px]">
-                                      {gatewayMethod}
-                                    </div>
-                                  </div>
-                                  <div className="space-y-0.5">
-                                    <div className="text-[10px] text-background/70">
-                                      {t("路径")}
-                                    </div>
-                                    <div className="font-mono text-[11px]">
-                                      {gatewayPath}
-                                    </div>
-                                  </div>
-                                </div>
-                              }
-                            />
-                          </TableCell>
-                          <TableCell className="px-4 py-3 align-top">
-                            {getStatusBadge(item.statusCode)}
-                          </TableCell>
-                          <TableCell className="px-4 py-3 align-top">
-                            <GatewayTooltipCell
-                              preview={
-                                <div className="max-w-[180px] truncate font-mono text-[11px] text-muted-foreground">
-                                  {gatewayContext}
-                                </div>
-                              }
-                              content={
-                                <div className="max-w-[360px] font-mono text-[11px]">
-                                  {gatewayContext}
-                                </div>
-                              }
-                            />
-                          </TableCell>
-                          <TableCell className="px-4 py-3 align-top">
-                            <GatewayTooltipCell
-                              preview={
-                                <>
-                                  <div className="max-w-[260px] truncate font-mono text-[11px] text-foreground">
-                                    {gatewayMessage}
-                                  </div>
-                                  {gatewayUpstreamUrl ? (
-                                    <div className="mt-1 max-w-[260px] truncate font-mono text-[11px] text-muted-foreground">
-                                      {gatewayUpstreamUrl}
-                                    </div>
-                                  ) : null}
-                                </>
-                              }
-                              content={
-                                <div className="flex min-w-[260px] flex-col gap-2">
-                                  <div className="space-y-0.5">
-                                    <div className="text-[10px] text-background/70">
-                                      {t("消息")}
-                                    </div>
-                                    <div className="font-mono text-[11px]">
-                                      {gatewayMessage}
-                                    </div>
-                                  </div>
-                                  {gatewayUpstreamUrl ? (
-                                    <div className="space-y-0.5">
-                                      <div className="text-[10px] text-background/70">
-                                        {t("上游地址")}
-                                      </div>
-                                      <div className="font-mono text-[11px]">
-                                        {gatewayUpstreamUrl}
-                                      </div>
-                                    </div>
-                                  ) : null}
-                                </div>
-                              }
-                            />
-                            <div className="mt-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-2 text-[11px]"
-                                onClick={() => void copyGatewayErrorSummary(item)}
-                              >
-                                <Copy className="mr-1 h-3.5 w-3.5" /> {t("复制诊断")}
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  ) : (
-                    <TableRow>
-                      <TableCell
-                        colSpan={6}
-                        className="px-4 py-10 text-center text-sm text-muted-foreground"
-                      >
-                        {gatewayStageFilter !== "all"
-                          ? t("当前筛选下没有匹配的诊断日志")
-                          : t("暂无专门错误诊断日志")}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          <div className="flex items-center justify-between px-2">
-            <div className="text-xs text-muted-foreground">
-              {t("共")} {gatewayTotal} {t("条匹配诊断日志")}
-            </div>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs text-muted-foreground">
-                  {t("每页显示")}
-                </span>
-                <Select
-                  value={gatewayPageSize}
-                  onValueChange={(value) => {
-                    setGatewayPageSize(value || "10");
-                    setGatewayPage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-8 w-[78px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                    {["10", "20", "50", "100"].map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {value}
-                      </SelectItem>
-                    ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                  disabled={gatewayCurrentPage <= 1}
-                  onClick={() =>
-                    setGatewayPage(Math.max(1, gatewayCurrentPage - 1))
-                  }
-                >
-                  {t("上一页")}
-                </Button>
-                <div className="min-w-[68px] text-center text-xs font-medium">
-                  {t("第")} {gatewayCurrentPage} / {gatewayTotalPages} {t("页")}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                  disabled={gatewayCurrentPage >= gatewayTotalPages}
-                  onClick={() =>
-                    setGatewayPage(
-                      Math.min(gatewayTotalPages, gatewayCurrentPage + 1),
-                    )
-                  }
-                >
-                  {t("下一页")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-        ) : null}
       </Tabs>
 
       {isAdminMode ? (
@@ -2512,17 +2074,6 @@ function LogsPageContent() {
         confirmText={t("清空")}
         confirmVariant="destructive"
         onConfirm={() => clearMutation.mutate()}
-      />
-      ) : null}
-      {isAdminMode ? (
-      <ConfirmDialog
-        open={clearGatewayConfirmOpen}
-        onOpenChange={setClearGatewayConfirmOpen}
-        title={t("清空网关诊断日志")}
-        description={t("确定清空全部网关错误诊断日志吗？该操作不可恢复。")}
-        confirmText={t("清空")}
-        confirmVariant="destructive"
-        onConfirm={() => clearGatewayMutation.mutate()}
       />
       ) : null}
     </div>

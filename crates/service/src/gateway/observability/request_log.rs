@@ -1,4 +1,3 @@
-use crate::gateway::error_log::GatewayErrorLogInput;
 use codexmanager_core::storage::{now_ts, RequestLog, RequestTokenStat, Storage};
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -237,25 +236,6 @@ fn is_inference_path(path: &str) -> bool {
     path.starts_with("/v1/responses")
         || path.starts_with("/v1/chat/completions")
         || path.starts_with("/v1/messages")
-}
-
-fn should_write_gateway_error_fallback(status_code: Option<u16>, error: Option<&str>) -> bool {
-    let Some(status_code) = status_code else {
-        return false;
-    };
-    if !matches!(status_code, 401 | 403 | 429) {
-        return false;
-    }
-    let Some(error) = error.map(str::trim).filter(|value| !value.is_empty()) else {
-        return false;
-    };
-    let normalized = error.to_ascii_lowercase();
-    normalized.contains("cloudflare")
-        || normalized.contains("cf_ray=")
-        || normalized.contains("cf-ray")
-        || normalized.contains("challenge")
-        || normalized.contains("just a moment")
-        || normalized.contains("usage_limit_reached")
 }
 
 fn normalize_log_text(value: Option<&str>) -> Option<String> {
@@ -608,22 +588,6 @@ pub(crate) fn write_request_log_with_attempts(
         );
     }
 
-    if should_write_gateway_error_fallback(status_code, error) {
-        crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
-            trace_id: trace_context.trace_id,
-            key_id,
-            account_id,
-            request_path,
-            method,
-            stage: "request_log_fallback_non_success",
-            upstream_url,
-            status_code,
-            compression_enabled: false,
-            compression_retry_attempted: false,
-            message: error.unwrap_or("gateway non-success"),
-            ..GatewayErrorLogInput::default()
-        });
-    }
 }
 
 #[cfg(test)]

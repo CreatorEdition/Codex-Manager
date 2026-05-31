@@ -477,11 +477,8 @@ export const EN_MESSAGES: MessageCatalog = {
   "服务未连接，无法获取日志": "Service disconnected, logs unavailable",
   暂无请求日志: "No request logs",
   条匹配日志: "matched logs",
-  "专门记录 challenge、无压缩重试和关键网关错误事件，便于排查 Cloudflare 拦截。":
-    "Records challenge, no-compression retries, and key gateway errors to help diagnose Cloudflare blocks.",
   阶段筛选: "Stage filter",
   全部阶段: "All stages",
-  清空诊断: "Clear diagnostics",
   当前页: "Current page",
   错误事件明细: "Error event details",
   "challenge / retry / transport": "challenge / retry / transport",
@@ -492,20 +489,11 @@ export const EN_MESSAGES: MessageCatalog = {
   方法: "Method",
   路径: "Path",
   上游地址: "Upstream URL",
-  复制诊断: "Copy diagnostic",
-  当前筛选下没有匹配的诊断日志: "No diagnostic logs match the current filter",
-  暂无专门错误诊断日志: "No dedicated diagnostic logs",
-  条匹配诊断日志: "matched diagnostic logs",
   清空请求日志: "Clear request logs",
   "确定清空全部请求日志吗？该操作不可恢复。":
     "Clear all request logs? This cannot be undone.",
   清空: "Clear",
-  清空网关诊断日志: "Clear gateway diagnostic logs",
-  "确定清空全部网关错误诊断日志吗？该操作不可恢复。":
-    "Clear all gateway diagnostic logs? This cannot be undone.",
   日志已清空: "Logs cleared",
-  诊断日志已清空: "Diagnostic logs cleared",
-  诊断信息已复制: "Diagnostic info copied",
   复制失败: "Copy failed",
   "管理应用行为、网关策略及后台任务":
     "Manage app behavior, gateway policies, and background tasks.",
@@ -890,7 +878,6 @@ export const EN_MESSAGES: MessageCatalog = {
   "通配兼容 (Codex / Claude Code / Gemini CLI)":
     "Wildcard compatible (Codex / Claude Code / Gemini CLI)",
   推理: "Reasoning",
-  网关错误诊断: "Gateway error diagnostics",
   网络访问: "Network access",
   未发现可清理的不可用免费账号: "No unavailable free accounts to clean",
   未知任务: "Unknown task",

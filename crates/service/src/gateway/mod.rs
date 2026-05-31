@@ -68,8 +68,6 @@ mod concurrency;
 mod conversation_binding;
 #[path = "routing/cooldown.rs"]
 mod cooldown;
-#[path = "observability/error_log.rs"]
-mod error_log;
 mod error_response;
 #[path = "routing/failover.rs"]
 mod failover;
@@ -121,7 +119,6 @@ mod trace_log;
 mod upstream;
 
 pub(crate) use concurrency::current_gateway_concurrency_recommendation;
-pub(crate) use error_log::write_gateway_error_log;
 use metrics::{
     account_inflight_count, acquire_account_inflight, begin_gateway_request,
     record_gateway_candidate_skip, record_gateway_cooldown_mark, record_gateway_failover_attempt,
