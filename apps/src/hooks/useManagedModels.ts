@@ -352,8 +352,12 @@ export function useManagedModels() {
   });
 
   const sourceMappingDeleteMutation = useMutation({
-    mutationFn: (mappingId: string) =>
-      accountClient.deleteManagedModelSourceMapping(mappingId),
+    mutationFn: (params: {
+      id: string;
+      sourceKind: string;
+      sourceId: string;
+      upstreamModel: string;
+    }) => accountClient.deleteManagedModelSourceMapping(params),
     onSuccess: async () => {
       await reloadManagedRouting();
       await invalidateAll();
@@ -433,9 +437,19 @@ export function useManagedModels() {
       if (!ensureServiceReady("保存模型映射")) return null;
       return sourceMappingMutation.mutateAsync(params);
     },
-    deleteSourceMapping: async (mappingId: string) => {
+    deleteSourceMapping: async (
+      mappingId: string,
+      sourceKind: string,
+      sourceId: string,
+      upstreamModel: string,
+    ) => {
       if (!ensureServiceReady("删除模型映射")) return false;
-      await sourceMappingDeleteMutation.mutateAsync(mappingId);
+      await sourceMappingDeleteMutation.mutateAsync({
+        id: mappingId,
+        sourceKind,
+        sourceId,
+        upstreamModel,
+      });
       return true;
     },
     isRefreshing: refreshMutation.isPending,
