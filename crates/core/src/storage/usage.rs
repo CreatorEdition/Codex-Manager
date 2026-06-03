@@ -1,6 +1,6 @@
-use rusqlite::{Result, Row};
+use rusqlite::{params_from_iter, Result, Row};
 
-use super::{Storage, UsageSnapshotRecord};
+use super::{sqlite_placeholders, sqlite_text_params, Storage, UsageSnapshotRecord};
 
 const DEFAULT_USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT: usize = 1;
 const USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT_ENV: &str =
@@ -223,6 +223,70 @@ impl Storage {
             ORDER BY captured_at DESC, id DESC",
         )?;
         let mut rows = stmt.query([])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_usage_snapshot_row(row)?);
+        }
+        Ok(out)
+    }
+
+    /// 函数 `latest_usage_snapshots_by_account_ids`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-06-04
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - account_ids: 参数 account_ids
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn latest_usage_snapshots_by_account_ids(
+        &self,
+        account_ids: &[String],
+    ) -> Result<Vec<UsageSnapshotRecord>> {
+        if account_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = sqlite_placeholders(account_ids.len());
+        let sql = format!(
+            "WITH ranked AS (
+                SELECT
+                    id,
+                    account_id,
+                    used_percent,
+                    window_minutes,
+                    resets_at,
+                    secondary_used_percent,
+                    secondary_window_minutes,
+                    secondary_resets_at,
+                    credits_json,
+                    captured_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY account_id
+                        ORDER BY captured_at DESC, id DESC
+                    ) AS rn
+                FROM usage_snapshots
+                WHERE account_id IN ({placeholders})
+            )
+            SELECT
+                account_id,
+                used_percent,
+                window_minutes,
+                resets_at,
+                secondary_used_percent,
+                secondary_window_minutes,
+                secondary_resets_at,
+                credits_json,
+                captured_at
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY captured_at DESC, id DESC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(sqlite_text_params(account_ids)))?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
             out.push(map_usage_snapshot_row(row)?);

@@ -708,6 +708,179 @@ fn storage_account_subscription_roundtrip_and_delete_cleanup() {
         .is_none());
 }
 
+/// 函数 `storage_account_scoped_list_helpers_only_return_requested_ids`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-06-04
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn storage_account_scoped_list_helpers_only_return_requested_ids() {
+    let mut storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = now_ts();
+
+    for (idx, id) in ["acc-scope-1", "acc-scope-2", "acc-scope-3"]
+        .iter()
+        .enumerate()
+    {
+        storage
+            .insert_account(&Account {
+                id: (*id).to_string(),
+                label: format!("Scoped {idx}"),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort: idx as i64,
+                status: "active".to_string(),
+                created_at: now + idx as i64,
+                updated_at: now + idx as i64,
+            })
+            .expect("insert account");
+        storage
+            .insert_token(&Token {
+                account_id: (*id).to_string(),
+                id_token: format!("id-{id}"),
+                access_token: format!("access-{id}"),
+                refresh_token: format!("refresh-{id}"),
+                api_key_access_token: None,
+                last_refresh: now,
+            })
+            .expect("insert token");
+        storage
+            .upsert_account_metadata(id, Some(&format!("note-{id}")), Some(&format!("tag-{id}")))
+            .expect("upsert metadata");
+        storage
+            .upsert_account_subscription(
+                id,
+                true,
+                Some(&format!("plan-{id}")),
+                Some(&format!("sub-{id}")),
+                Some(now + 100),
+                Some(now + 200),
+            )
+            .expect("upsert subscription");
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: (*id).to_string(),
+                used_percent: Some(10.0 + idx as f64),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: None,
+                secondary_window_minutes: None,
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now + idx as i64,
+            })
+            .expect("insert usage snapshot");
+        storage
+            .set_quota_source_model_assignments("openai_account", id, &[format!("model-{id}")])
+            .expect("set account assignments");
+        storage
+            .upsert_account_quota_capacity_override(
+                id,
+                Some(1000 + idx as i64),
+                Some(2000 + idx as i64),
+            )
+            .expect("upsert quota override");
+    }
+
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "acc-scope-1".to_string(),
+            used_percent: Some(42.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: None,
+            secondary_window_minutes: None,
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at: now + 10,
+        })
+        .expect("insert newer scoped usage");
+    storage
+        .set_quota_source_model_assignments(
+            "aggregate_api",
+            "acc-scope-1",
+            &["aggregate-model".to_string()],
+        )
+        .expect("set non-account assignments");
+
+    let requested = vec!["acc-scope-1".to_string(), "acc-scope-3".to_string()];
+    let empty: Vec<String> = Vec::new();
+
+    assert!(storage
+        .list_tokens_by_account_ids(&empty)
+        .expect("empty tokens")
+        .is_empty());
+
+    let mut token_ids = storage
+        .list_tokens_by_account_ids(&requested)
+        .expect("list scoped tokens")
+        .into_iter()
+        .map(|item| item.account_id)
+        .collect::<Vec<_>>();
+    token_ids.sort();
+    assert_eq!(token_ids, requested);
+
+    let latest_usage = storage
+        .latest_usage_snapshots_by_account_ids(&requested)
+        .expect("list scoped latest usage");
+    let mut usage_ids = latest_usage
+        .iter()
+        .map(|item| item.account_id.clone())
+        .collect::<Vec<_>>();
+    usage_ids.sort();
+    assert_eq!(usage_ids, requested);
+    let acc1_usage = latest_usage
+        .iter()
+        .find(|item| item.account_id == "acc-scope-1")
+        .expect("acc-scope-1 usage");
+    assert_eq!(acc1_usage.used_percent, Some(42.0));
+
+    let mut metadata_ids = storage
+        .list_account_metadata_by_account_ids(&requested)
+        .expect("list scoped metadata")
+        .into_iter()
+        .map(|item| item.account_id)
+        .collect::<Vec<_>>();
+    metadata_ids.sort();
+    assert_eq!(metadata_ids, requested);
+
+    let mut subscription_ids = storage
+        .list_account_subscriptions_by_account_ids(&requested)
+        .expect("list scoped subscriptions")
+        .into_iter()
+        .map(|item| item.account_id)
+        .collect::<Vec<_>>();
+    subscription_ids.sort();
+    assert_eq!(subscription_ids, requested);
+
+    let mut assignment_ids = storage
+        .list_quota_source_model_assignments_for_source_ids("openai_account", &requested)
+        .expect("list scoped model assignments")
+        .into_iter()
+        .map(|item| item.source_id)
+        .collect::<Vec<_>>();
+    assignment_ids.sort();
+    assert_eq!(assignment_ids, requested);
+
+    let mut quota_override_ids = storage
+        .list_account_quota_capacity_overrides_by_account_ids(&requested)
+        .expect("list scoped quota overrides")
+        .into_iter()
+        .map(|item| item.account_id)
+        .collect::<Vec<_>>();
+    quota_override_ids.sort();
+    assert_eq!(quota_override_ids, requested);
+}
+
 /// 函数 `storage_can_update_account_status`
 ///
 /// 作者: gaohongshun

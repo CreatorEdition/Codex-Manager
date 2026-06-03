@@ -1,6 +1,6 @@
-use rusqlite::{Result, Row};
+use rusqlite::{params_from_iter, Result, Row};
 
-use super::{Storage, Token};
+use super::{sqlite_placeholders, sqlite_text_params, Storage, Token};
 
 impl Storage {
     /// 函数 `insert_token`
@@ -187,6 +187,40 @@ impl Storage {
             "SELECT account_id, id_token, access_token, refresh_token, api_key_access_token, last_refresh FROM tokens",
         )?;
         let mut rows = stmt.query([])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_token_row(row)?);
+        }
+        Ok(out)
+    }
+
+    /// 函数 `list_tokens_by_account_ids`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-06-04
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - account_ids: 参数 account_ids
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn list_tokens_by_account_ids(&self, account_ids: &[String]) -> Result<Vec<Token>> {
+        if account_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = sqlite_placeholders(account_ids.len());
+        let sql = format!(
+            "SELECT account_id, id_token, access_token, refresh_token, api_key_access_token, last_refresh
+             FROM tokens
+             WHERE account_id IN ({placeholders})
+             ORDER BY account_id ASC"
+        );
+        let params = sqlite_text_params(account_ids);
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params))?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
             out.push(map_token_row(row)?);

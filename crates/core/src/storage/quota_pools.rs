@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
-use rusqlite::{params, Result, Row};
+use rusqlite::{params, params_from_iter, types::Value, Result, Row};
 
 use super::{
-    now_ts, AccountQuotaCapacityOverride, AccountQuotaCapacityTemplate, QuotaSourceModelAssignment,
-    Storage,
+    now_ts, sqlite_placeholders, sqlite_text_params, AccountQuotaCapacityOverride,
+    AccountQuotaCapacityTemplate, QuotaSourceModelAssignment, Storage,
 };
 
 impl Storage {
@@ -34,6 +34,36 @@ impl Storage {
              ORDER BY model_slug ASC",
         )?;
         let rows = stmt.query_map(params![source_kind, source_id], |row| row.get(0))?;
+        let mut items = Vec::new();
+        for row in rows {
+            items.push(row?);
+        }
+        Ok(items)
+    }
+
+    pub fn list_quota_source_model_assignments_for_source_ids(
+        &self,
+        source_kind: &str,
+        source_ids: &[String],
+    ) -> Result<Vec<QuotaSourceModelAssignment>> {
+        if source_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = sqlite_placeholders(source_ids.len());
+        let sql = format!(
+            "SELECT source_kind, source_id, model_slug, updated_at
+             FROM quota_source_model_assignments
+             WHERE source_kind = ?1 AND source_id IN ({placeholders})
+             ORDER BY source_kind ASC, source_id ASC, model_slug ASC"
+        );
+        let mut params = vec![Value::Text(source_kind.to_string())];
+        params.extend(sqlite_text_params(source_ids));
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params_from_iter(params),
+            map_quota_source_model_assignment_row,
+        )?;
         let mut items = Vec::new();
         for row in rows {
             items.push(row?);
@@ -124,6 +154,33 @@ impl Storage {
              ORDER BY account_id ASC",
         )?;
         let rows = stmt.query_map([], map_account_quota_capacity_override_row)?;
+        let mut items = Vec::new();
+        for row in rows {
+            items.push(row?);
+        }
+        Ok(items)
+    }
+
+    pub fn list_account_quota_capacity_overrides_by_account_ids(
+        &self,
+        account_ids: &[String],
+    ) -> Result<Vec<AccountQuotaCapacityOverride>> {
+        if account_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = sqlite_placeholders(account_ids.len());
+        let sql = format!(
+            "SELECT account_id, primary_window_tokens, secondary_window_tokens, updated_at
+             FROM account_quota_capacity_overrides
+             WHERE account_id IN ({placeholders})
+             ORDER BY account_id ASC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params_from_iter(sqlite_text_params(account_ids)),
+            map_account_quota_capacity_override_row,
+        )?;
         let mut items = Vec::new();
         for row in rows {
             items.push(row?);

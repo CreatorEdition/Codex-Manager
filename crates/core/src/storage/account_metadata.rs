@@ -1,6 +1,6 @@
-use rusqlite::{Result, Row};
+use rusqlite::{params_from_iter, Result, Row};
 
-use super::{now_ts, AccountMetadata, Storage};
+use super::{now_ts, sqlite_placeholders, sqlite_text_params, AccountMetadata, Storage};
 
 impl Storage {
     /// 函数 `upsert_account_metadata`
@@ -90,6 +90,42 @@ impl Storage {
              ORDER BY updated_at DESC, account_id ASC",
         )?;
         let mut rows = stmt.query([])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_account_metadata_row(row)?);
+        }
+        Ok(out)
+    }
+
+    /// 函数 `list_account_metadata_by_account_ids`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-06-04
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - account_ids: 参数 account_ids
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn list_account_metadata_by_account_ids(
+        &self,
+        account_ids: &[String],
+    ) -> Result<Vec<AccountMetadata>> {
+        if account_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = sqlite_placeholders(account_ids.len());
+        let sql = format!(
+            "SELECT account_id, note, tags, updated_at
+             FROM account_metadata
+             WHERE account_id IN ({placeholders})
+             ORDER BY updated_at DESC, account_id ASC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(sqlite_text_params(account_ids)))?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
             out.push(map_account_metadata_row(row)?);

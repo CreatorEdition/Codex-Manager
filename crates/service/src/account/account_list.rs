@@ -366,31 +366,31 @@ fn to_account_summaries(
         .latest_account_status_reasons(&account_ids)
         .map_err(|err| format!("load account status reasons failed: {err}"))?;
     let tokens = storage
-        .list_tokens()
+        .list_tokens_by_account_ids(&account_ids)
         .map_err(|err| format!("load account tokens failed: {err}"))?
         .into_iter()
         .map(|token| (token.account_id.clone(), token))
         .collect::<HashMap<String, Token>>();
     let usages = storage
-        .latest_usage_snapshots_by_account()
+        .latest_usage_snapshots_by_account_ids(&account_ids)
         .map_err(|err| format!("load account usage snapshots failed: {err}"))?
         .into_iter()
         .map(|snapshot| (snapshot.account_id.clone(), snapshot))
         .collect::<HashMap<String, UsageSnapshotRecord>>();
     let metadata = storage
-        .list_account_metadata()
+        .list_account_metadata_by_account_ids(&account_ids)
         .map_err(|err| format!("load account metadata failed: {err}"))?
         .into_iter()
         .map(|item| (item.account_id.clone(), item))
         .collect::<HashMap<String, AccountMetadata>>();
     let subscriptions = storage
-        .list_account_subscriptions()
+        .list_account_subscriptions_by_account_ids(&account_ids)
         .map_err(|err| format!("load account subscriptions failed: {err}"))?
         .into_iter()
         .map(|item| (item.account_id.clone(), item))
         .collect::<HashMap<String, AccountSubscription>>();
     let source_assignments = storage
-        .list_quota_source_model_assignments()
+        .list_quota_source_model_assignments_for_source_ids("openai_account", &account_ids)
         .map_err(|err| format!("load quota source assignments failed: {err}"))?;
     let mut model_slugs_by_account: HashMap<String, Vec<String>> = HashMap::new();
     for assignment in source_assignments {
@@ -402,7 +402,7 @@ fn to_account_summaries(
         }
     }
     let quota_overrides = storage
-        .list_account_quota_capacity_overrides()
+        .list_account_quota_capacity_overrides_by_account_ids(&account_ids)
         .map_err(|err| format!("load account quota capacity overrides failed: {err}"))?
         .into_iter()
         .map(|item| (item.account_id.clone(), item))

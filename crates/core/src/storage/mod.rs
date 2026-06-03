@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{types::Value, Connection, Result};
 use std::path::Path;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1467,6 +1467,17 @@ impl Storage {
 #[cfg(test)]
 #[path = "../../tests/storage/migration_tests.rs"]
 mod migration_tests;
+
+pub(super) fn sqlite_placeholders(count: usize) -> String {
+    vec!["?"; count].join(", ")
+}
+
+pub(super) fn sqlite_text_params(values: &[String]) -> Vec<Value> {
+    values
+        .iter()
+        .map(|value| Value::Text(value.clone()))
+        .collect()
+}
 
 /// 函数 `now_ts`
 ///
