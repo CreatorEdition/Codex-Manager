@@ -21,9 +21,9 @@
 ### ✅ 已完成
 
 - 广告与推广清理：README、多语言文档、作者页、赞助设置、远程作者内容接口和静态推广图片已清理，并通过残留扫描、前端 runtime 测试、前端构建、后端 check 与相关 Rust 测试。
+- Rust 格式门禁：修复 `cargo fmt --all --check` 暴露的既有格式差异，作为独立 CI/rustfmt 提交处理。
 
 ### ⚠️ 待处理
 
-- `cargo test --workspace` 需要下载 crates.io 依赖，前次受 SSL/权限限制未完成。
-- `pnpm install` 需要写入 `apps/node_modules`，前次受 ACL/权限限制未完成。
+- `cargo test --workspace` 尚未全量执行，后续安全/CI 阶段再跑完整工作区测试。
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。

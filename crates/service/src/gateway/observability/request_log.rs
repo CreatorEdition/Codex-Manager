@@ -587,7 +587,6 @@ pub(crate) fn write_request_log_with_attempts(
             err_text
         );
     }
-
 }
 
 #[cfg(test)]
