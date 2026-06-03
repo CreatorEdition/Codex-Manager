@@ -882,7 +882,6 @@ mod tests {
             "/_next/static/chunks/app/page.js",
             "/_next/static/css/app.css",
             "/favicon.ico",
-            "/author-alipay.jpg",
             "/manifest.json",
         ] {
             assert!(is_public_static_asset_path(path), "path={path}");

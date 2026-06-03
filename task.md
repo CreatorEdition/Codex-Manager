@@ -18,6 +18,10 @@
 - 上游：`upstream=https://github.com/qxcnm/Codex-Manager.git`
 - 分支：`hardening/main`
 
+### ✅ 已完成
+
+- 广告与推广清理：README、多语言文档、作者页、赞助设置、远程作者内容接口和静态推广图片已清理，并通过残留扫描、前端 runtime 测试、前端构建、后端 check 与相关 Rust 测试。
+
 ### ⚠️ 待处理
 
 - `cargo test --workspace` 需要下载 crates.io 依赖，前次受 SSL/权限限制未完成。

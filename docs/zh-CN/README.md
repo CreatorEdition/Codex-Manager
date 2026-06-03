@@ -12,25 +12,6 @@
 - `release/*`：构建、发版、产物和发布流程说明。
 - `docs/plan/*` / `docs/decision/*`：长期治理、实施计划与决策记录。
 
-## 赞助商
-
-感谢以下赞助商对 CodexManager 的支持。
-
-<table>
-  <tr>
-    <td align="center" valign="middle" width="180">
-      <a href="https://gzxsy.vip/register?aff=eapz">
-        <img src="../../assets/images/sponsors/xingsiyan.jpg" alt="星思研中转站" width="120" />
-      </a>
-    </td>
-    <td valign="top">
-      <strong>星思研中转站</strong> 为 Claude Code、Codex、Gemini 等模型调用场景提供稳定中转与配套服务，适合需要高可用接口、便捷接入和持续交付支持的开发者与团队。可前往<a href="https://gzxsy.vip/register?aff=eapz">官网</a>了解最新方案。
-    </td>
-  </tr>
-</table>
-
-其他支持者：[Wonderdch](https://github.com/Wonderdch)、[suxinwl](https://github.com/suxinwl)、[Hermit](https://github.com/HermitChen)、[Suifeng023](https://github.com/Suifeng023)、[HK-hub](https://github.com/HK-hub)
-
 ## 文档首页
 | 如果你现在要做什么 | 建议先看 |
 | --- | --- |
@@ -123,5 +104,3 @@
 - 协作规范继续维护在 `CONTRIBUTING.md`。
 - 不要把未发版更新同时写进多个长文档；需要对外说明时，优先补 `CHANGELOG.md`，README 只保留摘要和入口。
 
-## 联系方式
-- Telegram 群聊：[CodexManager TG 群](https://t.me/+OdpFa9GvjxhjMDhl)

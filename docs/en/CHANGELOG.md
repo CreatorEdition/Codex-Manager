@@ -185,7 +185,6 @@ It follows Keep a Changelog with a lightweight adaptation for this repository.
 - Fixed the issue where the key ID in the platform key list was truncated by default; now it will be directly displayed in full for easy verification and troubleshooting.
 
 ### Changed
-- README adds sponsorship support entrance and sponsorship area jump, making it easier to locate sponsorship instructions directly from the top of the document.
 - The release version is upgraded to `0.1.12`, and workspace, front-end package, Tauri desktop, version consistency verification script and README are updated simultaneously.
 
 ## [0.1.11] - 2026-03-20

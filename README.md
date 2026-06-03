@@ -10,31 +10,11 @@
   <a href="docs/en/README.md">English</a>|
   <a href="docs/ru/README.md">Русский</a>|
   <a href="docs/ko/README.md">한국어</a>|
-  <a href="https://github.com/qxcnm/Codex-Manager">GitHub 主仓库</a>|
-  <a href="https://qxnm.top">官网</a>|
-  <a href="#赞助商">赞助商</a>
+  <a href="https://github.com/qxcnm/Codex-Manager">GitHub 主仓库</a>
 </p>
 
 <p align="center"><strong>本地桌面端 + 服务进程的 Codex 账号池管理器</strong></p>
 <p align="center">统一管理账号、用量与平台 Key，并提供本地网关能力。</p>
-
-## 认可社区
-<p align="left">
-  <a href="https://linux.do/t/topic/1688401" title="LINUX DO">
-    <img
-      src="https://cdn3.linux.do/original/4X/d/1/4/d146c68151340881c884d95e0da4acdf369258c6.png"
-      alt="LINUX DO"
-      width="100"
-      hight="100"
-    />
-  </a>
-</p>
-
-## 源码说明：
-> 本产品完全由本人指挥+AI打造 Codex（98%） Gemini (2%) 如果在使用过程中产生问题请友好交流，因为开源只是觉得有人能用的上，基本功能也没什么问题，不喜勿喷。
-> 其次是本人没有足够的环境来验证每个包都有没有问题，本人也要上班(我只是个穷逼买不起mac之类的)，本人只保证win的桌面端的可用性，如果其他端有问题，请在充分测试后提交 Issues，有时间我自会处理
-> 最后感谢各位使用者反馈的各个平台问题和参与的部分测试。
-
 
 ## 免责声明
 
@@ -45,51 +25,6 @@
 - 作者不提供或分发任何账号、API Key 或代理服务，也不对本软件的具体使用方式负责。
 
 - 请勿使用本项目绕过速率限制或服务限制。
-
-## 赞助商
-
-感谢以下朋友与伙伴对 CodexManager 的支持。
-
-<table>
-  <tr>
-    <td align="center" valign="middle" width="180">
-      <a href="https://gzxsy.vip/register?aff=eapz">
-        <img src="assets/images/sponsors/xingsiyan.jpg" alt="星思研中转站" width="120" />
-      </a>
-    </td>
-    <td valign="top">
-      <strong>星思研中转站</strong> 为 Claude Code、Codex 等模型调用场景提供稳定中转与配套服务，适合需要高可用接口、便捷接入和持续交付支持的开发者与团队。可前往<a href="https://gzxsy.vip/register?aff=eapz">官网</a>了解最新方案。
-    </td>
-  </tr>
-</table>
-
-
-其他支持者：呆头呆脑、 [Wonderdch](https://github.com/Wonderdch)、[suxinwl](https://github.com/suxinwl)、[Hermit](https://github.com/HermitChen)、[Suifeng023](https://github.com/Suifeng023)、[HK-hub](https://github.com/HK-hub)
-
-
-## ☕ 支持项目 (Support)
-
-如果您觉得本项目对您有所帮助，欢迎打赏作者！
-<table>
-  <tr>
-    <th>支付宝 (Alipay)</th>
-    <th>微信支付 (WeChat)</th>
-  </tr>
-  <tr>
-    <td align="center"><img src="assets/images/AliPay.jpg" alt="支付宝赞助码" width="220" /></td>
-    <td align="center"><img src="assets/images/wechatPay.jpg" alt="微信赞助码" width="220" /></td>
-  </tr>
-</table>
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=qxcnm%2FCodex-Manager&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=qxcnm/Codex-Manager&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=qxcnm/Codex-Manager&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=qxcnm/Codex-Manager&type=date&legend=top-left" />
- </picture>
-</a>
 
 ## 首页导览
 | 你要做什么 | 直接进入 |
@@ -119,15 +54,6 @@
 - 本地服务：自动拉起、可自定义端口与监听地址
 - 本地网关：为 Codex CLI、Gemini CLI、Claude Code 和第三方工具提供统一 OpenAI 兼容入口；Gemini 请求可转发到 `/v1/responses`，并兼容 SSE、tools、MCP、skill、请求总超时与流式空闲超时等调用链路
 - 图片生成：默认按官方 Codex 行为为 `/v1/responses` 自动注入 `image_generation` tool，并支持显式 tool 透传、`/v1/images/generations` 与 `/v1/images/edits` 兼容入口，默认图片工具模型为 `gpt-image-2`
-
-## 生态搭配
-
-### OpenCowork
-
-- 仓库地址：[AIDotNet/OpenCowork](https://github.com/AIDotNet/OpenCowork)
-- 搭配方式：使用 OpenCowork 承接本地文件操作、多 Agent 协作、消息平台接入与桌面执行能力，再由 CodexManager 统一管理 Codex 账号、用量、平台 Key 与本地网关入口。
-- 适合场景：当您希望把“执行工作台 / 办公协同”和“账号池管理 / 网关入口”拆开时，这两个项目可以形成互补组合。
-- 推荐理解：**OpenCowork 更偏执行与落地，CodexManager 更偏管理与网关。**
 
 ## 截图
 ![仪表盘](assets/images/dashboard.png)
@@ -213,7 +139,3 @@
 
 
 
-## 联系方式
-- 公众号：七线牛马
-- 微信：加微信群请加我微信 `ProsperGao`，并说明来意
-- Telegram 群聊：[CodexManager TG 群](https://t.me/+OdpFa9GvjxhjMDhl)

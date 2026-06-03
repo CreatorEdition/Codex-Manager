@@ -52,34 +52,6 @@ CodexManager is a local desktop + service-process account pool manager and gatew
 - For the latest release notes, see [CHANGELOG.md](CHANGELOG.md).
 - If you are not sure which document to open first, use the table below.
 
-## Sponsors
-
-Thanks to the following sponsors for supporting CodexManager.
-
-<table>
-  <tr>
-    <td align="center" valign="middle" width="180">
-      <a href="https://gzxsy.vip/register?aff=eapz">
-        <img src="../../assets/images/sponsors/xingsiyan.jpg" alt="Xing Si Yan Gateway" width="120" />
-      </a>
-    </td>
-    <td valign="top">
-      <strong>Xing Si Yan Gateway</strong> provides stable relay and supporting services for Claude Code, Codex, and similar model-call scenarios. It is suitable for developers and teams that require highly available APIs, convenient onboarding, and continuous delivery support. Visit the <a href="https://gzxsy.vip/register?aff=eapz">official site</a> for the latest plans.
-    </td>
-  </tr>
-</table>
-
-Other supporters: [Wonderdch](https://github.com/Wonderdch), [suxinwl](https://github.com/suxinwl), [Hermit](https://github.com/HermitChen), [Suifeng023](https://github.com/Suifeng023), [HK-hub](https://github.com/HK-hub)
-
-## Ecosystem Pairing
-
-### OpenCowork
-
-- Repository: [AIDotNet/OpenCowork](https://github.com/AIDotNet/OpenCowork)
-- Recommended pairing: use OpenCowork for local file operations, multi-agent execution, workplace messaging, and desktop automation, while CodexManager handles Codex account management, usage tracking, platform keys, and the local gateway entry point.
-- Best for: teams that want to separate the execution workspace and office integration from account-pool management and gateway access.
-- A simple way to think about it: **OpenCowork executes in the real workspace, CodexManager manages accounts and gateway access.**
-
 ## Quick navigation
 | What you need | Open this document |
 | --- | --- |
@@ -156,6 +128,3 @@ One-off reports: yyyyMMddHHmmssfff_topic.md
 - Keep collaboration rules in `CONTRIBUTING.md`.
 - Put unreleased change details in `CHANGELOG.md`; keep the README focused on navigation and summary.
 
-## Contact
-- WeChat: add `ProsperGao` to join the group, and please mention your purpose
-- Telegram group: [CodexManager TG group](https://t.me/+OdpFa9GvjxhjMDhl)
