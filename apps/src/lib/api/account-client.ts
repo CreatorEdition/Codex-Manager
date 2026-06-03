@@ -866,6 +866,34 @@ export const accountClient = {
   },
   deleteManagedModel: (slug: string) =>
     invoke("service_model_catalog_delete", withAddr({ slug })),
+  listModelPriceRules: async () => {
+    const result = await invoke<{ items: ModelPriceRuleEntry[] }>(
+      "service_model_price_rules_list",
+      withAddr(),
+    );
+    return result.items;
+  },
+  readModelPriceRule: async (modelPattern: string) => {
+    const result = await invoke<ModelPriceRuleEntry | null>(
+      "service_model_price_rule_read",
+      withAddr({ modelPattern }),
+    );
+    return result;
+  },
+  upsertModelPriceRule: async (payload: ModelPriceRuleUpsertPayload) => {
+    const result = await invoke<ModelPriceRuleEntry>(
+      "service_model_price_rule_upsert",
+      withAddr({ payload }),
+    );
+    return result;
+  },
+  async pruneStaleRemoteManagedModels(): Promise<ManagedModelCatalog> {
+    const result = await invoke<unknown>(
+      "service_model_catalog_prune_stale_remote",
+      withAddr()
+    );
+    return normalizeManagedModelCatalog(result);
+  },
   async readApiKeySecret(keyId: string): Promise<string> {
     const result = await invoke<unknown>(
       "service_apikey_read_secret",
