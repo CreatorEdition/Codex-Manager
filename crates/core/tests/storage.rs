@@ -2310,6 +2310,147 @@ fn storage_api_keys_include_profile_fields() {
     assert_eq!(key.service_tier.as_deref(), Some("fast"));
 }
 
+fn sample_api_key(id: &str, name: &str, status: &str, created_at: i64) -> ApiKey {
+    ApiKey {
+        id: id.to_string(),
+        name: Some(name.to_string()),
+        model_slug: Some("gpt-5-mini".to_string()),
+        reasoning_effort: None,
+        service_tier: None,
+        rotation_strategy: "account_rotation".to_string(),
+        aggregate_api_id: None,
+        account_plan_filter: None,
+        aggregate_api_url: None,
+        client_type: "codex".to_string(),
+        protocol_type: "openai_compat".to_string(),
+        auth_scheme: "authorization_bearer".to_string(),
+        upstream_base_url: None,
+        static_headers_json: None,
+        key_hash: format!("hash-{id}"),
+        status: status.to_string(),
+        created_at,
+        last_used_at: None,
+    }
+}
+
+#[test]
+fn storage_api_key_list_supports_backend_pagination_filters_and_scoped_quota() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    for user_id in ["user-1", "user-2"] {
+        storage
+            .insert_app_user(&AppUser {
+                id: user_id.to_string(),
+                username: user_id.to_string(),
+                display_name: None,
+                password_hash: "hash".to_string(),
+                role: "member".to_string(),
+                status: "active".to_string(),
+                created_at: 1,
+                updated_at: 1,
+                last_login_at: None,
+            })
+            .expect("insert user");
+    }
+
+    for (id, name, status, created_at, user_id, quota) in [
+        (
+            "key-a",
+            "Alpha Primary",
+            "active",
+            100_i64,
+            "user-1",
+            1_000_i64,
+        ),
+        (
+            "key-b",
+            "Beta Secondary",
+            "active",
+            200_i64,
+            "user-1",
+            2_000_i64,
+        ),
+        (
+            "key-c",
+            "Alpha Foreign",
+            "active",
+            300_i64,
+            "user-2",
+            3_000_i64,
+        ),
+        (
+            "key-d",
+            "Alpha Disabled",
+            "disabled",
+            400_i64,
+            "user-1",
+            4_000_i64,
+        ),
+    ] {
+        storage
+            .insert_api_key(&sample_api_key(id, name, status, created_at))
+            .expect("insert key");
+        storage
+            .upsert_api_key_owner(&ApiKeyOwner {
+                key_id: id.to_string(),
+                owner_kind: "user".to_string(),
+                owner_user_id: Some(user_id.to_string()),
+                project_id: None,
+                updated_at: created_at,
+            })
+            .expect("own key");
+        storage
+            .upsert_api_key_quota_limit(id, Some(quota))
+            .expect("upsert quota limit");
+    }
+
+    let total = storage
+        .api_key_count_filtered(None, Some("active"), Some("user-1"))
+        .expect("count filtered keys");
+    assert_eq!(total, 2);
+
+    let first_page = storage
+        .list_api_keys_paginated(None, Some("active"), Some("user-1"), 0, 1)
+        .expect("read first page");
+    assert_eq!(
+        first_page
+            .iter()
+            .map(|key| key.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["key-b"]
+    );
+    let second_page = storage
+        .list_api_keys_paginated(None, Some("active"), Some("user-1"), 1, 1)
+        .expect("read second page");
+    assert_eq!(
+        second_page
+            .iter()
+            .map(|key| key.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["key-a"]
+    );
+
+    let alpha_owned_active = storage
+        .list_api_keys_paginated(Some("alpha"), Some("active"), Some("user-1"), 0, 10)
+        .expect("search owned active keys");
+    assert_eq!(
+        alpha_owned_active
+            .iter()
+            .map(|key| key.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["key-a"]
+    );
+
+    let scoped_quota = storage
+        .list_api_key_quota_limits_for_key_ids(&["key-a".to_string(), "key-c".to_string()])
+        .expect("read scoped quota limits");
+    assert_eq!(scoped_quota.len(), 2);
+    assert_eq!(scoped_quota.get("key-a"), Some(&1_000));
+    assert_eq!(scoped_quota.get("key-c"), Some(&3_000));
+    assert!(!scoped_quota.contains_key("key-b"));
+}
+
 /// 函数 `storage_can_roundtrip_api_key_secret`
 ///
 /// 作者: gaohongshun

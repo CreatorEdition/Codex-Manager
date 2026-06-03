@@ -1,4 +1,4 @@
-use rusqlite::{Result, Row};
+use rusqlite::{params_from_iter, types::Value, Result, Row};
 
 use super::{now_ts, ApiKey, Storage};
 
@@ -106,6 +106,62 @@ impl Storage {
             out.push(map_api_key_row(row)?);
         }
         Ok(out)
+    }
+
+    pub fn list_api_keys_filtered(
+        &self,
+        query: Option<&str>,
+        status_filter: Option<&str>,
+        owner_user_id: Option<&str>,
+    ) -> Result<Vec<ApiKey>> {
+        let mut params = Vec::new();
+        let (owner_join, where_clause) =
+            build_api_key_filter_sql(query, status_filter, owner_user_id, &mut params);
+        let sql = format!(
+            "{API_KEY_SELECT_SQL}{owner_join}{where_clause}
+             ORDER BY k.created_at DESC, k.id ASC"
+        );
+        query_api_key_rows(&self.conn, &sql, params)
+    }
+
+    pub fn list_api_keys_paginated(
+        &self,
+        query: Option<&str>,
+        status_filter: Option<&str>,
+        owner_user_id: Option<&str>,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<ApiKey>> {
+        let mut params = Vec::new();
+        let (owner_join, where_clause) =
+            build_api_key_filter_sql(query, status_filter, owner_user_id, &mut params);
+        params.push(Value::Integer(limit.max(0)));
+        params.push(Value::Integer(offset.max(0)));
+        let sql = format!(
+            "{API_KEY_SELECT_SQL}{owner_join}{where_clause}
+             ORDER BY k.created_at DESC, k.id ASC
+             LIMIT ? OFFSET ?"
+        );
+        query_api_key_rows(&self.conn, &sql, params)
+    }
+
+    pub fn api_key_count_filtered(
+        &self,
+        query: Option<&str>,
+        status_filter: Option<&str>,
+        owner_user_id: Option<&str>,
+    ) -> Result<i64> {
+        let mut params = Vec::new();
+        let (owner_join, where_clause) =
+            build_api_key_filter_sql(query, status_filter, owner_user_id, &mut params);
+        let sql = format!(
+            "SELECT COUNT(1)
+             FROM api_keys k
+             LEFT JOIN api_key_profiles p ON p.key_id = k.id
+             LEFT JOIN aggregate_apis a ON a.id = k.aggregate_api_id{owner_join}{where_clause}"
+        );
+        self.conn
+            .query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))
     }
 
     /// 函数 `find_api_key_by_hash`
@@ -706,4 +762,74 @@ fn map_api_key_row(row: &Row<'_>) -> Result<ApiKey> {
         created_at: row.get(16)?,
         last_used_at: row.get(17)?,
     })
+}
+
+fn query_api_key_rows(
+    conn: &rusqlite::Connection,
+    sql: &str,
+    params: Vec<Value>,
+) -> Result<Vec<ApiKey>> {
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows = stmt.query(params_from_iter(params.iter()))?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next()? {
+        out.push(map_api_key_row(row)?);
+    }
+    Ok(out)
+}
+
+fn build_api_key_filter_sql(
+    query: Option<&str>,
+    status_filter: Option<&str>,
+    owner_user_id: Option<&str>,
+    params: &mut Vec<Value>,
+) -> (String, String) {
+    let owner_join = match normalize_optional_filter(owner_user_id) {
+        Some(user_id) => {
+            params.push(Value::Text(user_id));
+            " INNER JOIN api_key_owners o
+                 ON o.key_id = k.id
+                AND o.owner_kind = 'user'
+                AND o.owner_user_id = ?"
+                .to_string()
+        }
+        None => String::new(),
+    };
+    let mut clauses = Vec::new();
+
+    if let Some(status) = normalize_optional_filter(status_filter) {
+        clauses.push("LOWER(TRIM(k.status)) = LOWER(?)".to_string());
+        params.push(Value::Text(status));
+    }
+
+    if let Some(keyword) = normalize_optional_filter(query) {
+        let pattern = format!("%{keyword}%");
+        clauses.push(
+            "(LOWER(k.id) LIKE LOWER(?)
+              OR LOWER(IFNULL(k.name, '')) LIKE LOWER(?)
+              OR LOWER(IFNULL(COALESCE(p.default_model, k.model_slug), '')) LIKE LOWER(?)
+              OR LOWER(IFNULL(k.aggregate_api_id, '')) LIKE LOWER(?)
+              OR LOWER(IFNULL(a.url, '')) LIKE LOWER(?)
+              OR LOWER(IFNULL(p.upstream_base_url, '')) LIKE LOWER(?))"
+                .to_string(),
+        );
+        for _ in 0..6 {
+            params.push(Value::Text(pattern.clone()));
+        }
+    }
+
+    let where_clause = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    };
+    (owner_join, where_clause)
+}
+
+fn normalize_optional_filter(value: Option<&str>) -> Option<String> {
+    let trimmed = value.map(str::trim).unwrap_or_default();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("all") {
+        return None;
+    }
+    Some(trimmed.to_string())
 }

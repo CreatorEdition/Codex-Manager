@@ -1017,9 +1017,13 @@ impl Storage {
             include_str!("../../migrations/064_drop_gateway_error_logs.sql"),
         )?;
         self.apply_sql_or_compat_migration(
-            "065_model_source_mapping_preferences",
-            include_str!("../../migrations/065_model_source_mapping_preferences.sql"),
+            "064_model_source_mapping_preferences",
+            include_str!("../../migrations/064_model_source_mapping_preferences.sql"),
             |s| s.ensure_model_source_tables(),
+        )?;
+        self.apply_sql_migration(
+            "065_api_key_list_indexes",
+            include_str!("../../migrations/065_api_key_list_indexes.sql"),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;

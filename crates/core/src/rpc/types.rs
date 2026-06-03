@@ -382,9 +382,48 @@ pub struct ApiKeySummary {
     pub last_used_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ApiKeyListParams {
+    pub page: i64,
+    pub page_size: i64,
+    pub query: Option<String>,
+    pub status_filter: Option<String>,
+}
+
+impl Default for ApiKeyListParams {
+    fn default() -> Self {
+        Self {
+            page: 1,
+            page_size: 20,
+            query: None,
+            status_filter: None,
+        }
+    }
+}
+
+impl ApiKeyListParams {
+    pub fn normalized(self) -> Self {
+        Self {
+            page: if self.page < 1 { 1 } else { self.page },
+            page_size: if self.page_size < 1 {
+                20
+            } else {
+                self.page_size
+            },
+            query: self.query,
+            status_filter: self.status_filter,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiKeyListResult {
     pub items: Vec<ApiKeySummary>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

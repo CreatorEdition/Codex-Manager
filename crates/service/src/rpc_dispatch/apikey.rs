@@ -1,5 +1,5 @@
 use codexmanager_core::rpc::types::{
-    ApiKeyListResult, ApiKeyUsageStatListResult, JsonRpcRequest, JsonRpcResponse,
+    ApiKeyListParams, ApiKeyUsageStatListResult, JsonRpcRequest, JsonRpcResponse,
     ManagedModelCatalogResult, ManagedModelCatalogUpsertParams, ManagedModelRoutingResult,
     ManagedModelSourceMappingUpsertParams, ManagedModelSourceModelUpsertParams,
     ManagedModelSourceSyncParams, ModelsResponse,
@@ -92,9 +92,30 @@ fn filter_catalog_for_actor(
 /// 返回函数执行结果
 pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonRpcResponse> {
     let result = match req.method.as_str() {
-        "apikey/list" => super::value_or_error(
-            apikey_list::read_api_keys_for_actor(actor).map(|items| ApiKeyListResult { items }),
-        ),
+        "apikey/list" => {
+            let pagination_requested = req
+                .params
+                .as_ref()
+                .and_then(|params| params.as_object())
+                .map(|params| {
+                    params.contains_key("page")
+                        || params.contains_key("pageSize")
+                        || params.contains_key("query")
+                        || params.contains_key("statusFilter")
+                })
+                .unwrap_or(false);
+            let params = req
+                .params
+                .clone()
+                .map(serde_json::from_value::<ApiKeyListParams>)
+                .transpose()
+                .map(|params| params.unwrap_or_default())
+                .map(ApiKeyListParams::normalized)
+                .map_err(|err| format!("invalid apikey/list params: {err}"));
+            super::value_or_error(params.and_then(|params| {
+                apikey_list::read_api_key_list_for_actor(actor, params, pagination_requested)
+            }))
+        }
         "apikey/create" => {
             let name = super::string_param(req, "name");
             let model_slug = super::string_param(req, "modelSlug");

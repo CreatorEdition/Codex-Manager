@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use rusqlite::{OptionalExtension, Result};
+use rusqlite::{params_from_iter, OptionalExtension, Result};
 
-use super::{now_ts, Storage};
+use super::{now_ts, sqlite_placeholders, sqlite_text_params, Storage};
 
 impl Storage {
     pub fn upsert_api_key_quota_limit(
@@ -52,6 +52,29 @@ impl Storage {
              WHERE quota_limit_tokens > 0",
         )?;
         let mut rows = stmt.query([])?;
+        let mut out = HashMap::new();
+        while let Some(row) = rows.next()? {
+            out.insert(row.get(0)?, row.get(1)?);
+        }
+        Ok(out)
+    }
+
+    pub fn list_api_key_quota_limits_for_key_ids(
+        &self,
+        key_ids: &[String],
+    ) -> Result<HashMap<String, i64>> {
+        if key_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let placeholders = sqlite_placeholders(key_ids.len());
+        let sql = format!(
+            "SELECT key_id, quota_limit_tokens
+             FROM api_key_quota_limits
+             WHERE quota_limit_tokens > 0
+               AND key_id IN ({placeholders})"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(sqlite_text_params(key_ids)))?;
         let mut out = HashMap::new();
         while let Some(row) = rows.next()? {
             out.insert(row.get(0)?, row.get(1)?);

@@ -897,6 +897,45 @@ fn accounts_sort_index_migration_adds_sort_updated_at_index() {
     assert!(index_sql.contains("updated_at DESC"));
 }
 
+#[test]
+fn api_key_list_index_migration_adds_pagination_and_owner_indexes() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    for (index_name, expected_table, expected_columns) in [
+        (
+            "idx_api_keys_status_created_id",
+            "api_keys",
+            vec!["status", "created_at DESC", "id ASC"],
+        ),
+        (
+            "idx_api_keys_created_id",
+            "api_keys",
+            vec!["created_at DESC", "id ASC"],
+        ),
+        (
+            "idx_api_key_owners_kind_user_key",
+            "api_key_owners",
+            vec!["owner_kind", "owner_user_id", "key_id"],
+        ),
+    ] {
+        let index_sql: String = storage
+            .conn
+            .query_row(
+                "SELECT sql
+                 FROM sqlite_master
+                 WHERE type = 'index' AND name = ?1",
+                [index_name],
+                |row| row.get(0),
+            )
+            .expect("load index definition");
+        assert!(index_sql.contains(expected_table));
+        for column in expected_columns {
+            assert!(index_sql.contains(column), "{index_name} missing {column}");
+        }
+    }
+}
+
 /// 函数 `conversation_bindings_migration_adds_indexes`
 ///
 /// 作者: gaohongshun

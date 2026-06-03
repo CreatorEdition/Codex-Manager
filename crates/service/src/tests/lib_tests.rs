@@ -1064,6 +1064,79 @@ fn member_created_api_key_ignores_admin_only_routing_fields() {
 }
 
 #[test]
+fn member_api_key_list_supports_backend_pagination_and_filters() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-member-apikey-list-pagination");
+    let user_one = create_test_member("apikey-page-one", Some(2_000_000));
+    let user_two = create_test_member("apikey-page-two", Some(2_000_000));
+    let key_alpha = create_owned_test_api_key(&user_one.id, "alpha owned key", "gpt-5-mini");
+    let key_beta = create_owned_test_api_key(&user_one.id, "beta owned key", "gpt-5-mini");
+    let key_disabled = create_owned_test_api_key(&user_one.id, "disabled owned key", "gpt-5-mini");
+    let key_foreign = create_owned_test_api_key(&user_two.id, "alpha foreign key", "gpt-5-mini");
+    let storage = storage_helpers::open_storage().expect("open storage");
+    storage
+        .update_api_key_status(&key_disabled, "disabled")
+        .expect("disable owned key");
+    let actor_one = RpcActor::from_parts(Some(ROLE_MEMBER), Some(&user_one.id));
+
+    let first_page = response_result(handle_request_with_actor(
+        rpc_request(
+            "apikey/list",
+            serde_json::json!({ "page": 1, "pageSize": 2 }),
+        ),
+        actor_one.clone(),
+    ));
+    assert_eq!(first_page.result["total"], 3);
+    assert_eq!(first_page.result["page"], 1);
+    assert_eq!(first_page.result["pageSize"], 2);
+    let first_page_items = first_page.result["items"].as_array().unwrap();
+    assert_eq!(first_page_items.len(), 2);
+    assert!(first_page_items
+        .iter()
+        .all(|item| item["id"] != key_foreign));
+
+    let alpha_page = response_result(handle_request_with_actor(
+        rpc_request(
+            "apikey/list",
+            serde_json::json!({ "page": 1, "pageSize": 20, "query": "alpha" }),
+        ),
+        actor_one.clone(),
+    ));
+    assert_eq!(alpha_page.result["total"], 1);
+    assert_eq!(alpha_page.result["items"][0]["id"], key_alpha);
+
+    let disabled_page = response_result(handle_request_with_actor(
+        rpc_request(
+            "apikey/list",
+            serde_json::json!({ "page": 1, "pageSize": 20, "statusFilter": "disabled" }),
+        ),
+        actor_one.clone(),
+    ));
+    assert_eq!(disabled_page.result["total"], 1);
+    assert_eq!(disabled_page.result["items"][0]["id"], key_disabled);
+
+    let full_list = response_result(handle_request_with_actor(
+        rpc_request("apikey/list", serde_json::json!({})),
+        actor_one,
+    ));
+    assert_eq!(full_list.result["total"], 3);
+    assert_eq!(full_list.result["page"], 1);
+    assert_eq!(full_list.result["pageSize"], 3);
+    let full_ids = full_list.result["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(full_ids.contains(&key_alpha));
+    assert!(full_ids.contains(&key_beta));
+    assert!(full_ids.contains(&key_disabled));
+    assert!(!full_ids.contains(&key_foreign));
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
 fn member_requestlog_queries_filter_to_owned_keys() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-member-requestlog-filter");
