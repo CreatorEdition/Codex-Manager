@@ -1040,6 +1040,10 @@ export const accountClient = {
     );
     return normalizeManagedModelCatalog(result);
   },
+<<<<<<< HEAD
+=======
+  },
+>>>>>>> ee8d443a (Add explicit stale remote model pruning action)
   async readApiKeySecret(keyId: string): Promise<string> {
     const result = await invoke<unknown>(
       "service_apikey_read_secret",

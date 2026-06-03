@@ -561,6 +561,9 @@ export function createWebCommandMap(
       mapParams: (params) => asRecord(asRecord(params)?.payload) ?? {},
     },
     service_model_catalog_delete: { rpcMethod: "apikey/modelCatalogDelete" },
+    service_model_catalog_prune_stale_remote: {
+      rpcMethod: "apikey/modelCatalogPruneStaleRemote",
+    },
     service_model_routing: { rpcMethod: "apikey/modelRouting" },
     service_model_source_sync: {
       rpcMethod: "apikey/modelSourceSync",
