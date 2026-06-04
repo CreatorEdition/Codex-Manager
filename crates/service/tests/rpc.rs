@@ -2727,6 +2727,76 @@ fn rpc_quota_model_pools_supports_lightweight_source_filters() {
     }));
 }
 
+#[test]
+fn rpc_apikey_usage_stats_filters_requested_key_ids() {
+    let ctx = RpcTestContext::new("rpc-apikey-usage-stats-filtered");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    for (idx, key_id) in ["key-a", "key-b", "key-c"].iter().enumerate() {
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id: 9_100 + idx as i64,
+                key_id: Some((*key_id).to_string()),
+                account_id: None,
+                model: Some("gpt-5.4".to_string()),
+                input_tokens: Some(10 + idx as i64),
+                cached_input_tokens: Some(0),
+                output_tokens: Some(5),
+                total_tokens: Some(100 + idx as i64),
+                reasoning_output_tokens: Some(0),
+                estimated_cost_usd: Some(0.1 + idx as f64),
+                created_at: now + idx as i64,
+            })
+            .expect("insert api key usage stat");
+    }
+
+    let empty_server =
+        codexmanager_service::start_one_shot_server().expect("start empty usage server");
+    let empty_req = JsonRpcRequest {
+        id: 828.into(),
+        method: "apikey/usageStats".to_string(),
+        params: Some(serde_json::json!({ "keyIds": [] })),
+        trace: None,
+    };
+    let empty_json = serde_json::to_string(&empty_req).expect("serialize empty usage stats");
+    let empty_v = post_rpc(&empty_server.addr, &empty_json);
+    let empty_items = empty_v
+        .get("result")
+        .and_then(|result| result.get("items"))
+        .and_then(|value| value.as_array())
+        .expect("empty usage stat items");
+    assert!(empty_items.is_empty(), "expected empty scoped usage stats");
+
+    let filtered_server =
+        codexmanager_service::start_one_shot_server().expect("start filtered usage server");
+    let req = JsonRpcRequest {
+        id: 829.into(),
+        method: "apikey/usageStats".to_string(),
+        params: Some(serde_json::json!({
+            "keyIds": ["key-b", "key-a", "key-b", ""]
+        })),
+        trace: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize usage stats");
+    let v = post_rpc(&filtered_server.addr, &json);
+    let mut ids = v
+        .get("result")
+        .and_then(|result| result.get("items"))
+        .and_then(|value| value.as_array())
+        .expect("usage stat items")
+        .iter()
+        .map(|item| {
+            item.get("keyId")
+                .and_then(|value| value.as_str())
+                .expect("key id")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(ids, vec!["key-a".to_string(), "key-b".to_string()]);
+}
+
 /// 函数 `rpc_usage_aggregate_returns_backend_summary`
 ///
 /// 作者: gaohongshun

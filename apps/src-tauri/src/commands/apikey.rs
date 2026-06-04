@@ -259,12 +259,17 @@ pub async fn service_model_source_mapping_delete(
 ///
 /// # 参数
 /// - addr: 参数 addr
+/// - key_ids: 参数 key_ids
 ///
 /// # 返回
 /// 返回函数执行结果
 #[tauri::command]
-pub async fn service_apikey_usage_stats(addr: Option<String>) -> Result<serde_json::Value, String> {
-    rpc_call_in_background("apikey/usageStats", addr, None).await
+pub async fn service_apikey_usage_stats(
+    addr: Option<String>,
+    key_ids: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    let params = key_ids.map(|ids| serde_json::json!({ "keyIds": ids }));
+    rpc_call_in_background("apikey/usageStats", addr, params).await
 }
 
 /// 函数 `service_apikey_update_model`

@@ -79,6 +79,20 @@ fn filter_catalog_for_actor(
     })
 }
 
+fn string_array_param(req: &JsonRpcRequest, key: &str) -> Option<Vec<String>> {
+    req.params
+        .as_ref()
+        .and_then(|params| params.get(key))
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(|item| item.to_string())
+                .collect::<Vec<_>>()
+        })
+}
+
 /// 函数 `try_handle`
 ///
 /// 作者: gaohongshun
@@ -290,8 +304,11 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
             ))
         }
         "apikey/usageStats" => super::value_or_error(
-            apikey_usage_stats::read_api_key_usage_stats_for_actor(actor)
-                .map(|items| ApiKeyUsageStatListResult { items }),
+            apikey_usage_stats::read_api_key_usage_stats_for_actor(
+                actor,
+                string_array_param(req, "keyIds"),
+            )
+            .map(|items| ApiKeyUsageStatListResult { items }),
         ),
         "apikey/updateModel" => {
             let key_id = super::str_param(req, "id").unwrap_or("");

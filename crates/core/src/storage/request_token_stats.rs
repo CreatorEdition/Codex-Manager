@@ -1,10 +1,10 @@
-use rusqlite::{params, Result, Row};
+use rusqlite::{params, params_from_iter, Result, Row};
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use super::{
-    now_ts, ApiKeyModelTokenUsageSummary, ApiKeyTokenUsageSummary, DailyTokenUsageRollup,
-    RequestLogTodaySummary, RequestTokenStat, SourceTokenUsageRollup, Storage, TokenUsageRollup,
-    TokenUsageSummary, UserTokenUsageRollup,
+    now_ts, sqlite_placeholders, sqlite_text_params, ApiKeyModelTokenUsageSummary,
+    ApiKeyTokenUsageSummary, DailyTokenUsageRollup, RequestLogTodaySummary, RequestTokenStat,
+    SourceTokenUsageRollup, Storage, TokenUsageRollup, TokenUsageSummary, UserTokenUsageRollup,
 };
 
 const DEFAULT_REQUEST_TOKEN_STATS_RETAIN_DAYS: i64 = 14;
@@ -317,6 +317,57 @@ impl Storage {
             token_total = token_total_sql_expr(),
         ))?;
         let mut rows = stmt.query([])?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(ApiKeyTokenUsageSummary {
+                key_id: row.get(0)?,
+                total_tokens: row.get(1)?,
+                estimated_cost_usd: row.get(2)?,
+            });
+        }
+        Ok(items)
+    }
+
+    pub fn summarize_request_token_stats_by_key_ids(
+        &self,
+        key_ids: &[String],
+    ) -> Result<Vec<ApiKeyTokenUsageSummary>> {
+        if key_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = sqlite_placeholders(key_ids.len());
+        let mut stmt = self.conn.prepare(&format!(
+            "WITH all_stats AS (
+                SELECT
+                    key_id,
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    total_tokens,
+                    estimated_cost_usd
+                FROM request_token_stats
+                UNION ALL
+                SELECT
+                    NULLIF(key_id, '') AS key_id,
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    total_tokens,
+                    estimated_cost_usd
+                FROM request_token_stat_rollups
+             )
+             SELECT
+                key_id,
+                IFNULL(SUM({token_total}), 0) AS total_tokens,
+                IFNULL(SUM(estimated_cost_usd), 0.0) AS estimated_cost_usd
+             FROM all_stats
+             WHERE key_id IN ({placeholders})
+             GROUP BY key_id
+             ORDER BY total_tokens DESC, key_id ASC",
+            token_total = token_total_sql_expr(),
+        ))?;
+        let mut rows = stmt.query(params_from_iter(sqlite_text_params(key_ids)))?;
         let mut items = Vec::new();
         while let Some(row) = rows.next()? {
             items.push(ApiKeyTokenUsageSummary {

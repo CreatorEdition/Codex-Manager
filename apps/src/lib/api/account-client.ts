@@ -101,6 +101,10 @@ export interface UsageListParams {
   accountIds?: string[];
 }
 
+export interface ApiKeyUsageStatsParams {
+  keyIds?: string[];
+}
+
 export interface AccountDeleteByStatusesPayload {
   statuses: string[];
 }
@@ -853,8 +857,20 @@ export const accountClient = {
     );
     return normalizeApiKeyCreateResult(result);
   },
-  async listApiKeyUsageStats(): Promise<ApiKeyUsageStat[]> {
-    const result = await invoke<unknown>("service_apikey_usage_stats", withAddr());
+  async listApiKeyUsageStats(
+    params?: ApiKeyUsageStatsParams,
+  ): Promise<ApiKeyUsageStat[]> {
+    const rawKeyIds = params?.keyIds;
+    const hasKeyIds = Array.isArray(rawKeyIds);
+    const keyIds = hasKeyIds
+      ? rawKeyIds
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+      : [];
+    const result = await invoke<unknown>(
+      "service_apikey_usage_stats",
+      withAddr(hasKeyIds ? { keyIds } : {}),
+    );
     return normalizeApiKeyUsageStats(result);
   },
   deleteApiKey: (keyId: string) =>

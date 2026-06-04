@@ -349,10 +349,16 @@ export default function ApiKeysPage() {
       queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
     ]);
   };
+  const visibleApiKeyIds = useMemo(
+    () => apiKeys.map((key) => key.id).filter(Boolean),
+    [apiKeys],
+  );
   const { data: usageOverview, isPending: isUsageOverviewLoading } = useQuery({
-    queryKey: ["apikey-usage-overview", serviceAddr || null],
+    queryKey: ["apikey-usage-overview", serviceAddr || null, visibleApiKeyIds],
     queryFn: async () => {
-      const stats = await accountClient.listApiKeyUsageStats();
+      const stats = await accountClient.listApiKeyUsageStats({
+        keyIds: visibleApiKeyIds,
+      });
       const usageByKey = stats.reduce<Record<string, number>>((result, item) => {
         const keyId = String(item.keyId || "").trim();
         if (!keyId) return result;
@@ -742,18 +748,18 @@ export default function ApiKeysPage() {
         ) : (
           <>
             <ApiKeyStatCard
-              title={t("总使用 Token")}
+              title={t("当前页 Token")}
               value={formatCompactTokenAmount(usageOverview?.totalTokens || 0)}
               icon={Zap}
               color="h-4 w-4 text-amber-500"
-              sub={isAdminMode ? t("按全部平台密钥累计") : t("按我的平台密钥累计")}
+              sub={isAdminMode ? t("按当前页平台密钥累计") : t("按当前页我的密钥累计")}
             />
             <ApiKeyStatCard
-              title={t("总费用")}
+              title={t("当前页费用")}
               value={formatUsd(usageOverview?.totalCostUsd || 0)}
               icon={DollarSign}
               color="h-4 w-4 text-emerald-500"
-              sub={isAdminMode ? t("按全部平台密钥累计") : t("按我的平台密钥累计")}
+              sub={isAdminMode ? t("按当前页平台密钥累计") : t("按当前页我的密钥累计")}
             />
           </>
         )}
