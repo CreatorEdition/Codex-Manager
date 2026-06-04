@@ -12,6 +12,7 @@ macro_rules! invoke_handler {
             crate::commands::dashboard::service_dashboard_member_summary,
             // account
             crate::commands::account::remote::service_account_list,
+            crate::commands::account::remote::service_account_lookup,
             crate::commands::account::remote::service_account_delete,
             crate::commands::account::remote::service_account_delete_many,
             crate::commands::account::remote::service_account_delete_by_statuses,

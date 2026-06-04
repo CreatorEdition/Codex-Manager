@@ -12,6 +12,7 @@ use crate::storage_helpers::open_storage;
 
 const DEFAULT_ACCOUNT_PAGE_SIZE: i64 = 5;
 const MAX_ACCOUNT_PAGE_SIZE: i64 = 500;
+const MAX_ACCOUNT_LOOKUP_IDS: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AccountFilter {
@@ -129,6 +130,18 @@ pub(crate) fn read_accounts(
     })
 }
 
+pub(crate) fn lookup_accounts(ids: Vec<String>) -> Result<Vec<AccountSummary>, String> {
+    let ids = normalize_lookup_ids(ids);
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let accounts = storage
+        .list_accounts_by_ids(&ids)
+        .map_err(|err| format!("lookup accounts failed: {err}"))?;
+    to_account_summaries(&storage, accounts)
+}
+
 /// 函数 `normalize_optional_text`
 ///
 /// 作者: gaohongshun
@@ -170,6 +183,18 @@ fn normalize_filter(value: Option<String>) -> AccountFilter {
         "low" => AccountFilter::Low,
         _ => AccountFilter::All,
     }
+}
+
+fn normalize_lookup_ids(ids: Vec<String>) -> Vec<String> {
+    let mut normalized = ids
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized.truncate(MAX_ACCOUNT_LOOKUP_IDS);
+    normalized
 }
 
 /// 函数 `normalize_page_size`

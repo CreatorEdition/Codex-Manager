@@ -232,6 +232,7 @@ export function createWebCommandMap(
     service_initialize: { rpcMethod: "initialize" },
     service_startup_snapshot: { rpcMethod: "startup/snapshot" },
     service_account_list: { rpcMethod: "account/list" },
+    service_account_lookup: { rpcMethod: "account/lookup" },
     service_account_delete: { rpcMethod: "account/delete" },
     service_account_delete_many: { rpcMethod: "account/deleteMany" },
     service_account_delete_by_statuses: {

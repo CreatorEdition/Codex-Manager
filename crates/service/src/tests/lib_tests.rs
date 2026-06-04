@@ -1066,6 +1066,54 @@ fn member_api_key_lookup_filters_to_owned_ids() {
 }
 
 #[test]
+fn account_lookup_is_admin_only_and_filters_requested_ids() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-account-lookup-admin-only");
+    let storage = storage_helpers::open_storage().expect("open storage");
+    let now = codexmanager_core::storage::now_ts();
+    for (id, label, sort) in [("acc-a", "Account A", 2), ("acc-b", "Account B", 1)] {
+        storage
+            .insert_account(&codexmanager_core::storage::Account {
+                id: id.to_string(),
+                label: label.to_string(),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now + sort,
+            })
+            .expect("insert account");
+    }
+
+    let member = create_test_member("account-lookup-member", Some(2_000_000));
+    let member_resp = response_result(handle_request_with_actor(
+        rpc_request("account/lookup", serde_json::json!({ "ids": ["acc-a"] })),
+        RpcActor::from_parts(Some(ROLE_MEMBER), Some(&member.id)),
+    ));
+    assert!(rpc_error(&member_resp).contains("permission_denied"));
+
+    let admin_resp = response_result(handle_request_with_actor(
+        rpc_request(
+            "account/lookup",
+            serde_json::json!({ "ids": ["acc-a", "missing", "acc-a", "acc-b"] }),
+        ),
+        RpcActor::system_admin(),
+    ));
+    let items = admin_resp.result.as_array().expect("account lookup items");
+    assert_eq!(items.len(), 2);
+    let ids = items
+        .iter()
+        .filter_map(|item| item.get("id").and_then(|value| value.as_str()))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(ids, std::collections::BTreeSet::from(["acc-a", "acc-b"]));
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
 fn member_created_api_key_ignores_admin_only_routing_fields() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-member-apikey-create-sanitizes");

@@ -217,6 +217,38 @@ impl Storage {
         self.query_accounts(query, group_name, Some((offset, limit)))
     }
 
+    /// 按 ID 批量读取账号，用于日志页等当前页展示 lookup。
+    pub fn list_accounts_by_ids(&self, account_ids: &[String]) -> Result<Vec<Account>> {
+        let mut ids = account_ids
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = vec!["?"; ids.len()].join(",");
+        let sql = format!(
+            "SELECT {}
+             FROM accounts
+             WHERE id IN ({placeholders})
+             ORDER BY sort ASC, updated_at DESC",
+            account_select_columns("accounts")
+        );
+        let params = ids.into_iter().map(Value::Text).collect::<Vec<_>>();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params.iter()))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_account_row(row)?);
+        }
+        Ok(out)
+    }
+
     /// 函数 `list_accounts_active_available`
     ///
     /// 作者: gaohongshun

@@ -63,7 +63,6 @@ import { useAppStore } from "@/lib/store/useAppStore";
 import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
 import { cn } from "@/lib/utils";
 import {
-  AccountListResult,
   AggregateApi,
   ApiKey,
   RequestLog,
@@ -1427,24 +1426,6 @@ function LogsPageContent() {
   const hasStartupLogsSnapshot =
     canUseStartupLogsPlaceholder && startupRequestLogs.length > 0;
 
-  const { data: accountsResult } = useQuery({
-    queryKey: ["accounts", "lookup"],
-    queryFn: () => accountClient.list(),
-    enabled: areLogQueriesEnabled && isPageActive && isAdminMode,
-    staleTime: 60_000,
-    retry: 1,
-    placeholderData: (previousData): AccountListResult | undefined =>
-      previousData ||
-      (startupAccounts.length > 0
-        ? {
-            items: startupAccounts,
-            total: startupAccounts.length,
-            page: 1,
-            pageSize: startupAccounts.length,
-          }
-        : undefined),
-  });
-
   const { data: aggregateApisResult } = useQuery({
     queryKey: ["aggregate-apis", "lookup"],
     queryFn: () => accountClient.listAggregateApis(),
@@ -1513,15 +1494,6 @@ function LogsPageContent() {
     },
   });
 
-  const accountNameMap = useMemo(() => {
-    return new Map(
-      (accountsResult?.items || []).map((account) => [
-        account.id,
-        account.label || account.name || account.id,
-      ]),
-    );
-  }, [accountsResult?.items]);
-
   const aggregateApiMap = useMemo(() => {
     return new Map(
       (aggregateApisResult || []).map((aggregateApi) => [
@@ -1538,6 +1510,35 @@ function LogsPageContent() {
       .filter(Boolean);
     return Array.from(new Set(ids)).sort();
   }, [logs]);
+
+  const accountLookupIds = useMemo(() => {
+    const ids = logs
+      .map((item) => String(item.accountId || "").trim())
+      .filter(Boolean);
+    return Array.from(new Set(ids)).sort();
+  }, [logs]);
+
+  const { data: accountsResult } = useQuery({
+    queryKey: ["accounts", "lookup", accountLookupIds],
+    queryFn: () => accountClient.lookupAccounts(accountLookupIds),
+    enabled:
+      areLogQueriesEnabled &&
+      isPageActive &&
+      isAdminMode &&
+      accountLookupIds.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+    placeholderData: (previousData) => {
+      if (previousData) {
+        return previousData;
+      }
+      if (startupAccounts.length === 0 || accountLookupIds.length === 0) {
+        return undefined;
+      }
+      const lookupIdSet = new Set(accountLookupIds);
+      return startupAccounts.filter((account) => lookupIdSet.has(account.id));
+    },
+  });
 
   const { data: apiKeysResult } = useQuery({
     queryKey: ["apikeys", "lookup", apiKeyLookupIds],
@@ -1556,6 +1557,15 @@ function LogsPageContent() {
       return startupApiKeys.filter((apiKey) => lookupIdSet.has(apiKey.id));
     },
   });
+
+  const accountNameMap = useMemo(() => {
+    return new Map(
+      (accountsResult || []).map((account) => [
+        account.id,
+        account.label || account.name || account.id,
+      ]),
+    );
+  }, [accountsResult]);
 
   const apiKeyMap = useMemo(() => {
     return new Map((apiKeysResult || []).map((apiKey) => [apiKey.id, apiKey]));

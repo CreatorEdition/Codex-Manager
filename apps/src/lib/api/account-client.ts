@@ -359,6 +359,23 @@ export const accountClient = {
     const result = await invoke<unknown>("service_account_list", withAddr(params));
     return normalizeAccountList(result);
   },
+  async lookupAccounts(ids: string[]) {
+    const normalizedIds = Array.from(
+      new Set(
+        (Array.isArray(ids) ? ids : [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    if (normalizedIds.length === 0) {
+      return [];
+    }
+    const result = await invoke<unknown>(
+      "service_account_lookup",
+      withAddr({ ids: normalizedIds }),
+    );
+    return normalizeAccountList(result).items;
+  },
   delete: (accountId: string) =>
     invoke("service_account_delete", withAddr({ accountId })),
   deleteMany: (accountIds: string[]) =>

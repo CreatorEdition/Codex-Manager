@@ -160,6 +160,16 @@ pub async fn service_account_list(
     .await
 }
 
+/// 按 ID 批量读取账号摘要，供日志页按当前页日志补齐账号名称。
+#[tauri::command]
+pub async fn service_account_lookup(
+    addr: Option<String>,
+    ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "ids": ids });
+    rpc_call_in_background("account/lookup", addr, Some(params)).await
+}
+
 /// 函数 `service_account_delete`
 ///
 /// 作者: gaohongshun
