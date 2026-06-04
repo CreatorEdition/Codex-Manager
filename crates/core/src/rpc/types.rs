@@ -1458,6 +1458,12 @@ pub struct RequestLogTodaySummaryResult {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartupSnapshotResult {
+    #[serde(default)]
+    pub account_total: i64,
+    #[serde(default)]
+    pub account_available: i64,
+    #[serde(default)]
+    pub api_key_total: i64,
     pub accounts: Vec<AccountSummary>,
     pub usage_snapshots: Vec<UsageSnapshotResult>,
     #[serde(default)]

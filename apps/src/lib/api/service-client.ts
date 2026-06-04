@@ -29,6 +29,10 @@ import {
   StartupSnapshot,
 } from "../../types";
 import { readInitializeResult } from "@/lib/utils/service";
+import {
+  STARTUP_SNAPSHOT_ACCOUNT_LIMIT,
+  STARTUP_SNAPSHOT_API_KEY_LIMIT,
+} from "@/lib/api/startup-snapshot";
 
 export const serviceClient = {
   start: (addr?: string) => invoke("service_start", { addr }),
@@ -45,11 +49,17 @@ export const serviceClient = {
       requestLogLimit?: number;
       dayStartTs?: number;
       dayEndTs?: number;
+      accountLimit?: number;
+      apiKeyLimit?: number;
     }
   ): Promise<StartupSnapshot> {
     const result = await invoke<unknown>(
       "service_startup_snapshot",
-      withAddr(params)
+      withAddr({
+        accountLimit: STARTUP_SNAPSHOT_ACCOUNT_LIMIT,
+        apiKeyLimit: STARTUP_SNAPSHOT_API_KEY_LIMIT,
+        ...(params || {}),
+      })
     );
     return normalizeStartupSnapshot(result);
   },

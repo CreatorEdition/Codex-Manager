@@ -107,18 +107,19 @@ export function useDashboardStats(options: UseDashboardStatsOptions = {}) {
     !hasStartupSignal &&
     snapshotQuery.isFetching;
   const hasSnapshotData = Boolean(data);
-  const totalAccounts = accounts.length;
-  const availableAccounts = accounts.filter((item) => item.isAvailable).length;
-  const unavailableAccounts = totalAccounts - availableAccounts;
   const currentAccount = pickCurrentAccount(
     accounts,
     data?.requestLogs || []
   );
   const recommendations = pickBestRecommendations(accounts);
+  const totalAccounts = data?.accountTotal ?? accounts.length;
+  const availableAccounts =
+    data?.accountAvailable ?? accounts.filter((item) => item.isAvailable).length;
+  const unavailableAccounts = Math.max(0, totalAccounts - availableAccounts);
 
   return {
     stats: {
-      apiKeyCount: data?.apiKeys.length || 0,
+      apiKeyCount: data?.apiKeyTotal ?? data?.apiKeys.length ?? 0,
       total: totalAccounts,
       available: availableAccounts,
       unavailable: unavailableAccounts,

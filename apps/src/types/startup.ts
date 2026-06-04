@@ -4,6 +4,9 @@ import type { ModelCatalog } from "@/types/model";
 import type { RequestLog, RequestLogTodaySummary } from "@/types/request-log";
 
 export interface StartupSnapshot {
+  accountTotal: number;
+  accountAvailable: number;
+  apiKeyTotal: number;
   accounts: Account[];
   usageSnapshots: AccountUsage[];
   usageAggregateSummary: UsageAggregateSummary;

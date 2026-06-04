@@ -1,6 +1,7 @@
 use codexmanager_core::rpc::types::JsonRpcRequest;
 use codexmanager_core::storage::{
-    now_ts, Account, Event, RequestLog, RequestTokenStat, Storage, Token, UsageSnapshotRecord,
+    now_ts, Account, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
+    UsageSnapshotRecord,
 };
 use std::fs;
 use std::io::{Read, Write};
@@ -2454,6 +2455,117 @@ fn rpc_usage_list_filters_requested_account_ids() {
         })
         .collect::<Vec<_>>();
     assert_eq!(ids, vec!["acc-2".to_string(), "acc-0".to_string()]);
+}
+
+#[test]
+fn rpc_startup_snapshot_limits_prefetch_sections_and_returns_totals() {
+    let ctx = RpcTestContext::new("rpc-startup-snapshot-limited");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    for idx in 0..3 {
+        storage
+            .insert_account(&Account {
+                id: format!("startup-acc-{idx}"),
+                label: format!("Startup Account {idx}"),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: Some(format!("startup-chatgpt-{idx}")),
+                workspace_id: Some(format!("startup-workspace-{idx}")),
+                group_name: None,
+                sort: idx as i64,
+                status: if idx == 2 { "disabled" } else { "active" }.to_string(),
+                created_at: now + idx as i64,
+                updated_at: now + idx as i64,
+            })
+            .expect("insert startup account");
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: format!("startup-acc-{idx}"),
+                used_percent: Some((idx * 10) as f64),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: None,
+                secondary_window_minutes: None,
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now + idx as i64,
+            })
+            .expect("insert startup usage");
+    }
+    for idx in 0..2 {
+        storage
+            .insert_api_key(&ApiKey {
+                id: format!("startup-key-{idx}"),
+                name: Some(format!("Startup Key {idx}")),
+                model_slug: Some("gpt-5.4".to_string()),
+                reasoning_effort: Some("medium".to_string()),
+                service_tier: None,
+                rotation_strategy: "account_rotation".to_string(),
+                aggregate_api_id: None,
+                account_plan_filter: None,
+                aggregate_api_url: None,
+                client_type: "codex".to_string(),
+                protocol_type: "openai_compat".to_string(),
+                auth_scheme: "authorization_bearer".to_string(),
+                upstream_base_url: None,
+                static_headers_json: None,
+                key_hash: format!("startup-key-hash-{idx}"),
+                status: "active".to_string(),
+                created_at: now + idx as i64,
+                last_used_at: None,
+            })
+            .expect("insert startup key");
+    }
+
+    let server = codexmanager_service::start_one_shot_server().expect("start startup server");
+    let req = JsonRpcRequest {
+        id: 808.into(),
+        method: "startup/snapshot".to_string(),
+        params: Some(serde_json::json!({
+            "accountLimit": 1,
+            "apiKeyLimit": 1,
+            "requestLogLimit": 0
+        })),
+        trace: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize startup snapshot");
+    let v = post_rpc(&server.addr, &json);
+    let result = v.get("result").expect("result");
+    assert_eq!(
+        result.get("accountTotal").and_then(|value| value.as_i64()),
+        Some(3)
+    );
+    assert_eq!(
+        result
+            .get("accountAvailable")
+            .and_then(|value| value.as_i64()),
+        Some(2)
+    );
+    assert_eq!(
+        result.get("apiKeyTotal").and_then(|value| value.as_i64()),
+        Some(2)
+    );
+    assert_eq!(
+        result
+            .get("accounts")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        result
+            .get("usageSnapshots")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        result
+            .get("apiKeys")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
 }
 
 /// 函数 `rpc_usage_aggregate_returns_backend_summary`

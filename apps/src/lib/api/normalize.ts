@@ -1835,12 +1835,24 @@ export function normalizeStartupSnapshot(payload: unknown): StartupSnapshot {
   const accounts = asArray(source.accounts)
     .map((item) => normalizeAccount(item, usageMap.get(asString(asObject(item).id))))
     .filter((item): item is Account => Boolean(item));
+  const accountTotal = toNullableNumber(source.accountTotal ?? source.account_total);
+  const accountAvailable = toNullableNumber(
+    source.accountAvailable ?? source.account_available,
+  );
+  const apiKeyTotal = toNullableNumber(source.apiKeyTotal ?? source.api_key_total);
+  const apiKeys = normalizeApiKeyList(source.apiKeys);
 
   return {
+    accountTotal: Math.max(0, accountTotal ?? accounts.length),
+    accountAvailable: Math.max(
+      0,
+      accountAvailable ?? accounts.filter((item) => item.isAvailable).length,
+    ),
+    apiKeyTotal: Math.max(0, apiKeyTotal ?? apiKeys.length),
     accounts,
     usageSnapshots,
     usageAggregateSummary: normalizeUsageAggregateSummary(source.usageAggregateSummary),
-    apiKeys: normalizeApiKeyList(source.apiKeys),
+    apiKeys,
     apiModels: normalizeModelCatalog(source.apiModels ?? { models: source.apiModelOptions }),
     manualPreferredAccountId: asString(source.manualPreferredAccountId),
     requestLogTodaySummary: normalizeTodaySummary(source.requestLogTodaySummary),
