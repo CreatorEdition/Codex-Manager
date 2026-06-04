@@ -1,7 +1,7 @@
 use codexmanager_core::rpc::types::JsonRpcRequest;
 use codexmanager_core::storage::{
-    now_ts, Account, AggregateApi, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
-    UsageSnapshotRecord,
+    now_ts, Account, AggregateApi, ApiKey, ApiKeyOwner, AppUser, Event, RequestLog,
+    RequestTokenStat, Storage, Token, UsageSnapshotRecord,
 };
 use std::fs;
 use std::io::{Read, Write};
@@ -3325,6 +3325,117 @@ fn rpc_accepts_loopback_origin() {
         ],
     );
     assert_eq!(status, 200, "unexpected status {status}: {body}");
+}
+
+#[test]
+fn rpc_account_manager_lists_support_lookup_filters() {
+    let ctx = RpcTestContext::new("rpc-account-manager-lookup-filters");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    for idx in 0..3 {
+        storage
+            .insert_app_user(&AppUser {
+                id: format!("user-{idx}"),
+                username: format!("member-{idx}"),
+                display_name: Some(format!("Member {idx}")),
+                password_hash: format!("hash-{idx}"),
+                role: "member".to_string(),
+                status: "active".to_string(),
+                created_at: now + idx,
+                updated_at: now + idx,
+                last_login_at: None,
+            })
+            .expect("insert app user");
+        storage
+            .insert_api_key(&ApiKey {
+                id: format!("key-{idx}"),
+                name: Some(format!("Key {idx}")),
+                model_slug: Some("gpt-5.4".to_string()),
+                reasoning_effort: None,
+                service_tier: None,
+                rotation_strategy: "account_rotation".to_string(),
+                aggregate_api_id: None,
+                account_plan_filter: None,
+                aggregate_api_url: None,
+                client_type: "codex".to_string(),
+                protocol_type: "openai_compat".to_string(),
+                auth_scheme: "authorization_bearer".to_string(),
+                upstream_base_url: None,
+                static_headers_json: None,
+                key_hash: format!("hash-key-{idx}"),
+                status: "active".to_string(),
+                created_at: now + idx,
+                last_used_at: None,
+            })
+            .expect("insert api key");
+        storage
+            .upsert_api_key_owner(&ApiKeyOwner {
+                key_id: format!("key-{idx}"),
+                owner_kind: "user".to_string(),
+                owner_user_id: Some(format!("user-{idx}")),
+                project_id: None,
+                updated_at: now + idx,
+            })
+            .expect("insert api key owner");
+    }
+
+    let empty_server =
+        codexmanager_service::start_one_shot_server().expect("start empty owner server");
+    let empty_req = JsonRpcRequest {
+        id: 91.into(),
+        method: "accountManager/apiKeyOwners/list".to_string(),
+        params: Some(serde_json::json!({ "keyIds": [] })),
+        trace: None,
+    };
+    let empty_json = serde_json::to_string(&empty_req).expect("serialize empty owners");
+    let empty_v = post_rpc(&empty_server.addr, &empty_json);
+    assert!(empty_v["result"]
+        .as_array()
+        .expect("empty owner list")
+        .is_empty());
+
+    let owner_server =
+        codexmanager_service::start_one_shot_server().expect("start owner lookup server");
+    let owner_req = JsonRpcRequest {
+        id: 92.into(),
+        method: "accountManager/apiKeyOwners/list".to_string(),
+        params: Some(serde_json::json!({
+            "keyIds": ["key-2", "key-0", "key-2", ""]
+        })),
+        trace: None,
+    };
+    let owner_json = serde_json::to_string(&owner_req).expect("serialize owners lookup");
+    let owner_v = post_rpc(&owner_server.addr, &owner_json);
+    let mut owner_ids = owner_v["result"]
+        .as_array()
+        .expect("owner list")
+        .iter()
+        .map(|item| item["keyId"].as_str().expect("key id").to_string())
+        .collect::<Vec<_>>();
+    owner_ids.sort();
+    assert_eq!(owner_ids, vec!["key-0".to_string(), "key-2".to_string()]);
+
+    let users_server =
+        codexmanager_service::start_one_shot_server().expect("start user lookup server");
+    let users_req = JsonRpcRequest {
+        id: 93.into(),
+        method: "accountManager/users/list".to_string(),
+        params: Some(serde_json::json!({
+            "ids": ["user-1", "user-0", "user-1", ""]
+        })),
+        trace: None,
+    };
+    let users_json = serde_json::to_string(&users_req).expect("serialize users lookup");
+    let users_v = post_rpc(&users_server.addr, &users_json);
+    let mut user_ids = users_v["result"]
+        .as_array()
+        .expect("user list")
+        .iter()
+        .map(|item| item["id"].as_str().expect("user id").to_string())
+        .collect::<Vec<_>>();
+    user_ids.sort();
+    assert_eq!(user_ids, vec!["user-0".to_string(), "user-1".to_string()]);
 }
 
 #[test]

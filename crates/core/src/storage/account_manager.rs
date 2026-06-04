@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use rusqlite::{params, OptionalExtension, Result, Row};
+use rusqlite::{params, params_from_iter, OptionalExtension, Result, Row};
 
 use super::{
-    now_ts, ApiKeyOwner, AppProject, AppUser, AppUserSession, AppWallet, AppWalletLedgerEntry,
-    BillingRule, Storage,
+    now_ts, sqlite_placeholders, sqlite_text_params, ApiKeyOwner, AppProject, AppUser,
+    AppUserSession, AppWallet, AppWalletLedgerEntry, BillingRule, Storage,
 };
 
 fn map_app_user(row: &Row<'_>) -> Result<AppUser> {
@@ -157,6 +157,22 @@ impl Storage {
              ORDER BY created_at ASC, username ASC",
         )?;
         let rows = stmt.query_map([], map_app_user)?;
+        rows.collect()
+    }
+
+    pub fn list_app_users_by_ids(&self, ids: &[String]) -> Result<Vec<AppUser>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = sqlite_placeholders(ids.len());
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, username, display_name, password_hash, role, status,
+                    created_at, updated_at, last_login_at
+             FROM app_users
+             WHERE id IN ({placeholders})
+             ORDER BY created_at ASC, username ASC"
+        ))?;
+        let rows = stmt.query_map(params_from_iter(sqlite_text_params(ids)), map_app_user)?;
         rows.collect()
     }
 
@@ -473,6 +489,42 @@ impl Storage {
             out.insert(owner.key_id.clone(), owner);
         }
         Ok(out)
+    }
+
+    pub fn list_api_key_owners_by_key_ids(
+        &self,
+        key_ids: &[String],
+    ) -> Result<HashMap<String, ApiKeyOwner>> {
+        if key_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let placeholders = sqlite_placeholders(key_ids.len());
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT key_id, owner_kind, owner_user_id, project_id, updated_at
+             FROM api_key_owners
+             WHERE key_id IN ({placeholders})"
+        ))?;
+        let rows = stmt.query_map(
+            params_from_iter(sqlite_text_params(key_ids)),
+            map_api_key_owner,
+        )?;
+        let mut out = HashMap::new();
+        for row in rows {
+            let owner = row?;
+            out.insert(owner.key_id.clone(), owner);
+        }
+        Ok(out)
+    }
+
+    pub fn list_api_key_owner_key_ids_for_user(&self, user_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT key_id
+             FROM api_key_owners
+             WHERE owner_kind = 'user' AND owner_user_id = ?1
+             ORDER BY key_id ASC",
+        )?;
+        let rows = stmt.query_map([user_id], |row| row.get::<_, String>(0))?;
+        rows.collect()
     }
 
     pub fn api_key_owner_count(&self) -> Result<i64> {

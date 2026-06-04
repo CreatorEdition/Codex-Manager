@@ -41,8 +41,10 @@ pub async fn service_account_manager_password_change(
 #[tauri::command]
 pub async fn service_account_manager_users_list(
     addr: Option<String>,
+    ids: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
-    rpc_call_in_background("accountManager/users/list", addr, None).await
+    let params = ids.map(|ids| serde_json::json!({ "ids": ids }));
+    rpc_call_in_background("accountManager/users/list", addr, params).await
 }
 
 #[tauri::command]
@@ -81,8 +83,10 @@ pub async fn service_account_manager_wallet_top_up(
 #[tauri::command]
 pub async fn service_account_manager_api_key_owners_list(
     addr: Option<String>,
+    key_ids: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
-    rpc_call_in_background("accountManager/apiKeyOwners/list", addr, None).await
+    let params = key_ids.map(|ids| serde_json::json!({ "keyIds": ids }));
+    rpc_call_in_background("accountManager/apiKeyOwners/list", addr, params).await
 }
 
 #[tauri::command]

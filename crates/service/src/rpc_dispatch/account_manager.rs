@@ -2,6 +2,20 @@ use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
 
 use crate::RpcActor;
 
+fn string_array_param(req: &JsonRpcRequest, key: &str) -> Option<Vec<String>> {
+    req.params
+        .as_ref()
+        .and_then(|params| params.get(key))
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(|item| item.to_string())
+                .collect::<Vec<_>>()
+        })
+}
+
 /// 函数 `try_handle`
 ///
 /// 作者: gaohongshun
@@ -30,7 +44,13 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                 new_password,
             ))
         }
-        "accountManager/users/list" => super::value_or_error(crate::list_app_users()),
+        "accountManager/users/list" => {
+            if let Some(ids) = string_array_param(req, "ids") {
+                super::value_or_error(crate::lookup_app_users(ids))
+            } else {
+                super::value_or_error(crate::list_app_users())
+            }
+        }
         "accountManager/users/create" => {
             let input = req
                 .params
@@ -81,7 +101,13 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                 owner_kind, owner_id, amount, note, created_by,
             ))
         }
-        "accountManager/apiKeyOwners/list" => super::value_or_error(crate::list_api_key_owners()),
+        "accountManager/apiKeyOwners/list" => {
+            if let Some(key_ids) = string_array_param(req, "keyIds") {
+                super::value_or_error(crate::lookup_api_key_owners(key_ids))
+            } else {
+                super::value_or_error(crate::list_api_key_owners())
+            }
+        }
         "accountManager/apiKeyOwners/set" => {
             let key_id = super::str_param(req, "keyId").unwrap_or("");
             let owner_kind = super::str_param(req, "ownerKind").unwrap_or("user");

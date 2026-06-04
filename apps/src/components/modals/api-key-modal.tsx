@@ -236,9 +236,7 @@ export function ApiKeyModal({
       setQuotaLimitUnit("k");
       setUpstreamBaseUrl("");
       setCustomKey("");
-      setOwnerUserId(
-        memberOwnershipEnabled && distributionEnabled ? billableUsers[0]?.id || "" : "",
-      );
+      setOwnerUserId("");
       setGeneratedKey("");
       return;
     }
@@ -266,10 +264,26 @@ export function ApiKeyModal({
   }, [
     apiKey,
     apiKeyOwner,
+    distributionEnabled,
+    memberOwnershipEnabled,
+    open,
+  ]);
+
+  useEffect(() => {
+    if (!open || apiKey || !memberOwnershipEnabled || !distributionEnabled || ownerUserId) {
+      return;
+    }
+    const defaultOwnerUserId = billableUsers[0]?.id || "";
+    if (defaultOwnerUserId) {
+      setOwnerUserId(defaultOwnerUserId);
+    }
+  }, [
+    apiKey,
     billableUsers,
     distributionEnabled,
     memberOwnershipEnabled,
     open,
+    ownerUserId,
   ]);
 
   const handleQuotaLimitUnitChange = (unit: QuotaLimitUnit) => {

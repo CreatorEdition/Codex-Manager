@@ -161,6 +161,13 @@ function readAccountManagerStatus(value: unknown): AccountManagerStatus {
   };
 }
 
+function normalizeStringList(values: unknown[] | undefined): string[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
 function readAppRole(value: unknown): AppRole {
   const role = asString(value);
   if (role === "admin" || role === "member" || role === "system_admin") {
@@ -230,8 +237,13 @@ export const appClient = {
   }): Promise<void> {
     await invoke<unknown>("service_account_manager_password_change", payload);
   },
-  async listAppUsers(): Promise<AppUser[]> {
-    const result = await invoke<unknown>("service_account_manager_users_list");
+  async listAppUsers(params?: { ids?: string[] }): Promise<AppUser[]> {
+    const hasIds = Array.isArray(params?.ids);
+    const ids = normalizeStringList(params?.ids);
+    const result = await invoke<unknown>(
+      "service_account_manager_users_list",
+      hasIds ? { ids } : {},
+    );
     return Array.isArray(result) ? result.map(readAppUser) : [];
   },
   async createAppUser(payload: {
@@ -282,8 +294,13 @@ export const appClient = {
     );
     return readWallet(result);
   },
-  async listApiKeyOwners(): Promise<ApiKeyOwner[]> {
-    const result = await invoke<unknown>("service_account_manager_api_key_owners_list");
+  async listApiKeyOwners(params?: { keyIds?: string[] }): Promise<ApiKeyOwner[]> {
+    const hasKeyIds = Array.isArray(params?.keyIds);
+    const keyIds = normalizeStringList(params?.keyIds);
+    const result = await invoke<unknown>(
+      "service_account_manager_api_key_owners_list",
+      hasKeyIds ? { keyIds } : {},
+    );
     return Array.isArray(result) ? result.map(readApiKeyOwner) : [];
   },
   async setApiKeyOwner(payload: {

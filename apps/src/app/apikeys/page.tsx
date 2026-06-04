@@ -243,6 +243,10 @@ export default function ApiKeysPage() {
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
   const [ccSwitchImportingId, setCcSwitchImportingId] = useState<string | null>(null);
   const [browserOrigin, setBrowserOrigin] = useState("");
+  const visibleApiKeyIds = useMemo(
+    () => apiKeys.map((key) => key.id).filter(Boolean),
+    [apiKeys],
+  );
   const apiKeyTotalPages = Math.max(
     1,
     Math.ceil(totalApiKeys / Math.max(1, currentApiKeyPageSize || apiKeyPageSizeNumber)),
@@ -267,15 +271,40 @@ export default function ApiKeysPage() {
     retry: 1,
   });
   const { data: appUsers = [] } = useQuery<AppUser[]>({
-    queryKey: ["account-manager", "users"],
+    queryKey: ["account-manager", "users", "apikey-modal"],
     queryFn: () => appClient.listAppUsers(),
-    enabled: isUsageQueryEnabled && isPageActive && showMemberOwnership,
+    enabled:
+      isUsageQueryEnabled &&
+      isPageActive &&
+      showMemberOwnership &&
+      apiKeyModalOpen,
     retry: 1,
   });
   const { data: apiKeyOwners = [] } = useQuery<ApiKeyOwner[]>({
-    queryKey: ["account-manager", "api-key-owners"],
-    queryFn: () => appClient.listApiKeyOwners(),
+    queryKey: ["account-manager", "api-key-owners", visibleApiKeyIds],
+    queryFn: () => appClient.listApiKeyOwners({ keyIds: visibleApiKeyIds }),
     enabled: isUsageQueryEnabled && isPageActive && showMemberOwnership,
+    retry: 1,
+  });
+  const visibleOwnerUserIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          apiKeyOwners
+            .map((owner) => owner.ownerUserId || "")
+            .filter(Boolean),
+        ),
+      ),
+    [apiKeyOwners],
+  );
+  const { data: visibleOwnerUsers = [] } = useQuery<AppUser[]>({
+    queryKey: ["account-manager", "users", "api-key-owners", visibleOwnerUserIds],
+    queryFn: () => appClient.listAppUsers({ ids: visibleOwnerUserIds }),
+    enabled:
+      isUsageQueryEnabled &&
+      isPageActive &&
+      showMemberOwnership &&
+      visibleOwnerUserIds.length > 0,
     retry: 1,
   });
   const billableAppUsers = useMemo(
@@ -283,8 +312,11 @@ export default function ApiKeysPage() {
     [appUsers],
   );
   const appUsersById = useMemo(
-    () => new Map(appUsers.map((user) => [user.id, user])),
-    [appUsers],
+    () => {
+      const users = [...visibleOwnerUsers, ...appUsers];
+      return new Map(users.map((user) => [user.id, user]));
+    },
+    [appUsers, visibleOwnerUsers],
   );
   const ownerByKeyId = useMemo(
     () => new Map(apiKeyOwners.map((owner) => [owner.keyId, owner])),
@@ -349,10 +381,6 @@ export default function ApiKeysPage() {
       queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
     ]);
   };
-  const visibleApiKeyIds = useMemo(
-    () => apiKeys.map((key) => key.id).filter(Boolean),
-    [apiKeys],
-  );
   const { data: usageOverview, isPending: isUsageOverviewLoading } = useQuery({
     queryKey: ["apikey-usage-overview", serviceAddr || null, visibleApiKeyIds],
     queryFn: async () => {

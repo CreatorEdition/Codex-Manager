@@ -20,6 +20,7 @@ pub const WEB_AUTH_MODE_PASSWORD: &str = "password";
 pub const WEB_AUTH_MODE_ACCOUNTS: &str = "accounts";
 const SESSION_TTL_SECONDS: i64 = 60 * 60 * 24 * 14;
 const CREDIT_MICROS_PER_USD: f64 = 1_000_000.0;
+const MAX_ACCOUNT_MANAGER_LOOKUP_IDS: usize = 500;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -432,6 +433,31 @@ pub fn list_app_users() -> Result<Vec<AppUserPublicResult>, String> {
         .collect()
 }
 
+pub fn lookup_app_users(ids: Vec<String>) -> Result<Vec<AppUserPublicResult>, String> {
+    let ids = normalize_lookup_ids(ids);
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    crate::initialize_storage_if_needed()?;
+    let storage = open_storage_or_error()?;
+    let users = storage
+        .list_app_users_by_ids(&ids)
+        .map_err(|err| format!("lookup app users failed: {err}"))?;
+    users
+        .into_iter()
+        .map(|user| {
+            let wallet = if app_user_can_own_wallet(&user) {
+                storage
+                    .find_wallet_by_owner("user", &user.id)
+                    .map_err(|err| format!("read app wallet failed: {err}"))?
+            } else {
+                None
+            };
+            Ok(public_user(user, wallet))
+        })
+        .collect()
+}
+
 pub fn update_app_user(input: AppUserUpdateInput) -> Result<AppUserPublicResult, String> {
     crate::initialize_storage_if_needed()?;
     let storage = open_storage_or_error()?;
@@ -544,6 +570,23 @@ pub fn list_api_key_owners() -> Result<Vec<ApiKeyOwnerResult>, String> {
     Ok(owners)
 }
 
+pub fn lookup_api_key_owners(key_ids: Vec<String>) -> Result<Vec<ApiKeyOwnerResult>, String> {
+    let key_ids = normalize_lookup_ids(key_ids);
+    if key_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    crate::initialize_storage_if_needed()?;
+    let storage = open_storage_or_error()?;
+    let mut owners = storage
+        .list_api_key_owners_by_key_ids(&key_ids)
+        .map_err(|err| format!("lookup api key owners failed: {err}"))?
+        .into_values()
+        .map(api_key_owner_result)
+        .collect::<Vec<_>>();
+    owners.sort_by(|a, b| a.key_id.cmp(&b.key_id));
+    Ok(owners)
+}
+
 pub fn list_api_key_ids_for_user(user_id: &str) -> Result<Vec<String>, String> {
     let user_id = user_id.trim();
     if user_id.is_empty() {
@@ -551,18 +594,9 @@ pub fn list_api_key_ids_for_user(user_id: &str) -> Result<Vec<String>, String> {
     }
     crate::initialize_storage_if_needed()?;
     let storage = open_storage_or_error()?;
-    let mut key_ids = storage
-        .list_api_key_owners()
-        .map_err(|err| format!("list api key owners failed: {err}"))?
-        .into_values()
-        .filter(|owner| {
-            owner.owner_kind == "user"
-                && owner.owner_user_id.as_deref().map(str::trim) == Some(user_id)
-        })
-        .map(|owner| owner.key_id)
-        .collect::<Vec<_>>();
-    key_ids.sort();
-    Ok(key_ids)
+    storage
+        .list_api_key_owner_key_ids_for_user(user_id)
+        .map_err(|err| format!("list api key owners failed: {err}"))
 }
 
 pub fn api_key_belongs_to_user(key_id: &str, user_id: &str) -> Result<bool, String> {
@@ -1357,6 +1391,18 @@ fn api_key_owner_result(owner: ApiKeyOwner) -> ApiKeyOwnerResult {
         project_id: owner.project_id,
         updated_at: owner.updated_at,
     }
+}
+
+fn normalize_lookup_ids(ids: Vec<String>) -> Vec<String> {
+    let mut ids = ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    ids.truncate(MAX_ACCOUNT_MANAGER_LOOKUP_IDS);
+    ids
 }
 
 fn owner_identity(owner: &ApiKeyOwner) -> Result<(&str, &str), String> {
