@@ -249,7 +249,11 @@ export const EN_MESSAGES: MessageCatalog = {
   "个账号，本次将只导出选中的账号。":
     "accounts; only the selected accounts will be exported.",
   "当前未选择账号，本次将导出全部": "No accounts selected; exporting all",
+  "当前未选择账号，本次将导出全部账号。":
+    "No accounts selected; all accounts will be exported.",
   "个账号。": "accounts.",
+  "当前存在搜索或筛选，请先勾选要导出的账号":
+    "Search or filters are active. Select the accounts to export first.",
   请先选择要删除的账号: "Please select accounts to delete first",
   当前没有可清理的封禁账号: "There are no banned accounts to clean up",
   "服务未连接，暂时无法导出账号":
@@ -265,12 +269,16 @@ export const EN_MESSAGES: MessageCatalog = {
   "账号数量不足，无需重新排序": "Not enough accounts to reorder",
   当前已经是大号优先顺序: "Large-account-first order is already applied",
   当前已经是小号优先顺序: "Small-account-first order is already applied",
+  "后端分页模式下请通过编辑顺序值调整账号排序":
+    "Backend pagination is active. Edit the order value to adjust global account order.",
   请输入账号名称: "Please enter an account name",
   请输入顺序值: "Please enter an order value",
   顺序必须是数字: "Order must be a number",
   "服务未连接，账号列表与相关操作暂不可用；连接恢复后会自动继续加载。":
     "Service is disconnected. The account list and related actions are temporarily unavailable and will resume automatically after reconnection.",
   "搜索账号名 / 编号...": "Search account name / ID...",
+  "计划类型筛选需要后端分页支持，已暂时停用":
+    "Plan type filtering needs backend pagination support and is temporarily disabled.",
   全部状态: "All statuses",
   账号操作: "Account actions",
   刷新: "Refresh",
@@ -294,6 +302,9 @@ export const EN_MESSAGES: MessageCatalog = {
   大号优先排序: "Large accounts first",
   小号优先排序: "Small accounts first",
   清理: "Cleanup",
+  当前页匹配: "Current page matches",
+  "个账号；确认后会清理全部匹配所选状态的账号":
+    "accounts; confirming will clean all accounts matching the selected statuses.",
   删除选中账号: "Delete selected accounts",
   清理免费不可用账号: "Clean unavailable free accounts",
   一键清理封禁账号: "Clean all banned accounts",

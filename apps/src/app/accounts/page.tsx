@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useDesktopPageActive } from "@/hooks/useDesktopPageActive";
@@ -12,12 +12,10 @@ import {
   buildAccountOrderUpdates,
   type AccountEditorState,
   type DeleteDialogState,
-  normalizeAccountPlanKey,
   normalizeTagsDraft,
   type StatusFilter,
 } from "@/app/accounts/accounts-page-helpers";
 import { AccountsPageView } from "@/app/accounts/accounts-page-view";
-import { isBannedAccount, isLimitedAccount } from "@/lib/utils/usage";
 import type { Account } from "@/types";
 
 type CleanupStatus = "unavailable" | "banned" | "limited" | "disabled" | "inactive";
@@ -37,13 +35,33 @@ function normalizeCleanupStatus(status: string): CleanupStatus | null {
     : null;
 }
 
+function accountStatusFilterToBackendFilter(statusFilter: StatusFilter): string {
+  if (statusFilter === "available") {
+    return "active";
+  }
+  if (statusFilter === "low_quota") {
+    return "low";
+  }
+  return "all";
+}
+
 export default function AccountsPage() {
   const { t } = useI18n();
   const { isDesktopRuntime, canUseBrowserDownloadExport } =
     useRuntimeCapabilities();
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
+  const [planFilter, setPlanFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [pageSize, setPageSize] = useState("20");
+  const [page, setPage] = useState(1);
+  const pageSizeNumber = Number(pageSize) || 20;
   const {
     accounts,
     planTypes,
+    totalAccounts,
+    accountPage,
+    accountPageSize,
     isLoading,
     isServiceReady,
     refreshAccount,
@@ -75,15 +93,15 @@ export default function AccountsPage() {
     isUpdatingProfileAccountId,
     toggleAccountStatus,
     isUpdatingStatusAccountId,
-  } = useAccounts();
+  } = useAccounts({
+    page,
+    pageSize: pageSizeNumber,
+    query: deferredSearch,
+    filter: accountStatusFilterToBackendFilter(statusFilter),
+  });
   const isPageActive = useDesktopPageActive("/accounts/");
   usePageTransitionReady("/accounts/", !isServiceReady || !isLoading);
 
-  const [search, setSearch] = useState("");
-  const [planFilter, setPlanFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [pageSize, setPageSize] = useState("20");
-  const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [addAccountModalOpen, setAddAccountModalOpen] = useState(false);
   const [usageModalOpen, setUsageModalOpen] = useState(false);
@@ -124,46 +142,19 @@ export default function AccountsPage() {
     : !isDesktopRuntime && canUseBrowserDownloadExport
       ? "DL"
       : "ZIP";
+  const canUsePlanFilter = false;
+  const canReorderAccounts = false;
+  const hasActiveAccountQuery = Boolean(search.trim()) || statusFilter !== "all";
 
-  const filteredAccounts = useMemo(() => {
-    return accounts.filter((account) => {
-      const matchSearch =
-        !search ||
-        account.name.toLowerCase().includes(search.toLowerCase()) ||
-        account.id.toLowerCase().includes(search.toLowerCase());
-      const matchPlan =
-        planFilter === "all" || normalizeAccountPlanKey(account) === planFilter;
-      const matchStatus =
-        statusFilter === "all" ||
-        (statusFilter === "available" && account.isAvailable) ||
-        (statusFilter === "low_quota" && account.isLowQuota) ||
-        (statusFilter === "limited" && isLimitedAccount(account)) ||
-        (statusFilter === "banned" && isBannedAccount(account));
-      return matchSearch && matchPlan && matchStatus;
-    });
-  }, [accounts, planFilter, search, statusFilter]);
+  const filteredAccounts = accounts;
 
   const statusFilterOptions = useMemo(
     () => [
-      { id: "all" as const, label: `${t("全部")} (${accounts.length})` },
-      {
-        id: "available" as const,
-        label: `${t("可用")} (${accounts.filter((account) => account.isAvailable).length})`,
-      },
-      {
-        id: "low_quota" as const,
-        label: `${t("低配额")} (${accounts.filter((account) => account.isLowQuota).length})`,
-      },
-      {
-        id: "limited" as const,
-        label: `${t("限流")} (${accounts.filter((account) => isLimitedAccount(account)).length})`,
-      },
-      {
-        id: "banned" as const,
-        label: `${t("封禁")} (${accounts.filter((account) => isBannedAccount(account)).length})`,
-      },
+      { id: "all" as const, label: `${t("全部")} (${totalAccounts})` },
+      { id: "available" as const, label: t("可用") },
+      { id: "low_quota" as const, label: t("低配额") },
     ],
-    [accounts, t],
+    [t, totalAccounts],
   );
 
   const cleanupStatusCounts = useMemo(() => {
@@ -214,12 +205,11 @@ export default function AccountsPage() {
     [cleanupStatusCounts, t],
   );
 
-  const pageSizeNumber = Number(pageSize) || 20;
   const totalPages = Math.max(
     1,
-    Math.ceil(filteredAccounts.length / pageSizeNumber),
+    Math.ceil(totalAccounts / Math.max(1, accountPageSize || pageSizeNumber)),
   );
-  const safePage = Math.min(page, totalPages);
+  const safePage = Math.min(accountPage || page, totalPages);
   const accountIdSet = useMemo(
     () => new Set(accounts.map((account) => account.id)),
     [accounts],
@@ -230,21 +220,18 @@ export default function AccountsPage() {
   );
   const exportSelectionCount = effectiveSelectedIds.length;
   const exportTargetCount =
-    exportSelectionCount > 0 ? exportSelectionCount : accounts.length;
+    exportSelectionCount > 0 ? exportSelectionCount : totalAccounts;
   const exportScopeText =
     exportSelectionCount > 0
       ? `${t("当前已选择")} ${exportSelectionCount} ${t("个账号，本次将只导出选中的账号。")}`
-      : `${t("当前未选择账号，本次将导出全部")} ${accounts.length} ${t("个账号。")}`;
+      : t("当前未选择账号，本次将导出全部账号。");
 
-  const visibleAccounts = useMemo(() => {
-    const offset = (safePage - 1) * pageSizeNumber;
-    return filteredAccounts.slice(offset, offset + pageSizeNumber);
-  }, [filteredAccounts, pageSizeNumber, safePage]);
+  const visibleAccounts = accounts;
 
   const filteredAccountIndexMap = useMemo(
     () =>
-      new Map(filteredAccounts.map((account, index) => [account.id, index])),
-    [filteredAccounts],
+      new Map(accounts.map((account, index) => [account.id, index])),
+    [accounts],
   );
 
   const selectedAccount = useMemo(
@@ -267,6 +254,12 @@ export default function AccountsPage() {
   };
 
   const handlePlanFilterChange = (value: string | null) => {
+    if (value && value !== "all") {
+      toast.info(t("计划类型筛选需要后端分页支持，已暂时停用"));
+      setPlanFilter("all");
+      setPage(1);
+      return;
+    }
     setPlanFilter(value || "all");
     setPage(1);
   };
@@ -327,7 +320,7 @@ export default function AccountsPage() {
   };
 
   const openCleanupDialog = () => {
-    if (!accounts.length) {
+    if (totalAccounts <= 0) {
       toast.info(t("当前没有可清理的账号"));
       return;
     }
@@ -351,14 +344,6 @@ const toggleCleanupStatus = (rawStatus: string) => {
       toast.error(t("请至少选择一种账号状态"));
       return;
     }
-    const targetCount = cleanupStatusDraft.reduce(
-      (total, status) => total + (cleanupStatusCounts.get(status) || 0),
-      0,
-    );
-    if (targetCount <= 0) {
-      toast.info(t("当前没有匹配所选状态的账号"));
-      return;
-    }
     try {
       await cleanupAccountsByStatuses(cleanupStatusDraft);
       setCleanupDialogOpen(false);
@@ -369,7 +354,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
 
   const handleWarmupAccounts = async () => {
     const targetIds = effectiveSelectedIds.length > 0 ? effectiveSelectedIds : [];
-    const targetCount = targetIds.length > 0 ? targetIds.length : accounts.length;
+    const targetCount = targetIds.length > 0 ? targetIds.length : totalAccounts;
     if (targetCount <= 0) {
       toast.info(t("当前没有可预热的账号"));
       return;
@@ -389,7 +374,11 @@ const toggleCleanupStatus = (rawStatus: string) => {
       toast.info(t("服务未连接，暂时无法导出账号"));
       return;
     }
-    if (!accounts.length) {
+    if (!effectiveSelectedIds.length && hasActiveAccountQuery) {
+      toast.info(t("当前存在搜索或筛选，请先勾选要导出的账号"));
+      return;
+    }
+    if (exportTargetCount <= 0) {
       toast.info(t("当前没有可导出的账号"));
       return;
     }
@@ -398,6 +387,10 @@ const toggleCleanupStatus = (rawStatus: string) => {
   };
 
   const handleConfirmExport = async () => {
+    if (!exportSelectionCount && hasActiveAccountQuery) {
+      toast.info(t("当前存在搜索或筛选，请先勾选要导出的账号"));
+      return;
+    }
     if (exportTargetCount <= 0) {
       toast.info(t("当前没有可导出的账号"));
       return;
@@ -451,6 +444,10 @@ const toggleCleanupStatus = (rawStatus: string) => {
     account: Account,
     direction: "up" | "down",
   ) => {
+    if (!canReorderAccounts) {
+      toast.info(t("后端分页模式下请通过编辑顺序值调整账号排序"));
+      return;
+    }
     const filteredIndex = filteredAccountIndexMap.get(account.id);
     if (filteredIndex == null) {
       toast.error(t("未找到当前账号，请刷新后重试"));
@@ -499,6 +496,10 @@ const toggleCleanupStatus = (rawStatus: string) => {
   const handleApplyAccountSizeSort = async (
     mode: "large-first" | "small-first",
   ) => {
+    if (!canReorderAccounts) {
+      toast.info(t("后端分页模式下请通过编辑顺序值调整账号排序"));
+      return;
+    }
     if (accounts.length < 2) {
       toast.info(t("账号数量不足，无需重新排序"));
       return;
@@ -606,6 +607,7 @@ const toggleCleanupStatus = (rawStatus: string) => {
     <AccountsPageView
       accounts={accounts}
       planTypes={planTypes}
+      totalAccounts={totalAccounts}
       isLoading={isLoading}
       isServiceReady={isServiceReady}
       isPageActive={isPageActive}
@@ -652,6 +654,8 @@ const toggleCleanupStatus = (rawStatus: string) => {
       isUpdatingProfileAccountId={isUpdatingProfileAccountId}
       isUpdatingStatusAccountId={isUpdatingStatusAccountId}
       statusFilterOptions={statusFilterOptions}
+      canUsePlanFilter={canUsePlanFilter}
+      canReorderAccounts={canReorderAccounts}
       importFileActionLabel={importFileActionLabel}
       importDirectoryActionLabel={importDirectoryActionLabel}
       exportActionLabel={exportActionLabel}

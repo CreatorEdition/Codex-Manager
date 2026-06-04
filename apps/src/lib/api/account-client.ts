@@ -84,6 +84,14 @@ export interface ApiKeyListParams {
   statusFilter?: string | null;
 }
 
+export interface AccountListParams {
+  page?: number;
+  pageSize?: number;
+  query?: string | null;
+  filter?: string | null;
+  groupFilter?: string | null;
+}
+
 export interface AccountWarmupPayload {
   accountIds?: string[];
   message?: string;
@@ -355,8 +363,11 @@ async function importAccountContents(contents: string[]): Promise<AccountImportR
 }
 
 export const accountClient = {
-  async list(params?: Record<string, unknown>): Promise<AccountListResult> {
-    const result = await invoke<unknown>("service_account_list", withAddr(params));
+  async list(params?: AccountListParams): Promise<AccountListResult> {
+    const result = await invoke<unknown>(
+      "service_account_list",
+      withAddr(params ? { ...params } : {}),
+    );
     return normalizeAccountList(result);
   },
   async lookupAccounts(ids: string[]) {

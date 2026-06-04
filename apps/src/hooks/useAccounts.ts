@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { accountClient } from "@/lib/api/account-client";
+import { accountClient, AccountListParams } from "@/lib/api/account-client";
 import { attachUsagesToAccounts } from "@/lib/api/normalize";
 import {
   buildStartupSnapshotQueryKey,
@@ -33,21 +33,27 @@ type DeleteAccountsByStatusesResult = Awaited<
 >;
 type AccountSortUpdate = { accountId: string; sort: number };
 
-/**
- * 函数 `isAccountRefreshBlocked`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - status: 参数 status
- *
- * # 返回
- * 返回函数执行结果
- */
-function isAccountRefreshBlocked(status: string | null | undefined): boolean {
-  return String(status || "").trim().toLowerCase() === "disabled";
+const DEFAULT_ACCOUNT_PAGE_SIZE = 20;
+const MAX_ACCOUNT_PAGE_SIZE = 500;
+
+function normalizeAccountListParams(
+  params?: AccountListParams,
+): Required<AccountListParams> {
+  const page = Math.max(1, Number(params?.page) || 1);
+  const pageSize = Math.min(
+    MAX_ACCOUNT_PAGE_SIZE,
+    Math.max(1, Number(params?.pageSize) || DEFAULT_ACCOUNT_PAGE_SIZE),
+  );
+  const query = String(params?.query || "").trim();
+  const filter = String(params?.filter || "all").trim() || "all";
+  const groupFilter = String(params?.groupFilter || "all").trim() || "all";
+  return {
+    page,
+    pageSize,
+    query,
+    filter,
+    groupFilter,
+  };
 }
 
 /**
@@ -159,7 +165,7 @@ function buildUsageListFingerprint(usages: AccountUsage[]): string {
  * # 返回
  * 返回函数执行结果
  */
-export function useAccounts() {
+export function useAccounts(params?: AccountListParams) {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const localDayRange = useLocalDayRange();
@@ -190,6 +196,20 @@ export function useAccounts() {
   const startupAccounts = startupSnapshot?.accounts || [];
   const startupUsages = startupSnapshot?.usageSnapshots || [];
   const hasStartupAccountSnapshot = startupAccounts.length > 0;
+  const normalizedListParams = normalizeAccountListParams(params);
+  const canUseStartupAccountPlaceholder =
+    normalizedListParams.page === 1 &&
+    !normalizedListParams.query &&
+    normalizedListParams.filter === "all" &&
+    normalizedListParams.groupFilter === "all";
+  const startupAccountPage = canUseStartupAccountPlaceholder
+    ? {
+        items: startupAccounts.slice(0, normalizedListParams.pageSize),
+        total: startupAccounts.length,
+        page: 1,
+        pageSize: normalizedListParams.pageSize,
+      }
+    : undefined;
 
   /**
    * 函数 `ensureServiceReady`
@@ -213,22 +233,15 @@ export function useAccounts() {
   };
 
   const accountsQuery = useQuery({
-    queryKey: ["accounts", "list"],
-    queryFn: () => accountClient.list(),
+    queryKey: ["accounts", "list", normalizedListParams],
+    queryFn: () => accountClient.list(normalizedListParams),
     enabled: areAccountQueriesEnabled,
     retry: 1,
     refetchInterval: accountsAutoRefreshIntervalMs,
     refetchIntervalInBackground: false,
     placeholderData: (previousData): AccountListResult | undefined =>
       previousData ||
-      (startupAccounts.length > 0
-        ? {
-            items: startupAccounts,
-            total: startupAccounts.length,
-            page: 1,
-            pageSize: startupAccounts.length,
-          }
-        : undefined),
+      (startupAccountPage?.items.length ? startupAccountPage : undefined),
   });
 
   const usagesQuery = useQuery({
@@ -315,6 +328,14 @@ export function useAccounts() {
       usagesQuery.data || []
     );
   }, [accountsQuery.data?.items, usagesQuery.data]);
+
+  const accountListResult = accountsQuery.data || startupAccountPage || {
+    items: [],
+    total: 0,
+    page: normalizedListParams.page,
+    pageSize: normalizedListParams.pageSize,
+  };
+  const totalAccounts = accountListResult.total;
 
   const planTypes = useMemo(() => {
     const map = new Map<string, number>();
@@ -732,11 +753,15 @@ export function useAccounts() {
 
   return {
     accounts,
+    accountListResult,
     planTypes,
-    total: accountsQuery.data?.total || accounts.length,
+    total: totalAccounts,
+    totalAccounts,
+    accountPage: accountListResult.page,
+    accountPageSize: accountListResult.pageSize,
     isLoading:
       isServiceReady &&
-      !hasStartupAccountSnapshot &&
+      !(canUseStartupAccountPlaceholder && hasStartupAccountSnapshot) &&
       (!areAccountQueriesEnabled || accountsQuery.isLoading || usagesQuery.isLoading),
     isServiceReady,
     refreshAccount: (accountId: string) => {
@@ -759,18 +784,10 @@ export function useAccounts() {
     },
     refreshAllAccountRt: () => {
       if (!ensureServiceReady("刷新 AT/RT")) return;
-      if (!accounts.length) {
-        toast.info(t("当前没有可刷新的账号"));
-        return;
-      }
       refreshAllAccountRtMutation.mutate();
     },
     refreshAllAccounts: () => {
       if (!ensureServiceReady("刷新账号")) return;
-      if (!accounts.some((account) => !isAccountRefreshBlocked(account.status))) {
-        toast.info(t("当前没有可刷新的账号"));
-        return;
-      }
       refreshAllMutation.mutate();
     },
     refreshAccountList: async () => {

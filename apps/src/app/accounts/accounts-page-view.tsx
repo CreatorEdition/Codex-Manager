@@ -112,6 +112,7 @@ interface CleanupStatusOption {
 export interface AccountsPageViewProps {
   accounts: Account[];
   planTypes: PlanTypeOption[];
+  totalAccounts: number;
   isLoading: boolean;
   isServiceReady: boolean;
   isPageActive: boolean;
@@ -158,6 +159,8 @@ export interface AccountsPageViewProps {
   isUpdatingProfileAccountId: string | null;
   isUpdatingStatusAccountId: string | null;
   statusFilterOptions: StatusFilterOption[];
+  canUsePlanFilter: boolean;
+  canReorderAccounts: boolean;
   importFileActionLabel: string;
   importDirectoryActionLabel: string;
   exportActionLabel: string;
@@ -221,6 +224,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
   const {
     accounts,
     planTypes,
+    totalAccounts,
     isLoading,
     isServiceReady,
     isPageActive,
@@ -267,6 +271,8 @@ export function AccountsPageView(props: AccountsPageViewProps) {
     isUpdatingProfileAccountId,
     isUpdatingStatusAccountId,
     statusFilterOptions,
+    canUsePlanFilter,
+    canReorderAccounts,
     importFileActionLabel,
     importDirectoryActionLabel,
     exportActionLabel,
@@ -348,7 +354,10 @@ export function AccountsPageView(props: AccountsPageViewProps) {
 
           <div className="flex shrink-0 items-center gap-3">
             <Select value={planFilter} onValueChange={handlePlanFilterChange}>
-              <SelectTrigger className="h-10 w-[140px] shrink-0 rounded-xl bg-card/50">
+              <SelectTrigger
+                className="h-10 w-[140px] shrink-0 rounded-xl bg-card/50"
+                disabled={!canUsePlanFilter}
+              >
                 <SelectValue placeholder={t("全部类型")}>
                   {(value) => formatPlanFilterLabel(String(value || ""), t)}
                 </SelectValue>
@@ -356,7 +365,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
               <SelectContent>
                     <SelectGroup>
                 <SelectItem value="all">
-                  {t("全部类型")} ({accounts.length})
+                  {t("全部类型")} ({totalAccounts})
                 </SelectItem>
                 {planTypes.map((planType) => (
                   <SelectItem key={planType.value} value={planType.value}>
@@ -399,7 +408,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                   variant="outline"
                   className="glass-card h-10 min-w-[88px] gap-2 rounded-xl px-3"
                   disabled={
-                    !isServiceReady || isWarmingUpAccounts || accounts.length === 0
+                    !isServiceReady || isWarmingUpAccounts || totalAccounts === 0
                   }
                   onClick={() => void handleWarmupAccounts()}
                 >
@@ -516,7 +525,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                   <DropdownMenuItem
                     className="h-9 rounded-lg px-2"
                     disabled={
-                      !isServiceReady || isExporting || accounts.length === 0
+                      !isServiceReady || isExporting || totalAccounts === 0
                     }
                     onClick={openExportDialog}
                   >
@@ -536,6 +545,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                     className="h-9 rounded-lg px-2"
                     disabled={
                       !isServiceReady ||
+                      !canReorderAccounts ||
                       isReorderingAccounts ||
                       accounts.length < 2
                     }
@@ -549,6 +559,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                     className="h-9 rounded-lg px-2"
                     disabled={
                       !isServiceReady ||
+                      !canReorderAccounts ||
                       isReorderingAccounts ||
                       accounts.length < 2
                     }
@@ -585,7 +596,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                     disabled={
                       !isServiceReady ||
                       isCleaningAccountsByStatus ||
-                      accounts.length === 0
+                      totalAccounts === 0
                     }
                     onClick={openCleanupDialog}
                   >
@@ -726,11 +737,11 @@ export function AccountsPageView(props: AccountsPageViewProps) {
               })}
             </div>
             <div className="rounded-xl bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {t("预计删除")}{" "}
+              {t("当前页匹配")}{" "}
               <span className="font-semibold text-foreground">
                 {cleanupSelectedCount}
               </span>{" "}
-              {t("个账号")}
+              {t("个账号；确认后会清理全部匹配所选状态的账号")}
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
@@ -745,8 +756,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
               variant="destructive"
               disabled={
                 isCleaningAccountsByStatus ||
-                cleanupStatusDraft.length === 0 ||
-                cleanupSelectedCount <= 0
+                cleanupStatusDraft.length === 0
               }
               onClick={() => void handleConfirmCleanupStatuses()}
             >
@@ -836,8 +846,9 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                     isRefreshingRtAccountId === account.id;
                   const filteredIndex =
                     filteredAccountIndexMap.get(account.id) ?? -1;
-                  const canMoveUp = filteredIndex > 0;
+                  const canMoveUp = canReorderAccounts && filteredIndex > 0;
                   const canMoveDown =
+                    canReorderAccounts &&
                     filteredIndex !== -1 &&
                     filteredIndex < filteredAccounts.length - 1;
                   return (
@@ -1071,7 +1082,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
 
       <div className="flex items-center justify-between px-2">
         <div className="text-xs text-muted-foreground">
-          {t("共")} {filteredAccounts.length} {t("个账号")}
+          {t("共")} {totalAccounts} {t("个账号")}
           {effectiveSelectedIds.length > 0 ? (
             <span className="ml-1 text-primary">
               ({t("已选择")} {effectiveSelectedIds.length} {t("个")})
@@ -1104,7 +1115,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
               size="sm"
               className="h-8 px-3 text-xs"
               disabled={safePage <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              onClick={() => setPage(Math.max(1, safePage - 1))}
             >
               {t("上一页")}
             </Button>
@@ -1116,9 +1127,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
               size="sm"
               className="h-8 px-3 text-xs"
               disabled={safePage >= totalPages}
-              onClick={() =>
-                setPage((current) => Math.min(totalPages, current + 1))
-              }
+              onClick={() => setPage(Math.min(totalPages, safePage + 1))}
             >
               {t("下一页")}
             </Button>
