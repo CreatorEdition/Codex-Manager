@@ -145,6 +145,44 @@ impl Storage {
         query_api_key_rows(&self.conn, &sql, params)
     }
 
+    /// 按 ID 批量读取平台 Key，并在需要时按用户归属收敛权限边界。
+    pub fn list_api_keys_by_ids(
+        &self,
+        key_ids: &[String],
+        owner_user_id: Option<&str>,
+    ) -> Result<Vec<ApiKey>> {
+        let mut ids = key_ids
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = vec!["?"; ids.len()].join(",");
+        let mut params = Vec::new();
+        let owner_join = if let Some(owner_user_id) = owner_user_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            params.push(Value::Text(owner_user_id.to_string()));
+            " INNER JOIN api_key_owners o ON o.key_id = k.id AND o.owner_kind = 'user' AND o.owner_user_id = ?"
+        } else {
+            ""
+        };
+        params.extend(ids.into_iter().map(Value::Text));
+        let sql = format!(
+            "{API_KEY_SELECT_SQL}{owner_join}
+             WHERE k.id IN ({placeholders})
+             ORDER BY k.created_at DESC, k.id ASC"
+        );
+        query_api_key_rows(&self.conn, &sql, params)
+    }
+
     pub fn api_key_count_filtered(
         &self,
         query: Option<&str>,

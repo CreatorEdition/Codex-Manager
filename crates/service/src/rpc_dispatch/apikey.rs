@@ -116,6 +116,22 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                 apikey_list::read_api_key_list_for_actor(actor, params, pagination_requested)
             }))
         }
+        "apikey/lookup" => {
+            let ids = req
+                .params
+                .as_ref()
+                .and_then(|params| params.get("ids"))
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(|item| item.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            super::value_or_error(apikey_list::lookup_api_keys_for_actor(actor, ids))
+        }
         "apikey/create" => {
             let name = super::string_param(req, "name");
             let model_slug = super::string_param(req, "modelSlug");

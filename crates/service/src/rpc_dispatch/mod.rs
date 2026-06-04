@@ -200,6 +200,7 @@ const MEMBER_METHOD_ALLOWLIST: &[&str] = &[
     "apikey/disable",
     "apikey/enable",
     "apikey/list",
+    "apikey/lookup",
     "apikey/modelCatalogList",
     "apikey/modelRouting",
     "apikey/models",

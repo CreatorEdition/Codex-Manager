@@ -1445,16 +1445,6 @@ function LogsPageContent() {
         : undefined),
   });
 
-  const { data: apiKeysResult } = useQuery({
-    queryKey: ["apikeys", "lookup"],
-    queryFn: () => accountClient.listApiKeys(),
-    enabled: areLogQueriesEnabled && isPageActive,
-    staleTime: 60_000,
-    retry: 1,
-    placeholderData: (previousData): ApiKey[] | undefined =>
-      previousData || (startupApiKeys.length > 0 ? startupApiKeys : undefined),
-  });
-
   const { data: aggregateApisResult } = useQuery({
     queryKey: ["aggregate-apis", "lookup"],
     queryFn: () => accountClient.listAggregateApis(),
@@ -1532,10 +1522,6 @@ function LogsPageContent() {
     );
   }, [accountsResult?.items]);
 
-  const apiKeyMap = useMemo(() => {
-    return new Map((apiKeysResult || []).map((apiKey) => [apiKey.id, apiKey]));
-  }, [apiKeysResult]);
-
   const aggregateApiMap = useMemo(() => {
     return new Map(
       (aggregateApisResult || []).map((aggregateApi) => [
@@ -1546,6 +1532,35 @@ function LogsPageContent() {
   }, [aggregateApisResult]);
 
   const logs = logsResult?.items || [];
+  const apiKeyLookupIds = useMemo(() => {
+    const ids = logs
+      .map((item) => String(item.keyId || "").trim())
+      .filter(Boolean);
+    return Array.from(new Set(ids)).sort();
+  }, [logs]);
+
+  const { data: apiKeysResult } = useQuery({
+    queryKey: ["apikeys", "lookup", apiKeyLookupIds],
+    queryFn: () => accountClient.lookupApiKeys(apiKeyLookupIds),
+    enabled: areLogQueriesEnabled && isPageActive && apiKeyLookupIds.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+    placeholderData: (previousData): ApiKey[] | undefined => {
+      if (previousData) {
+        return previousData;
+      }
+      if (startupApiKeys.length === 0 || apiKeyLookupIds.length === 0) {
+        return undefined;
+      }
+      const lookupIdSet = new Set(apiKeyLookupIds);
+      return startupApiKeys.filter((apiKey) => lookupIdSet.has(apiKey.id));
+    },
+  });
+
+  const apiKeyMap = useMemo(() => {
+    return new Map((apiKeysResult || []).map((apiKey) => [apiKey.id, apiKey]));
+  }, [apiKeysResult]);
+
   const isLogsLoading =
     serviceStatus.connected &&
     !hasStartupLogsSnapshot &&

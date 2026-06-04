@@ -747,6 +747,23 @@ export const accountClient = {
     const result = await invoke<unknown>("service_apikey_list", withAddr());
     return normalizeApiKeyList(result);
   },
+  async lookupApiKeys(ids: string[]): Promise<ApiKey[]> {
+    const normalizedIds = Array.from(
+      new Set(
+        (Array.isArray(ids) ? ids : [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    if (normalizedIds.length === 0) {
+      return [];
+    }
+    const result = await invoke<unknown>(
+      "service_apikey_lookup",
+      withAddr({ ids: normalizedIds }),
+    );
+    return normalizeApiKeyList(result);
+  },
   async listApiKeyPage(params: ApiKeyListParams): Promise<ApiKeyListResult> {
     const result = await invoke<unknown>(
       "service_apikey_list",

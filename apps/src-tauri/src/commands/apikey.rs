@@ -42,6 +42,16 @@ pub async fn service_apikey_list(
     rpc_call_in_background("apikey/list", addr, params).await
 }
 
+/// 按 ID 批量读取平台 Key 摘要，供日志页按当前页日志补齐展示信息。
+#[tauri::command]
+pub async fn service_apikey_lookup(
+    addr: Option<String>,
+    ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "ids": ids });
+    rpc_call_in_background("apikey/lookup", addr, Some(params)).await
+}
+
 /// 函数 `service_apikey_read_secret`
 ///
 /// 作者: gaohongshun

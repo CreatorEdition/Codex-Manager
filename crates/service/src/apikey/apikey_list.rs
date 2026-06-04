@@ -5,6 +5,7 @@ use crate::RpcActor;
 
 const DEFAULT_API_KEY_PAGE_SIZE: i64 = 20;
 const MAX_API_KEY_PAGE_SIZE: i64 = 200;
+const MAX_API_KEY_LOOKUP_IDS: usize = 500;
 
 /// 函数 `read_api_keys`
 ///
@@ -32,6 +33,22 @@ pub(crate) fn read_api_keys_for_actor(actor: &RpcActor) -> Result<Vec<ApiKeySumm
     let keys = storage
         .list_api_keys_filtered(None, None, owner_user_id.as_deref())
         .map_err(|err| format!("list api keys failed: {err}"))?;
+    to_api_key_summaries(&storage, keys)
+}
+
+pub(crate) fn lookup_api_keys_for_actor(
+    actor: &RpcActor,
+    ids: Vec<String>,
+) -> Result<Vec<ApiKeySummary>, String> {
+    let ids = normalize_lookup_ids(ids);
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let owner_user_id = owner_user_id_for_actor(actor)?;
+    let keys = storage
+        .list_api_keys_by_ids(&ids, owner_user_id.as_deref())
+        .map_err(|err| format!("lookup api keys failed: {err}"))?;
     to_api_key_summaries(&storage, keys)
 }
 
@@ -158,6 +175,18 @@ fn normalize_status_filter(value: Option<String>) -> Option<String> {
         "disabled" => Some("disabled".to_string()),
         _ => None,
     }
+}
+
+fn normalize_lookup_ids(ids: Vec<String>) -> Vec<String> {
+    let mut normalized = ids
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized.truncate(MAX_API_KEY_LOOKUP_IDS);
+    normalized
 }
 
 fn normalize_page_size(value: i64) -> i64 {

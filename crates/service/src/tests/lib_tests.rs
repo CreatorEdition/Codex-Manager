@@ -1020,6 +1020,52 @@ fn member_cannot_read_or_mutate_other_user_api_key() {
 }
 
 #[test]
+fn member_api_key_lookup_filters_to_owned_ids() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-member-apikey-lookup-filter");
+    let user_one = create_test_member("apikey-lookup-one", Some(2_000_000));
+    let user_two = create_test_member("apikey-lookup-two", Some(2_000_000));
+    let key_one = create_owned_test_api_key(&user_one.id, "lookup owned key", "gpt-5-mini");
+    let key_two = create_owned_test_api_key(&user_two.id, "lookup foreign key", "gpt-5-mini");
+    let actor_one = RpcActor::from_parts(Some(ROLE_MEMBER), Some(&user_one.id));
+
+    let member_lookup = response_result(handle_request_with_actor(
+        rpc_request(
+            "apikey/lookup",
+            serde_json::json!({
+                "ids": [key_two.clone(), key_one.clone(), "missing-key", key_one.clone()]
+            }),
+        ),
+        actor_one,
+    ));
+    let member_items = member_lookup.result.as_array().expect("lookup items");
+    assert_eq!(member_items.len(), 1);
+    assert_eq!(member_items[0]["id"], key_one);
+    assert_eq!(member_items[0]["name"], "lookup owned key");
+
+    let admin_lookup = response_result(handle_request_with_actor(
+        rpc_request(
+            "apikey/lookup",
+            serde_json::json!({ "ids": [key_two.clone(), key_one.clone()] }),
+        ),
+        RpcActor::system_admin(),
+    ));
+    let admin_ids = admin_lookup
+        .result
+        .as_array()
+        .expect("admin lookup items")
+        .iter()
+        .filter_map(|item| item.get("id").and_then(|value| value.as_str()))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        admin_ids,
+        std::collections::BTreeSet::from([key_one.as_str(), key_two.as_str()])
+    );
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
 fn member_created_api_key_ignores_admin_only_routing_fields() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-member-apikey-create-sanitizes");

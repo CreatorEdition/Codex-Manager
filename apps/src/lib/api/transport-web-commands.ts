@@ -503,6 +503,7 @@ export function createWebCommandMap(
       rpcMethod: "account/chatgptAuthTokens/refreshAll",
     },
     service_apikey_list: { rpcMethod: "apikey/list" },
+    service_apikey_lookup: { rpcMethod: "apikey/lookup" },
     service_apikey_create: { rpcMethod: "apikey/create" },
     service_apikey_usage_stats: { rpcMethod: "apikey/usageStats" },
     service_apikey_delete: {
