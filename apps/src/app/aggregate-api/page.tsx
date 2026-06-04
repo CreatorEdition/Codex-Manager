@@ -221,8 +221,13 @@ export default function AggregateApiPage() {
   });
 
   const { data: quotaModelPools } = useQuery({
-    queryKey: ["quota", "model-pools"],
-    queryFn: () => quotaClient.modelPools(),
+    queryKey: ["quota", "model-pools", "aggregate-api-sources"],
+    queryFn: () =>
+      quotaClient.modelPools({
+        includeConfig: false,
+        includeSources: true,
+        sourceKind: "aggregate_api",
+      }),
     enabled: isQueryEnabled,
     retry: 1,
   });

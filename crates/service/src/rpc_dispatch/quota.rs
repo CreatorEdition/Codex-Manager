@@ -1,6 +1,8 @@
 use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
 
-use crate::quota::read::{self, BillingRuleUpsertInput, QuotaRefreshSourcesInput};
+use crate::quota::read::{
+    self, BillingRuleUpsertInput, QuotaModelPoolsInput, QuotaRefreshSourcesInput,
+};
 
 fn string_array_param(req: &JsonRpcRequest, key: &str) -> Vec<String> {
     req.params
@@ -29,7 +31,13 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         }
         "quota/apiKeyUsage" => super::value_or_error(read::read_quota_api_key_usage()),
         "quota/sourceList" => super::value_or_error(read::read_quota_source_list()),
-        "quota/modelPools" => super::value_or_error(read::read_quota_model_pools()),
+        "quota/modelPools" => {
+            super::value_or_error(read::read_quota_model_pools(QuotaModelPoolsInput {
+                include_sources: super::bool_param(req, "includeSources").unwrap_or(true),
+                include_config: super::bool_param(req, "includeConfig").unwrap_or(true),
+                source_kind: super::string_param(req, "sourceKind"),
+            }))
+        }
         "quota/systemPool" => {
             let reference_model = super::string_param(req, "referenceModel");
             super::value_or_error(read::read_quota_system_pool(reference_model))

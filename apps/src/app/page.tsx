@@ -985,8 +985,12 @@ function AdminDashboard() {
     true,
   );
   const { data: quotaModelPools, isLoading: isQuotaModelPoolsLoading } = useQuery({
-    queryKey: ["quota", "model-pools"],
-    queryFn: () => quotaClient.modelPools(),
+    queryKey: ["quota", "model-pools", "summary"],
+    queryFn: () =>
+      quotaClient.modelPools({
+        includeSources: false,
+        includeConfig: false,
+      }),
     enabled: isServiceReady,
     retry: 1,
   });

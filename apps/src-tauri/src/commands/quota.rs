@@ -35,8 +35,22 @@ pub async fn service_quota_source_list(addr: Option<String>) -> Result<serde_jso
 }
 
 #[tauri::command]
-pub async fn service_quota_model_pools(addr: Option<String>) -> Result<serde_json::Value, String> {
-    rpc_call_in_background("quota/modelPools", addr, None).await
+pub async fn service_quota_model_pools(
+    addr: Option<String>,
+    include_sources: Option<bool>,
+    include_config: Option<bool>,
+    source_kind: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "quota/modelPools",
+        addr,
+        Some(serde_json::json!({
+            "includeSources": include_sources,
+            "includeConfig": include_config,
+            "sourceKind": source_kind,
+        })),
+    )
+    .await
 }
 
 #[tauri::command]

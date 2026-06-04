@@ -1,6 +1,6 @@
 use codexmanager_core::rpc::types::JsonRpcRequest;
 use codexmanager_core::storage::{
-    now_ts, Account, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
+    now_ts, Account, AggregateApi, ApiKey, Event, RequestLog, RequestTokenStat, Storage, Token,
     UsageSnapshotRecord,
 };
 use std::fs;
@@ -2566,6 +2566,165 @@ fn rpc_startup_snapshot_limits_prefetch_sections_and_returns_totals() {
             .map(Vec::len),
         Some(1)
     );
+}
+
+#[test]
+fn rpc_quota_model_pools_supports_lightweight_source_filters() {
+    let ctx = RpcTestContext::new("rpc-quota-model-pools-lightweight");
+    let mut storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    storage
+        .insert_account(&Account {
+            id: "pool-account".to_string(),
+            label: "Pool Account".to_string(),
+            issuer: "https://auth.openai.com".to_string(),
+            chatgpt_account_id: Some("pool-chatgpt".to_string()),
+            workspace_id: Some("pool-workspace".to_string()),
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        })
+        .expect("insert pool account");
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "pool-account".to_string(),
+            used_percent: Some(10.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: Some(20.0),
+            secondary_window_minutes: Some(10_080),
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at: now,
+        })
+        .expect("insert pool usage");
+    storage
+        .insert_aggregate_api(&AggregateApi {
+            id: "pool-aggregate".to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some("Pool Aggregate".to_string()),
+            sort: 0,
+            url: "https://pool-aggregate.example.invalid/v1".to_string(),
+            auth_type: "apikey".to_string(),
+            auth_params_json: None,
+            action: None,
+            model_override: None,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+            balance_query_enabled: true,
+            balance_query_template: None,
+            balance_query_base_url: None,
+            balance_query_user_id: None,
+            balance_query_config_json: None,
+            last_balance_at: Some(now),
+            last_balance_status: Some("success".to_string()),
+            last_balance_error: None,
+            last_balance_json: Some(
+                serde_json::json!({
+                    "remaining": 12.5,
+                    "unit": "USD"
+                })
+                .to_string(),
+            ),
+        })
+        .expect("insert pool aggregate api");
+    storage
+        .set_quota_source_model_assignments(
+            "openai_account",
+            "pool-account",
+            &["gpt-5.4".to_string()],
+        )
+        .expect("set account model assignment");
+    storage
+        .set_quota_source_model_assignments(
+            "aggregate_api",
+            "pool-aggregate",
+            &["gpt-5.4".to_string()],
+        )
+        .expect("set aggregate model assignment");
+
+    let summary_server =
+        codexmanager_service::start_one_shot_server().expect("start summary server");
+    let summary_req = JsonRpcRequest {
+        id: 818.into(),
+        method: "quota/modelPools".to_string(),
+        params: Some(serde_json::json!({
+            "includeSources": false,
+            "includeConfig": false
+        })),
+        trace: None,
+    };
+    let summary_json = serde_json::to_string(&summary_req).expect("serialize summary request");
+    let summary_v = post_rpc(&summary_server.addr, &summary_json);
+    let summary_result = summary_v.get("result").expect("summary result");
+    let summary_items = summary_result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("summary items");
+    assert!(
+        summary_items.iter().all(|item| item
+            .get("sources")
+            .and_then(|value| value.as_array())
+            .is_some_and(|sources| sources.is_empty())),
+        "summary-only model pools should not return source details"
+    );
+    assert_eq!(
+        summary_result
+            .get("templates")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        summary_result
+            .get("accountOverrides")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
+    );
+
+    let aggregate_server =
+        codexmanager_service::start_one_shot_server().expect("start aggregate server");
+    let aggregate_req = JsonRpcRequest {
+        id: 819.into(),
+        method: "quota/modelPools".to_string(),
+        params: Some(serde_json::json!({
+            "sourceKind": "aggregate_api",
+            "includeConfig": false
+        })),
+        trace: None,
+    };
+    let aggregate_json =
+        serde_json::to_string(&aggregate_req).expect("serialize aggregate request");
+    let aggregate_v = post_rpc(&aggregate_server.addr, &aggregate_json);
+    let aggregate_items = aggregate_v
+        .get("result")
+        .and_then(|value| value.get("items"))
+        .and_then(|value| value.as_array())
+        .expect("aggregate items");
+    let aggregate_sources = aggregate_items
+        .iter()
+        .flat_map(|item| {
+            item.get("sources")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !aggregate_sources.is_empty(),
+        "aggregate-only model pools should include aggregate sources"
+    );
+    assert!(aggregate_sources.iter().all(|source| {
+        source.get("sourceKind").and_then(|value| value.as_str()) == Some("aggregate_api")
+    }));
 }
 
 /// 函数 `rpc_usage_aggregate_returns_backend_summary`

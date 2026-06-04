@@ -45,6 +45,49 @@ pub(crate) struct BillingRuleUpsertInput {
     pub(crate) ends_at: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct QuotaModelPoolsInput {
+    pub(crate) include_sources: bool,
+    pub(crate) include_config: bool,
+    pub(crate) source_kind: Option<String>,
+}
+
+impl Default for QuotaModelPoolsInput {
+    fn default() -> Self {
+        Self {
+            include_sources: true,
+            include_config: true,
+            source_kind: None,
+        }
+    }
+}
+
+impl QuotaModelPoolsInput {
+    fn normalized(self) -> Self {
+        let source_kind = self
+            .source_kind
+            .and_then(|value| normalize_optional_text(Some(value)))
+            .map(|value| value.to_ascii_lowercase())
+            .filter(|value| matches!(value.as_str(), "aggregate_api" | "openai_account"));
+        Self {
+            include_sources: self.include_sources,
+            include_config: self.include_config,
+            source_kind,
+        }
+    }
+
+    fn should_accumulate_source_kind(&self, source_kind: &str) -> bool {
+        self.source_kind
+            .as_deref()
+            .map(|filter| filter == source_kind)
+            .unwrap_or(true)
+    }
+
+    fn should_return_source_kind(&self, source_kind: &str) -> bool {
+        self.include_sources && self.should_accumulate_source_kind(source_kind)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct BalanceSnapshot {
     remaining: Option<f64>,
@@ -634,7 +677,10 @@ pub(crate) fn update_account_quota_capacity_override(
     read_quota_capacity_config()
 }
 
-pub(crate) fn read_quota_model_pools() -> Result<QuotaModelPoolsResult, String> {
+pub(crate) fn read_quota_model_pools(
+    input: QuotaModelPoolsInput,
+) -> Result<QuotaModelPoolsResult, String> {
+    let input = input.normalized();
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let price_rules = model_pricing::load_enabled_price_rules(&storage)?;
     let api_models = api_available_model_slugs(&storage, &price_rules)?;
@@ -643,7 +689,8 @@ pub(crate) fn read_quota_model_pools() -> Result<QuotaModelPoolsResult, String> 
             .list_quota_source_model_assignments()
             .map_err(|err| format!("list quota source assignments failed: {err}"))?,
     );
-    let pools = build_model_pool_accumulators(&storage, &price_rules, &api_models, &assignments)?;
+    let pools =
+        build_model_pool_accumulators(&storage, &price_rules, &api_models, &assignments, &input)?;
     let mut items = pools
         .into_iter()
         .map(|(model, pool)| pool_to_model_item(model, pool))
@@ -664,19 +711,29 @@ pub(crate) fn read_quota_model_pools() -> Result<QuotaModelPoolsResult, String> 
             .unwrap_or(usize::MAX);
         a_order.cmp(&b_order).then_with(|| a.model.cmp(&b.model))
     });
-    Ok(QuotaModelPoolsResult {
-        items,
-        templates: capacity_template_results_with_slots(
+    let templates = if input.include_config {
+        capacity_template_results_with_slots(
             storage
                 .list_account_quota_capacity_templates()
                 .map_err(|err| format!("list account quota capacity templates failed: {err}"))?,
-        ),
-        account_overrides: storage
+        )
+    } else {
+        Vec::new()
+    };
+    let account_overrides = if input.include_config {
+        storage
             .list_account_quota_capacity_overrides()
             .map_err(|err| format!("list account quota capacity overrides failed: {err}"))?
             .into_iter()
             .map(override_result)
-            .collect(),
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Ok(QuotaModelPoolsResult {
+        items,
+        templates,
+        account_overrides,
     })
 }
 
@@ -698,8 +755,13 @@ pub(crate) fn read_quota_system_pool(
             .list_quota_source_model_assignments()
             .map_err(|err| format!("list quota source assignments failed: {err}"))?,
     );
-    let mut pools =
-        build_model_pool_accumulators(&storage, &price_rules, &api_models, &assignments)?;
+    let mut pools = build_model_pool_accumulators(
+        &storage,
+        &price_rules,
+        &api_models,
+        &assignments,
+        &QuotaModelPoolsInput::default(),
+    )?;
     let pool = pools.remove(reference_model.as_str()).unwrap_or_else(|| {
         let mut pool = PoolAccumulator {
             price_status: "missing".to_string(),
@@ -762,11 +824,30 @@ fn build_model_pool_accumulators(
     price_rules: &[ModelPriceRule],
     api_models: &[String],
     assignments: &HashMap<(String, String), Vec<String>>,
+    input: &QuotaModelPoolsInput,
 ) -> Result<BTreeMap<String, PoolAccumulator>, String> {
     let mut pools = BTreeMap::<String, PoolAccumulator>::new();
     seed_model_pools(&mut pools, price_rules, api_models);
-    add_aggregate_api_pools(storage, price_rules, api_models, assignments, &mut pools)?;
-    add_account_pools(storage, price_rules, api_models, assignments, &mut pools)?;
+    if input.should_accumulate_source_kind("aggregate_api") {
+        add_aggregate_api_pools(
+            storage,
+            price_rules,
+            api_models,
+            assignments,
+            input,
+            &mut pools,
+        )?;
+    }
+    if input.should_accumulate_source_kind("openai_account") {
+        add_account_pools(
+            storage,
+            price_rules,
+            api_models,
+            assignments,
+            input,
+            &mut pools,
+        )?;
+    }
     Ok(pools)
 }
 
@@ -800,6 +881,7 @@ fn add_aggregate_api_pools(
     price_rules: &[ModelPriceRule],
     api_models: &[String],
     assignments: &HashMap<(String, String), Vec<String>>,
+    input: &QuotaModelPoolsInput,
     pools: &mut BTreeMap<String, PoolAccumulator>,
 ) -> Result<(), String> {
     let aggregate_apis = storage
@@ -849,18 +931,6 @@ fn add_aggregate_api_pools(
                 (Some(_), true) if remaining_tokens.is_none() => "missing",
                 _ => "ok",
             };
-            let source = QuotaPoolSourceBreakdown {
-                source_kind: "aggregate_api".to_string(),
-                source_id: api.id.clone(),
-                name: api_display_name(&api),
-                status: status.to_string(),
-                remaining_tokens,
-                raw_remaining: balance.remaining,
-                raw_unit: Some(balance_unit.clone()),
-                models: vec![model.clone()],
-                captured_at: api.last_balance_at,
-                price_status: price_status.to_string(),
-            };
             let entry = pools
                 .entry(model.clone())
                 .or_insert_with(|| PoolAccumulator {
@@ -885,7 +955,21 @@ fn add_aggregate_api_pools(
                 entry.has_aggregate_remaining_tokens = true;
                 entry.source_count += 1;
             }
-            entry.sources.push(source);
+            if input.should_return_source_kind("aggregate_api") {
+                let source = QuotaPoolSourceBreakdown {
+                    source_kind: "aggregate_api".to_string(),
+                    source_id: api.id.clone(),
+                    name: api_display_name(&api),
+                    status: status.to_string(),
+                    remaining_tokens,
+                    raw_remaining: balance.remaining,
+                    raw_unit: Some(balance_unit.clone()),
+                    models: vec![model.clone()],
+                    captured_at: api.last_balance_at,
+                    price_status: price_status.to_string(),
+                };
+                entry.sources.push(source);
+            }
         }
     }
     Ok(())
@@ -896,6 +980,7 @@ fn add_account_pools(
     price_rules: &[ModelPriceRule],
     api_models: &[String],
     assignments: &HashMap<(String, String), Vec<String>>,
+    input: &QuotaModelPoolsInput,
     pools: &mut BTreeMap<String, PoolAccumulator>,
 ) -> Result<(), String> {
     let accounts = storage
@@ -987,18 +1072,6 @@ fn add_account_pools(
                 .or_else(|| model_pricing::resolve_model_price(&model, 0))
                 .map(|price| price.provider)
                 .or_else(|| Some("openai".to_string()));
-            let source = QuotaPoolSourceBreakdown {
-                source_kind: "openai_account".to_string(),
-                source_id: account.id.clone(),
-                name: account.label.clone(),
-                status: status.to_string(),
-                remaining_tokens: estimated_remaining,
-                raw_remaining,
-                raw_unit: Some("percent".to_string()),
-                models: vec![model.clone()],
-                captured_at: usage.map(|item| item.captured_at),
-                price_status: price_status.to_string(),
-            };
             let entry = pools
                 .entry(model.clone())
                 .or_insert_with(|| PoolAccumulator {
@@ -1030,7 +1103,21 @@ fn add_account_pools(
                     .saturating_add(tokens);
                 entry.has_account_secondary_remaining_tokens = true;
             }
-            entry.sources.push(source);
+            if input.should_return_source_kind("openai_account") {
+                let source = QuotaPoolSourceBreakdown {
+                    source_kind: "openai_account".to_string(),
+                    source_id: account.id.clone(),
+                    name: account.label.clone(),
+                    status: status.to_string(),
+                    remaining_tokens: estimated_remaining,
+                    raw_remaining,
+                    raw_unit: Some("percent".to_string()),
+                    models: vec![model.clone()],
+                    captured_at: usage.map(|item| item.captured_at),
+                    price_status: price_status.to_string(),
+                };
+                entry.sources.push(source);
+            }
         }
     }
     Ok(())

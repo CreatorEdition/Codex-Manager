@@ -443,8 +443,23 @@ export const quotaClient = {
     const result = await invoke<unknown>("service_quota_source_list", withAddr());
     return readItems(result).map(normalizeSourceSummary);
   },
-  async modelPools(): Promise<QuotaModelPoolsResult> {
-    return normalizeModelPools(await invoke<unknown>("service_quota_model_pools", withAddr()));
+  async modelPools(params?: {
+    includeSources?: boolean;
+    includeConfig?: boolean;
+    sourceKind?: "aggregate_api" | "openai_account" | "all" | null;
+  }): Promise<QuotaModelPoolsResult> {
+    const sourceKind =
+      params?.sourceKind && params.sourceKind !== "all" ? params.sourceKind : null;
+    return normalizeModelPools(
+      await invoke<unknown>(
+        "service_quota_model_pools",
+        withAddr({
+          includeSources: params?.includeSources ?? true,
+          includeConfig: params?.includeConfig ?? true,
+          sourceKind,
+        }),
+      ),
+    );
   },
   async systemPool(params?: {
     referenceModel?: string | null;
