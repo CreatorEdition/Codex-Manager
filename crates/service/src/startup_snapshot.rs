@@ -24,7 +24,7 @@ pub(crate) fn read_startup_snapshot(
     day_end_ts: Option<i64>,
 ) -> Result<StartupSnapshotResult, String> {
     let accounts = account_list::read_accounts(AccountListParams::default(), false)?.items;
-    let usage_snapshots = usage_list::read_usage_snapshots()?;
+    let usage_snapshots = usage_list::read_usage_snapshots(None)?;
     let usage_aggregate_summary = usage_aggregate::read_usage_aggregate_summary()?;
     let api_keys = apikey_list::read_api_keys()?;
     let api_models = apikey_models::read_model_options(false)?;

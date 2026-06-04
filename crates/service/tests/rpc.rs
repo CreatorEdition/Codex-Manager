@@ -2389,6 +2389,73 @@ fn rpc_usage_list_empty() {
     );
 }
 
+#[test]
+fn rpc_usage_list_filters_requested_account_ids() {
+    let ctx = RpcTestContext::new("rpc-usage-list-filtered");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    for idx in 0..3 {
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: format!("acc-{idx}"),
+                used_percent: Some((idx * 10) as f64),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: None,
+                secondary_window_minutes: None,
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now + idx as i64,
+            })
+            .expect("insert usage snapshot");
+    }
+
+    let empty_server = codexmanager_service::start_one_shot_server().expect("start empty server");
+    let empty_req = JsonRpcRequest {
+        id: 708.into(),
+        method: "account/usage/list".to_string(),
+        params: Some(serde_json::json!({ "accountIds": [] })),
+        trace: None,
+    };
+    let empty_json = serde_json::to_string(&empty_req).expect("serialize empty");
+    let empty_v = post_rpc(&empty_server.addr, &empty_json);
+    let empty_items = empty_v
+        .get("result")
+        .and_then(|result| result.get("items"))
+        .and_then(|value| value.as_array())
+        .expect("empty items array");
+    assert!(empty_items.is_empty(), "expected empty scoped usage list");
+
+    let filtered_server =
+        codexmanager_service::start_one_shot_server().expect("start filtered server");
+    let req = JsonRpcRequest {
+        id: 707.into(),
+        method: "account/usage/list".to_string(),
+        params: Some(serde_json::json!({
+            "accountIds": ["acc-2", "acc-0", "acc-2", ""]
+        })),
+        trace: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize");
+    let v = post_rpc(&filtered_server.addr, &json);
+    let result = v.get("result").expect("result");
+    let ids = result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("items array")
+        .iter()
+        .map(|value| {
+            value
+                .get("accountId")
+                .and_then(|value| value.as_str())
+                .expect("account id")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec!["acc-2".to_string(), "acc-0".to_string()]);
+}
+
 /// 函数 `rpc_usage_aggregate_returns_backend_summary`
 ///
 /// 作者: gaohongshun

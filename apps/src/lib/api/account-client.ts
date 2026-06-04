@@ -97,6 +97,10 @@ export interface AccountWarmupPayload {
   message?: string;
 }
 
+export interface UsageListParams {
+  accountIds?: string[];
+}
+
 export interface AccountDeleteByStatusesPayload {
   statuses: string[];
 }
@@ -511,8 +515,16 @@ export const accountClient = {
     const result = await invoke<unknown>("service_usage_read", withAddr());
     return normalizeUsageSnapshot(unwrapUsageSnapshotPayload(result));
   },
-  async listUsage(): Promise<AccountUsage[]> {
-    const result = await invoke<unknown>("service_usage_list", withAddr());
+  async listUsage(params?: UsageListParams): Promise<AccountUsage[]> {
+    const accountIds = Array.isArray(params?.accountIds)
+      ? params.accountIds
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+      : [];
+    const result = await invoke<unknown>(
+      "service_usage_list",
+      withAddr(params ? { accountIds } : {}),
+    );
     return normalizeUsageList(result);
   },
   refreshUsage: (accountId?: string) => {

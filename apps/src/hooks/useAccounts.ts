@@ -243,16 +243,29 @@ export function useAccounts(params?: AccountListParams) {
       previousData ||
       (startupAccountPage?.items.length ? startupAccountPage : undefined),
   });
+  const visibleAccountIds = useMemo(
+    () => (accountsQuery.data?.items || startupAccountPage?.items || [])
+      .map((account) => account.id)
+      .filter(Boolean),
+    [accountsQuery.data?.items, startupAccountPage?.items],
+  );
+  const canUseStartupUsagePlaceholder =
+    canUseStartupAccountPlaceholder && visibleAccountIds.length > 0;
 
   const usagesQuery = useQuery({
-    queryKey: ["usage", "list"],
-    queryFn: () => accountClient.listUsage(),
+    queryKey: ["usage", "list", { accountIds: visibleAccountIds }],
+    queryFn: () => accountClient.listUsage({ accountIds: visibleAccountIds }),
     enabled: areAccountQueriesEnabled,
     retry: 1,
     refetchInterval: usageListRefreshIntervalMs,
     refetchIntervalInBackground: false,
     placeholderData: (previousData) =>
-      previousData || (startupUsages.length > 0 ? startupUsages : undefined),
+      previousData ||
+      (canUseStartupUsagePlaceholder && startupUsages.length > 0
+        ? startupUsages.filter((usage) =>
+            visibleAccountIds.includes(usage.accountId),
+          )
+        : undefined),
   });
 
   const usageListFingerprint = useMemo(

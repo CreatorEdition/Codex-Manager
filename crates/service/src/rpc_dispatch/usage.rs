@@ -24,9 +24,28 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 snapshot: usage_read::read_usage_snapshot(account_id),
             })
         }
-        "account/usage/list" => super::value_or_error(
-            usage_list::read_usage_snapshots().map(|items| UsageListResult { items }),
-        ),
+        "account/usage/list" => {
+            let account_ids = req
+                .params
+                .as_ref()
+                .and_then(|params| {
+                    params
+                        .get("accountIds")
+                        .or_else(|| params.get("account_ids"))
+                })
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(|item| item.to_string())
+                        .collect::<Vec<_>>()
+                });
+            super::value_or_error(
+                usage_list::read_usage_snapshots(account_ids)
+                    .map(|items| UsageListResult { items }),
+            )
+        }
         "account/usage/aggregate" => {
             super::value_or_error(usage_aggregate::read_usage_aggregate_summary())
         }
