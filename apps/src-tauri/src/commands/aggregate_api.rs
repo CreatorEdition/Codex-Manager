@@ -16,6 +16,16 @@ pub async fn service_aggregate_api_list(addr: Option<String>) -> Result<serde_js
     rpc_call_in_background("aggregateApi/list", addr, None).await
 }
 
+/// 按 ID 批量读取聚合 API 摘要，供日志页按当前页日志补齐展示信息。
+#[tauri::command]
+pub async fn service_aggregate_api_lookup(
+    addr: Option<String>,
+    ids: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "ids": ids });
+    rpc_call_in_background("aggregateApi/lookup", addr, Some(params)).await
+}
+
 /// 函数 `service_aggregate_api_create`
 ///
 /// 作者: gaohongshun

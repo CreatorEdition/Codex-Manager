@@ -1426,14 +1426,6 @@ function LogsPageContent() {
   const hasStartupLogsSnapshot =
     canUseStartupLogsPlaceholder && startupRequestLogs.length > 0;
 
-  const { data: aggregateApisResult } = useQuery({
-    queryKey: ["aggregate-apis", "lookup"],
-    queryFn: () => accountClient.listAggregateApis(),
-    enabled: areLogQueriesEnabled && isPageActive && isAdminMode,
-    staleTime: 60_000,
-    retry: 1,
-  });
-
   const { data: logsResult, isLoading, isError: isLogsError } = useQuery({
     queryKey: ["logs", "list", search, filter, startTs, endTs, page, pageSizeNumber],
     queryFn: () =>
@@ -1494,15 +1486,6 @@ function LogsPageContent() {
     },
   });
 
-  const aggregateApiMap = useMemo(() => {
-    return new Map(
-      (aggregateApisResult || []).map((aggregateApi) => [
-        aggregateApi.id,
-        aggregateApi,
-      ]),
-    );
-  }, [aggregateApisResult]);
-
   const logs = logsResult?.items || [];
   const apiKeyLookupIds = useMemo(() => {
     const ids = logs
@@ -1558,6 +1541,39 @@ function LogsPageContent() {
     },
   });
 
+  const aggregateApiLookupIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const log of logs) {
+      if (log.initialAggregateApiId) {
+        ids.push(log.initialAggregateApiId);
+      }
+      if (log.actualSourceKind === "aggregate_api" && log.actualSourceId) {
+        ids.push(log.actualSourceId);
+      }
+      ids.push(...log.attemptedAggregateApiIds);
+    }
+    for (const apiKey of apiKeysResult || []) {
+      if (apiKey.aggregateApiId) {
+        ids.push(apiKey.aggregateApiId);
+      }
+    }
+    return Array.from(
+      new Set(ids.map((id) => String(id || "").trim()).filter(Boolean)),
+    ).sort();
+  }, [apiKeysResult, logs]);
+
+  const { data: aggregateApisResult } = useQuery({
+    queryKey: ["aggregate-apis", "lookup", aggregateApiLookupIds],
+    queryFn: () => accountClient.lookupAggregateApis(aggregateApiLookupIds),
+    enabled:
+      areLogQueriesEnabled &&
+      isPageActive &&
+      isAdminMode &&
+      aggregateApiLookupIds.length > 0,
+    staleTime: 60_000,
+    retry: 1,
+  });
+
   const accountNameMap = useMemo(() => {
     return new Map(
       (accountsResult || []).map((account) => [
@@ -1570,6 +1586,15 @@ function LogsPageContent() {
   const apiKeyMap = useMemo(() => {
     return new Map((apiKeysResult || []).map((apiKey) => [apiKey.id, apiKey]));
   }, [apiKeysResult]);
+
+  const aggregateApiMap = useMemo(() => {
+    return new Map(
+      (aggregateApisResult || []).map((aggregateApi) => [
+        aggregateApi.id,
+        aggregateApi,
+      ]),
+    );
+  }, [aggregateApisResult]);
 
   const isLogsLoading =
     serviceStatus.connected &&

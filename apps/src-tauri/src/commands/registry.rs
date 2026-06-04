@@ -109,6 +109,7 @@ macro_rules! invoke_handler {
             crate::commands::login::service_chatgpt_auth_tokens_refresh_all,
             // api key
             crate::commands::aggregate_api::service_aggregate_api_list,
+            crate::commands::aggregate_api::service_aggregate_api_lookup,
             crate::commands::aggregate_api::service_aggregate_api_read_secret,
             crate::commands::aggregate_api::service_aggregate_api_create,
             crate::commands::aggregate_api::service_aggregate_api_update,

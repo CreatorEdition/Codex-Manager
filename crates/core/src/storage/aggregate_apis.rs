@@ -1,4 +1,4 @@
-use rusqlite::{params, Result, Row};
+use rusqlite::{params, params_from_iter, types::Value, Result, Row};
 
 use super::{now_ts, AggregateApi, AggregateApiSupplierModel, Storage};
 
@@ -116,6 +116,36 @@ impl Storage {
             "{AGGREGATE_API_SELECT_SQL} ORDER BY sort ASC, updated_at DESC"
         ))?;
         let mut rows = stmt.query([])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_aggregate_api_row(row)?);
+        }
+        Ok(out)
+    }
+
+    /// 按 ID 批量读取聚合 API，用于日志页当前页展示 lookup。
+    pub fn list_aggregate_apis_by_ids(&self, api_ids: &[String]) -> Result<Vec<AggregateApi>> {
+        let mut ids = api_ids
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = vec!["?"; ids.len()].join(",");
+        let sql = format!(
+            "{AGGREGATE_API_SELECT_SQL}
+             WHERE id IN ({placeholders})
+             ORDER BY sort ASC, updated_at DESC"
+        );
+        let params = ids.into_iter().map(Value::Text).collect::<Vec<_>>();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params.iter()))?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
             out.push(map_aggregate_api_row(row)?);

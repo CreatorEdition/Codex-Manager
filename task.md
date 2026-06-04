@@ -27,9 +27,10 @@
 - API Key 前端分页接入：平台 Key 页面通过后端分页参数加载列表，搜索、状态筛选、每页数量和翻页不再依赖本地全量列表。
 - 日志页 API Key lookup：新增 `apikey/lookup` 按当前页日志 Key ID 批量查询展示信息，避免日志页额外全量加载平台 Key。
 - 日志页账号 lookup：新增 `account/lookup` 供管理员日志页按当前页账号 ID 批量查询名称，避免日志页额外全量加载账号列表。
+- 日志页聚合 API lookup：新增 `aggregateApi/lookup` 供管理员日志页按当前页聚合 API ID 批量查询展示信息，避免日志页额外全量加载聚合 API 列表。
 
 ### ⚠️ 待处理
 
 - `cargo test --workspace` 尚未全量执行，后续安全/CI 阶段再跑完整工作区测试。
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
-- 日志页聚合 API lookup 与启动快照全量预载仍需单独收敛；平台 Key 页面 Token/费用统计仍沿用全量 `usageStats` 聚合。
+- 启动快照全量预载仍需单独收敛；平台 Key 页面 Token/费用统计仍沿用全量 `usageStats` 聚合。

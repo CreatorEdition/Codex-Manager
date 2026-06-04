@@ -452,6 +452,7 @@ export function createWebCommandMap(
       }),
     },
     service_aggregate_api_list: { rpcMethod: "aggregateApi/list" },
+    service_aggregate_api_lookup: { rpcMethod: "aggregateApi/lookup" },
     service_aggregate_api_create: { rpcMethod: "aggregateApi/create" },
     service_aggregate_api_update: { rpcMethod: "aggregateApi/update" },
     service_aggregate_api_delete: { rpcMethod: "aggregateApi/delete" },

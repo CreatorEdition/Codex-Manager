@@ -7,8 +7,8 @@ use codexmanager_core::rpc::types::{
 use crate::{
     create_aggregate_api, delete_aggregate_api, delete_aggregate_api_supplier_model,
     import_aggregate_api_supplier_models, list_aggregate_api_supplier_models, list_aggregate_apis,
-    read_aggregate_api_secret, refresh_aggregate_api_balance, save_aggregate_api_supplier_model,
-    test_aggregate_api_connection, update_aggregate_api,
+    lookup_aggregate_apis, read_aggregate_api_secret, refresh_aggregate_api_balance,
+    save_aggregate_api_supplier_model, test_aggregate_api_connection, update_aggregate_api,
 };
 
 /// 函数 `api_id_param`
@@ -42,6 +42,22 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/list" => super::value_or_error(
             list_aggregate_apis().map(|items| AggregateApiListResult { items }),
         ),
+        "aggregateApi/lookup" => {
+            let ids = req
+                .params
+                .as_ref()
+                .and_then(|params| params.get("ids"))
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(|item| item.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            super::value_or_error(lookup_aggregate_apis(ids))
+        }
         "aggregateApi/create" => {
             let provider_type = super::string_param(req, "providerType");
             let supplier_name = super::string_param(req, "supplierName");

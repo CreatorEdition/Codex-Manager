@@ -589,6 +589,23 @@ export const accountClient = {
     const result = await invoke<unknown>("service_aggregate_api_list", withAddr());
     return normalizeAggregateApiList(result);
   },
+  async lookupAggregateApis(ids: string[]): Promise<AggregateApi[]> {
+    const normalizedIds = Array.from(
+      new Set(
+        (Array.isArray(ids) ? ids : [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    if (normalizedIds.length === 0) {
+      return [];
+    }
+    const result = await invoke<unknown>(
+      "service_aggregate_api_lookup",
+      withAddr({ ids: normalizedIds }),
+    );
+    return normalizeAggregateApiList(result);
+  },
   async createAggregateApi(params: AggregateApiPayload): Promise<AggregateApiCreateResult> {
     const result = await invoke<unknown>(
       "service_aggregate_api_create",

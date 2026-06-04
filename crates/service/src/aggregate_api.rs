@@ -32,6 +32,7 @@ const CUSTOM_BALANCE_AUTH_NONE: &str = "none";
 const CLAUDE_DEFAULT_PROBE_MODEL: &str = "claude-haiku-4-5-20251001";
 const ALIBABA_CODING_PLAN_PROBE_MODEL: &str = "qwen3.5-plus";
 const MAX_DISCOVERED_MODEL_IDS: usize = 512;
+const MAX_AGGREGATE_API_LOOKUP_IDS: usize = 500;
 const AGGREGATE_API_MODEL_SOURCE_KIND: &str = "aggregate_api";
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2358,12 +2359,35 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
     let items = storage
         .list_aggregate_apis()
         .map_err(|err| format!("list aggregate apis failed: {err}"))?;
+    aggregate_api_summaries(&storage, items)
+}
+
+pub(crate) fn lookup_aggregate_apis(ids: Vec<String>) -> Result<Vec<AggregateApiSummary>, String> {
+    let ids = normalize_lookup_ids(ids);
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let items = storage
+        .list_aggregate_apis_by_ids(&ids)
+        .map_err(|err| format!("lookup aggregate apis failed: {err}"))?;
+    aggregate_api_summaries(&storage, items)
+}
+
+fn aggregate_api_summaries(
+    storage: &codexmanager_core::storage::Storage,
+    items: Vec<AggregateApi>,
+) -> Result<Vec<AggregateApiSummary>, String> {
+    let api_ids = items.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
     let assignments = storage
-        .list_quota_source_model_assignments()
+        .list_quota_source_model_assignments_for_source_ids(
+            AGGREGATE_API_MODEL_SOURCE_KIND,
+            &api_ids,
+        )
         .map_err(|err| format!("list aggregate api model assignments failed: {err}"))?;
     let mut models_by_api = std::collections::HashMap::<String, Vec<String>>::new();
     for assignment in assignments {
-        if assignment.source_kind == "aggregate_api" {
+        if assignment.source_kind == AGGREGATE_API_MODEL_SOURCE_KIND {
             models_by_api
                 .entry(assignment.source_id)
                 .or_default()
@@ -2405,6 +2429,18 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
             last_balance_json: item.last_balance_json,
         })
         .collect())
+}
+
+fn normalize_lookup_ids(ids: Vec<String>) -> Vec<String> {
+    let mut normalized = ids
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized.truncate(MAX_AGGREGATE_API_LOOKUP_IDS);
+    normalized
 }
 
 pub(crate) fn list_aggregate_api_supplier_models(

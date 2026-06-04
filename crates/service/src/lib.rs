@@ -37,8 +37,8 @@ pub(crate) use account::warmup as account_warmup;
 pub(crate) use aggregate_api::{
     create_aggregate_api, delete_aggregate_api, delete_aggregate_api_supplier_model,
     discover_aggregate_api_models, import_aggregate_api_supplier_models,
-    list_aggregate_api_supplier_models, list_aggregate_apis, read_aggregate_api_secret,
-    refresh_aggregate_api_balance, save_aggregate_api_supplier_model,
+    list_aggregate_api_supplier_models, list_aggregate_apis, lookup_aggregate_apis,
+    read_aggregate_api_secret, refresh_aggregate_api_balance, save_aggregate_api_supplier_model,
     test_aggregate_api_connection, update_aggregate_api,
 };
 pub(crate) use apikey::create as apikey_create;
