@@ -8,12 +8,38 @@ use crate::commands::shared::rpc_call_in_background;
 ///
 /// # 参数
 /// - addr: 参数 addr
+/// - page: 参数 page
+/// - page_size: 参数 page_size
+/// - query: 参数 query
+/// - status_filter: 参数 status_filter
 ///
 /// # 返回
 /// 返回函数执行结果
 #[tauri::command]
-pub async fn service_apikey_list(addr: Option<String>) -> Result<serde_json::Value, String> {
-    rpc_call_in_background("apikey/list", addr, None).await
+pub async fn service_apikey_list(
+    addr: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+    query: Option<String>,
+    status_filter: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let params = if page.is_some()
+        || page_size.is_some()
+        || query.as_deref().is_some_and(|value| !value.trim().is_empty())
+        || status_filter
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+    {
+        Some(serde_json::json!({
+            "page": page,
+            "pageSize": page_size,
+            "query": query,
+            "statusFilter": status_filter,
+        }))
+    } else {
+        None
+    };
+    rpc_call_in_background("apikey/list", addr, params).await
 }
 
 /// 函数 `service_apikey_read_secret`

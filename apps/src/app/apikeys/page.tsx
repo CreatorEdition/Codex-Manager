@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DollarSign,
@@ -11,6 +11,7 @@ import {
   Link2,
   MoreVertical,
   Plus,
+  Search,
   Settings2,
   Zap,
   Trash2,
@@ -31,6 +32,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -196,8 +206,17 @@ export default function ApiKeysPage() {
   const isAdminMode = isAdminRole(role);
   const showMemberOwnership = isAdminMode && session?.mode === "accounts";
   const serviceAddr = useAppStore((state) => state.serviceStatus.addr);
+  const [apiKeyQuery, setApiKeyQuery] = useState("");
+  const deferredApiKeyQuery = useDeferredValue(apiKeyQuery);
+  const [apiKeyStatusFilter, setApiKeyStatusFilter] = useState("all");
+  const [apiKeyPageSize, setApiKeyPageSize] = useState("20");
+  const [apiKeyPage, setApiKeyPage] = useState(1);
+  const apiKeyPageSizeNumber = Number(apiKeyPageSize) || 20;
   const {
     apiKeys,
+    totalApiKeys,
+    apiKeyPage: currentApiKeyPage,
+    apiKeyPageSize: currentApiKeyPageSize,
     isLoading,
     isModelsLoading,
     isServiceReady,
@@ -205,7 +224,12 @@ export default function ApiKeysPage() {
     toggleApiKeyStatus,
     readApiKeySecret,
     isToggling,
-  } = useApiKeys();
+  } = useApiKeys({
+    page: apiKeyPage,
+    pageSize: apiKeyPageSizeNumber,
+    query: deferredApiKeyQuery,
+    statusFilter: apiKeyStatusFilter,
+  });
   const isPageActive = useDesktopPageActive("/apikeys/");
   const isUsageQueryEnabled = useDeferredDesktopActivation(isServiceReady);
   usePageTransitionReady(
@@ -219,6 +243,23 @@ export default function ApiKeysPage() {
   const [deleteKeyId, setDeleteKeyId] = useState<string | null>(null);
   const [ccSwitchImportingId, setCcSwitchImportingId] = useState<string | null>(null);
   const [browserOrigin, setBrowserOrigin] = useState("");
+  const apiKeyTotalPages = Math.max(
+    1,
+    Math.ceil(totalApiKeys / Math.max(1, currentApiKeyPageSize || apiKeyPageSizeNumber)),
+  );
+  const apiKeyRangeStart =
+    totalApiKeys <= 0
+      ? 0
+      : (Math.max(1, currentApiKeyPage) - 1) *
+          Math.max(1, currentApiKeyPageSize || apiKeyPageSizeNumber) +
+        1;
+  const apiKeyRangeEnd =
+    totalApiKeys <= 0
+      ? 0
+      : Math.min(
+          totalApiKeys,
+          apiKeyRangeStart + Math.max(1, currentApiKeyPageSize || apiKeyPageSizeNumber) - 1,
+        );
   const { data: accountManagerStatus } = useQuery({
     queryKey: ["account-manager", "status"],
     queryFn: () => appClient.getAccountManagerStatus(),
@@ -286,6 +327,12 @@ export default function ApiKeysPage() {
     setDeleteKeyId(null);
     setCcSwitchImportingId(null);
   }, [isPageActive]);
+
+  useEffect(() => {
+    if (currentApiKeyPage !== apiKeyPage) {
+      setApiKeyPage(currentApiKeyPage);
+    }
+  }, [apiKeyPage, currentApiKeyPage]);
 
   const editingApiKey = useMemo(
     () => apiKeys.find((item) => item.id === editingKeyId) || null,
@@ -469,6 +516,21 @@ export default function ApiKeysPage() {
     }
   };
 
+  const handleApiKeyQueryChange = (value: string) => {
+    setApiKeyQuery(value);
+    setApiKeyPage(1);
+  };
+
+  const handleApiKeyStatusFilterChange = (value: string | null) => {
+    setApiKeyStatusFilter(value || "all");
+    setApiKeyPage(1);
+  };
+
+  const handleApiKeyPageSizeChange = (value: string | null) => {
+    setApiKeyPageSize(value || "20");
+    setApiKeyPage(1);
+  };
+
   const openCcSwitchImportUrl = async (url: string) => {
     await appClient.openExternalUrl(url);
   };
@@ -610,6 +672,67 @@ export default function ApiKeysPage() {
         </div>
       </div>
 
+      <Card className="glass-card shadow-sm">
+        <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative min-w-0 flex-1 lg:max-w-[420px]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={apiKeyQuery}
+              onChange={(event) => handleApiKeyQueryChange(event.target.value)}
+              placeholder={t("搜索名称、ID、模型或上游地址")}
+              className="pl-8"
+              disabled={!isServiceReady}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                {t("状态")}
+              </span>
+              <Select
+                value={apiKeyStatusFilter}
+                onValueChange={handleApiKeyStatusFilterChange}
+                disabled={!isServiceReady}
+              >
+                <SelectTrigger className="h-8 w-[104px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">{t("全部")}</SelectItem>
+                    <SelectItem value="active">{t("启用")}</SelectItem>
+                    <SelectItem value="disabled">{t("禁用")}</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                {t("每页显示")}
+              </span>
+              <Select
+                value={apiKeyPageSize}
+                onValueChange={handleApiKeyPageSizeChange}
+                disabled={!isServiceReady}
+              >
+                <SelectTrigger className="h-8 w-[78px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {["10", "20", "50", "100", "200"].map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 md:grid-cols-2">
         {isLoading || showOverviewLoading ? (
           <>
@@ -678,7 +801,11 @@ export default function ApiKeysPage() {
                   <TableCell colSpan={showMemberOwnership ? 9 : 8} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <Plus className="h-8 w-8 opacity-20" />
-                      <p>{t("创建密钥")}</p>
+                      <p>
+                        {apiKeyQuery || apiKeyStatusFilter !== "all"
+                          ? t("没有匹配的密钥")
+                          : t("创建密钥")}
+                      </p>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -917,6 +1044,42 @@ export default function ApiKeysPage() {
               )}
             </TableBody>
           </Table>
+          <div className="flex flex-col gap-3 border-t border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-muted-foreground">
+              {t("共")} {totalApiKeys} {t("条平台密钥")}
+              {totalApiKeys > 0 ? (
+                <>
+                  {" "}
+                  ({apiKeyRangeStart}-{apiKeyRangeEnd})
+                </>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2 sm:justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-xs"
+                disabled={!isServiceReady || currentApiKeyPage <= 1 || isLoading}
+                onClick={() => setApiKeyPage(Math.max(1, currentApiKeyPage - 1))}
+              >
+                {t("上一页")}
+              </Button>
+              <div className="min-w-[68px] text-center text-xs font-medium">
+                {t("第")} {currentApiKeyPage} / {apiKeyTotalPages} {t("页")}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-xs"
+                disabled={!isServiceReady || currentApiKeyPage >= apiKeyTotalPages || isLoading}
+                onClick={() =>
+                  setApiKeyPage(Math.min(apiKeyTotalPages, currentApiKeyPage + 1))
+                }
+              >
+                {t("下一页")}
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

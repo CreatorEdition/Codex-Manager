@@ -14,6 +14,7 @@ import {
   AggregateApiTestResult,
   ApiKey,
   ApiKeyCreateResult,
+  ApiKeyListResult,
   ApiKeyUsageStat,
   AppSettings,
   BackgroundTaskSettings,
@@ -792,6 +793,17 @@ export function normalizeApiKeyList(payload: unknown): ApiKey[] {
   return items
     .map((item) => normalizeApiKey(item))
     .filter((item): item is ApiKey => Boolean(item));
+}
+
+export function normalizeApiKeyListResult(payload: unknown): ApiKeyListResult {
+  const source = asObject(payload);
+  const items = normalizeApiKeyList(source.items ?? payload);
+  return {
+    items,
+    total: asInteger(source.total, items.length, 0),
+    page: asInteger(source.page, 1, 1),
+    pageSize: asInteger(source.pageSize, items.length || 20, 1),
+  };
 }
 
 /**

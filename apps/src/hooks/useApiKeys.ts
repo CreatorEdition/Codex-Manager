@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { accountClient } from "@/lib/api/account-client";
+import { accountClient, ApiKeyListParams } from "@/lib/api/account-client";
 import {
   buildStartupSnapshotQueryKey,
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
@@ -18,6 +18,24 @@ import { StartupSnapshot } from "@/types";
 
 type ApiKeyPayload = Parameters<typeof accountClient.createApiKey>[0];
 
+const DEFAULT_API_KEY_PAGE_SIZE = 20;
+
+function normalizeApiKeyListParams(params?: ApiKeyListParams): Required<ApiKeyListParams> {
+  const page = Math.max(1, Number(params?.page) || 1);
+  const pageSize = Math.min(
+    200,
+    Math.max(1, Number(params?.pageSize) || DEFAULT_API_KEY_PAGE_SIZE),
+  );
+  const query = String(params?.query || "").trim();
+  const statusFilter = String(params?.statusFilter || "all").trim() || "all";
+  return {
+    page,
+    pageSize,
+    query,
+    statusFilter,
+  };
+}
+
 /**
  * 函数 `useApiKeys`
  *
@@ -31,7 +49,7 @@ type ApiKeyPayload = Parameters<typeof accountClient.createApiKey>[0];
  * # 返回
  * 返回函数执行结果
  */
-export function useApiKeys() {
+export function useApiKeys(params?: ApiKeyListParams) {
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const localDayRange = useLocalDayRange();
@@ -53,6 +71,19 @@ export function useApiKeys() {
   const startupApiModels = startupSnapshot?.apiModels;
   const hasStartupApiKeySnapshot = startupApiKeys.length > 0;
   const hasStartupApiModelSnapshot = (startupApiModels?.models?.length || 0) > 0;
+  const normalizedListParams = normalizeApiKeyListParams(params);
+  const canUseStartupApiKeyPlaceholder =
+    normalizedListParams.page === 1 &&
+    !normalizedListParams.query &&
+    normalizedListParams.statusFilter === "all";
+  const startupApiKeyPage = canUseStartupApiKeyPlaceholder
+    ? {
+        items: startupApiKeys.slice(0, normalizedListParams.pageSize),
+        total: startupApiKeys.length,
+        page: 1,
+        pageSize: normalizedListParams.pageSize,
+      }
+    : undefined;
 
   /**
    * 函数 `ensureServiceReady`
@@ -76,12 +107,12 @@ export function useApiKeys() {
   };
 
   const apiKeysQuery = useQuery({
-    queryKey: ["apikeys"],
-    queryFn: () => accountClient.listApiKeys(),
+    queryKey: ["apikeys", "page", normalizedListParams],
+    queryFn: () => accountClient.listApiKeyPage(normalizedListParams),
     enabled: areApiKeyQueriesEnabled,
     retry: 1,
     placeholderData: (previousData) =>
-      previousData || (startupApiKeys.length > 0 ? startupApiKeys : undefined),
+      previousData || (startupApiKeyPage?.items.length ? startupApiKeyPage : undefined),
   });
 
   const modelsQuery = useQuery({
@@ -142,25 +173,6 @@ export function useApiKeys() {
     mutationFn: ({ id, params }: { id: string; params: ApiKeyPayload }) =>
       accountClient.updateApiKey(id, params),
     onSuccess: async (_result, variables) => {
-      queryClient.setQueryData(["apikeys"], (current: unknown) =>
-        Array.isArray(current)
-          ? current.map((item) =>
-              item && typeof item === "object" && "id" in item && item.id === variables.id
-                ? {
-                    ...item,
-                    rotationStrategy:
-                      variables.params.rotationStrategy ?? item.rotationStrategy,
-                    aggregateApiId:
-                      variables.params.aggregateApiId ?? item.aggregateApiId,
-                    accountPlanFilter:
-                      variables.params.accountPlanFilter ?? item.accountPlanFilter,
-                    quotaLimitTokens:
-                      variables.params.quotaLimitTokens ?? item.quotaLimitTokens,
-                  }
-                : item,
-            )
-          : current,
-      );
       await invalidateAll();
       toast.success(t("密钥配置已更新"));
     },
@@ -201,12 +213,21 @@ export function useApiKeys() {
   });
 
   return {
-    apiKeys: apiKeysQuery.data || [],
+    apiKeys: apiKeysQuery.data?.items || [],
+    apiKeyListResult: apiKeysQuery.data || startupApiKeyPage || {
+      items: [],
+      total: 0,
+      page: normalizedListParams.page,
+      pageSize: normalizedListParams.pageSize,
+    },
+    totalApiKeys: apiKeysQuery.data?.total ?? startupApiKeyPage?.total ?? 0,
+    apiKeyPage: apiKeysQuery.data?.page ?? normalizedListParams.page,
+    apiKeyPageSize: apiKeysQuery.data?.pageSize ?? normalizedListParams.pageSize,
     modelCatalog: modelsQuery.data || { models: [] },
     models: modelsQuery.data?.models || [],
     isLoading:
       isServiceReady &&
-      !hasStartupApiKeySnapshot &&
+      !(canUseStartupApiKeyPlaceholder && hasStartupApiKeySnapshot) &&
       (!areApiKeyQueriesEnabled || apiKeysQuery.isLoading),
     isModelsLoading:
       isServiceReady &&

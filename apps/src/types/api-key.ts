@@ -27,6 +27,13 @@ export interface ApiKeyCreateResult {
   key: string;
 }
 
+export interface ApiKeyListResult {
+  items: ApiKey[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface AggregateApi {
   id: string;
   providerType: string;

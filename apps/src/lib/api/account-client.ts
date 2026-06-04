@@ -11,6 +11,7 @@ import {
   normalizeAggregateApiTestResult,
   normalizeApiKeyCreateResult,
   normalizeApiKeyList,
+  normalizeApiKeyListResult,
   normalizeApiKeyUsageStats,
   normalizeLoginStartResult,
   normalizeManagedModelCatalog,
@@ -54,6 +55,7 @@ import {
   AggregateApiTestResult,
   ApiKey,
   ApiKeyCreateResult,
+  ApiKeyListResult,
   ApiKeyUsageStat,
   ChatgptAuthTokensRefreshAllResult,
   ChatgptAuthTokensRefreshResult,
@@ -73,6 +75,13 @@ import {
 export interface AccountExportPayload {
   selectedAccountIds?: string[];
   exportMode?: "single" | "multiple";
+}
+
+export interface ApiKeyListParams {
+  page?: number;
+  pageSize?: number;
+  query?: string | null;
+  statusFilter?: string | null;
 }
 
 export interface AccountWarmupPayload {
@@ -737,6 +746,18 @@ export const accountClient = {
   async listApiKeys(): Promise<ApiKey[]> {
     const result = await invoke<unknown>("service_apikey_list", withAddr());
     return normalizeApiKeyList(result);
+  },
+  async listApiKeyPage(params: ApiKeyListParams): Promise<ApiKeyListResult> {
+    const result = await invoke<unknown>(
+      "service_apikey_list",
+      withAddr({
+        page: params.page,
+        pageSize: params.pageSize,
+        query: params.query || null,
+        statusFilter: params.statusFilter || null,
+      }),
+    );
+    return normalizeApiKeyListResult(result);
   },
   async createApiKey(params: ApiKeyPayload): Promise<ApiKeyCreateResult> {
     const result = await invoke<unknown>(
