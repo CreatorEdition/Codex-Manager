@@ -179,17 +179,57 @@ export default function ModelsPage() {
     "all" | RoutingSourceKind
   >("all");
 
-  const { data: accountList } = useQuery({
-    queryKey: ["accounts", "model-routing-sources"],
-    queryFn: () => accountClient.list(),
-    enabled: canLoadAdminRoutingSources,
+  const routingSourceLookupIds = useMemo(() => {
+    const accountIds = new Set<string>();
+    const aggregateApiIds = new Set<string>();
+    const collect = (sourceKind: string, sourceId: string) => {
+      const normalizedId = String(sourceId || "").trim();
+      if (!normalizedId) return;
+      if (sourceKind === "openai_account") {
+        accountIds.add(normalizedId);
+      } else if (sourceKind === "aggregate_api") {
+        aggregateApiIds.add(normalizedId);
+      }
+    };
+
+    for (const sourceModel of routing.sourceModels) {
+      collect(sourceModel.sourceKind, sourceModel.sourceId);
+    }
+    for (const mapping of routing.mappings) {
+      collect(mapping.sourceKind, mapping.sourceId);
+    }
+
+    return {
+      accountIds: Array.from(accountIds).sort(),
+      aggregateApiIds: Array.from(aggregateApiIds).sort(),
+    };
+  }, [routing.mappings, routing.sourceModels]);
+
+  const { data: sourceAccounts } = useQuery({
+    queryKey: [
+      "accounts",
+      "model-routing-sources",
+      routingSourceLookupIds.accountIds,
+    ],
+    queryFn: () => accountClient.lookupAccounts(routingSourceLookupIds.accountIds),
+    enabled:
+      canLoadAdminRoutingSources && routingSourceLookupIds.accountIds.length > 0,
+    staleTime: 60_000,
     retry: 1,
   });
 
-  const { data: aggregateApis } = useQuery({
-    queryKey: ["aggregate-apis", "model-routing-sources"],
-    queryFn: () => accountClient.listAggregateApis(),
-    enabled: canLoadAdminRoutingSources,
+  const { data: sourceAggregateApis } = useQuery({
+    queryKey: [
+      "aggregate-apis",
+      "model-routing-sources",
+      routingSourceLookupIds.aggregateApiIds,
+    ],
+    queryFn: () =>
+      accountClient.lookupAggregateApis(routingSourceLookupIds.aggregateApiIds),
+    enabled:
+      canLoadAdminRoutingSources &&
+      routingSourceLookupIds.aggregateApiIds.length > 0,
+    staleTime: 60_000,
     retry: 1,
   });
 
@@ -311,20 +351,20 @@ export default function ModelsPage() {
 
   const sourceNameByKey = useMemo(() => {
     const names = new Map<string, string>();
-    for (const account of accountList?.items ?? []) {
+    for (const account of sourceAccounts ?? []) {
       names.set(
         `openai_account:${account.id}`,
         account.label || account.name || account.id
       );
     }
-    for (const api of aggregateApis ?? []) {
+    for (const api of sourceAggregateApis ?? []) {
       names.set(
         `aggregate_api:${api.id}`,
         api.supplierName || api.url || api.id
       );
     }
     return names;
-  }, [accountList?.items, aggregateApis]);
+  }, [sourceAccounts, sourceAggregateApis]);
 
   const sourceModelByKey = useMemo(() => {
     return new Map(
