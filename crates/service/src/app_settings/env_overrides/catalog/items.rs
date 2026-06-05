@@ -428,10 +428,10 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS",
-        "用量失败事件去重窗口（秒）",
+        "用量失败事件去重与轮询冷却窗口（秒）",
         ENV_OVERRIDE_SCOPE_SERVICE,
         ENV_OVERRIDE_APPLY_MODE_RUNTIME,
-        "60",
+        "21600",
     ),
     EnvOverrideCatalogItem::new(
         "CODEXMANAGER_USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT",

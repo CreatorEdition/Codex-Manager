@@ -159,6 +159,7 @@ pub(crate) use self::batch::refresh_usage_for_all_accounts;
 use self::batch::{next_usage_poll_cursor, usage_poll_batch_indices};
 use self::errors::{
     mark_usage_unreachable_if_needed, record_usage_refresh_failure, should_retry_with_refresh,
+    usage_refresh_failure_event_window_secs,
 };
 #[cfg(test)]
 use self::queue::clear_pending_usage_refresh_tasks_for_tests;

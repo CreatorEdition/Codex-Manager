@@ -98,7 +98,7 @@ pub(super) fn should_retry_with_refresh(err: &str) -> bool {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn usage_refresh_failure_event_window_secs() -> i64 {
+pub(super) fn usage_refresh_failure_event_window_secs() -> i64 {
     std::env::var(USAGE_REFRESH_FAILURE_EVENT_WINDOW_ENV)
         .ok()
         .and_then(|raw| raw.trim().parse::<i64>().ok())

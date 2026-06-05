@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 use super::{
     build_workspace_map_from_accounts, notify_usage_refresh_completed, open_storage,
     record_usage_refresh_failure, record_usage_refresh_metrics, refresh_usage_for_token,
-    DEFAULT_USAGE_POLL_BATCH_LIMIT, DEFAULT_USAGE_POLL_CYCLE_BUDGET_SECS,
-    ENV_USAGE_POLL_BATCH_LIMIT, ENV_USAGE_POLL_CYCLE_BUDGET_SECS, USAGE_POLL_CURSOR,
-    USAGE_REFRESH_WORKERS,
+    usage_refresh_failure_event_window_secs, DEFAULT_USAGE_POLL_BATCH_LIMIT,
+    DEFAULT_USAGE_POLL_CYCLE_BUDGET_SECS, ENV_USAGE_POLL_BATCH_LIMIT,
+    ENV_USAGE_POLL_CYCLE_BUDGET_SECS, USAGE_POLL_CURSOR, USAGE_REFRESH_WORKERS,
 };
 
 /// 函数 `refresh_usage_for_all_accounts`
@@ -55,8 +55,9 @@ pub(crate) fn refresh_usage_for_all_accounts() -> Result<(), String> {
 /// 返回函数执行结果
 pub(crate) fn refresh_usage_for_polling_batch() -> Result<(), String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let failure_cooldown_cutoff_ts = usage_refresh_failure_cooldown_cutoff_ts();
     let total = storage
-        .usage_refresh_candidate_count()
+        .usage_refresh_candidate_count(failure_cooldown_cutoff_ts)
         .map_err(|e| e.to_string())?
         .max(0) as usize;
     if total == 0 {
@@ -67,7 +68,12 @@ pub(crate) fn refresh_usage_for_polling_batch() -> Result<(), String> {
     let batch_limit = usage_poll_batch_limit(total);
     let cycle_budget = usage_poll_cycle_budget();
     let cycle_started_at = Instant::now();
-    let selected_tasks = load_usage_refresh_polling_tasks(&storage, start_cursor, batch_limit)?;
+    let selected_tasks = load_usage_refresh_polling_tasks(
+        &storage,
+        start_cursor,
+        batch_limit,
+        failure_cooldown_cutoff_ts,
+    )?;
     let processed = run_usage_refresh_tasks(selected_tasks)?;
 
     if processed > 0 {
@@ -105,22 +111,40 @@ fn load_usage_refresh_polling_tasks(
     storage: &Storage,
     start_cursor: usize,
     batch_limit: usize,
+    failure_cooldown_cutoff_ts: Option<i64>,
 ) -> Result<Vec<UsageRefreshBatchTask>, String> {
     if batch_limit == 0 {
         return Ok(Vec::new());
     }
 
     let mut candidates = storage
-        .list_usage_refresh_candidates_paginated(start_cursor as i64, batch_limit as i64)
+        .list_usage_refresh_candidates_paginated(
+            start_cursor as i64,
+            batch_limit as i64,
+            failure_cooldown_cutoff_ts,
+        )
         .map_err(|err| err.to_string())?;
     if candidates.len() < batch_limit && start_cursor > 0 {
         let mut wrapped = storage
-            .list_usage_refresh_candidates_paginated(0, batch_limit as i64)
+            .list_usage_refresh_candidates_paginated(
+                0,
+                batch_limit as i64,
+                failure_cooldown_cutoff_ts,
+            )
             .map_err(|err| err.to_string())?;
         wrapped.truncate(batch_limit.saturating_sub(candidates.len()));
         candidates.extend(wrapped);
     }
     Ok(build_usage_refresh_tasks_from_candidates(candidates))
+}
+
+fn usage_refresh_failure_cooldown_cutoff_ts() -> Option<i64> {
+    let cooldown_secs = usage_refresh_failure_event_window_secs();
+    if cooldown_secs <= 0 {
+        None
+    } else {
+        Some(codexmanager_core::storage::now_ts().saturating_sub(cooldown_secs))
+    }
 }
 
 pub(crate) fn refresh_usage_and_aggregate_balances_for_polling_cycle() -> Result<(), String> {
@@ -520,7 +544,10 @@ fn next_usage_poll_cursor(total: usize, cursor: usize, processed: usize) -> usiz
 
 #[cfg(test)]
 mod tests {
-    use super::{build_aggregate_api_balance_refresh_ids, build_usage_refresh_tasks};
+    use super::{
+        build_aggregate_api_balance_refresh_ids, build_usage_refresh_tasks,
+        usage_refresh_failure_cooldown_cutoff_ts,
+    };
     use codexmanager_core::storage::{now_ts, Account, AggregateApi, Token};
     use std::collections::HashSet;
 
@@ -652,6 +679,35 @@ mod tests {
         assert_eq!(tasks[1].workspace_id.as_deref(), Some("ws-inactive"));
         assert_eq!(tasks[2].workspace_id.as_deref(), Some("ws-unavailable"));
         assert_eq!(tasks[3].workspace_id, None);
+    }
+
+    #[test]
+    fn usage_refresh_failure_cooldown_cutoff_uses_failure_window() {
+        let _guard = crate::test_env_guard();
+        let previous = std::env::var("CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS").ok();
+        std::env::set_var("CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS", "0");
+        assert_eq!(usage_refresh_failure_cooldown_cutoff_ts(), None);
+
+        std::env::set_var(
+            "CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS",
+            "3600",
+        );
+        let before = codexmanager_core::storage::now_ts().saturating_sub(3_600);
+        let cutoff = usage_refresh_failure_cooldown_cutoff_ts().expect("cooldown cutoff");
+        let after = codexmanager_core::storage::now_ts().saturating_sub(3_600);
+        assert!(
+            cutoff >= before && cutoff <= after,
+            "cutoff should use configured failure window"
+        );
+
+        if let Some(previous) = previous {
+            std::env::set_var(
+                "CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS",
+                previous,
+            );
+        } else {
+            std::env::remove_var("CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS");
+        }
     }
 
     #[test]

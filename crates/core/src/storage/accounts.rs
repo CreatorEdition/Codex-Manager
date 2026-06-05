@@ -345,18 +345,24 @@ impl Storage {
     }
 
     /// 统计后台用量轮询当前可刷新的账号候选数量。
-    pub fn usage_refresh_candidate_count(&self) -> Result<i64> {
+    pub fn usage_refresh_candidate_count(
+        &self,
+        failure_cooldown_cutoff_ts: Option<i64>,
+    ) -> Result<i64> {
         let sql = format!(
             "WITH usage_refresh_candidates AS (
                 {candidate_select}
              )
              SELECT COUNT(1)
-             FROM usage_refresh_candidates
-             WHERE {status_reason_clause}",
+             FROM usage_refresh_candidates c
+             WHERE {status_reason_clause}
+               AND {failure_cooldown_clause}",
             candidate_select = usage_refresh_candidate_select_sql(),
             status_reason_clause = usage_refresh_status_reason_clause(),
+            failure_cooldown_clause = usage_refresh_failure_cooldown_clause(),
         );
-        self.conn.query_row(&sql, [], |row| row.get(0))
+        self.conn
+            .query_row(&sql, [failure_cooldown_cutoff_ts], |row| row.get(0))
     }
 
     /// 按页读取后台用量轮询候选，避免每轮全量加载账号、Token 和状态事件。
@@ -364,6 +370,7 @@ impl Storage {
         &self,
         offset: i64,
         limit: i64,
+        failure_cooldown_cutoff_ts: Option<i64>,
     ) -> Result<Vec<(Account, Token)>> {
         let sql = format!(
             "WITH usage_refresh_candidates AS (
@@ -385,16 +392,18 @@ impl Storage {
                refresh_token,
                api_key_access_token,
                last_refresh
-             FROM usage_refresh_candidates
-             WHERE {status_reason_clause}
-             ORDER BY sort ASC, updated_at DESC, account_id ASC
-             LIMIT ?1 OFFSET ?2",
+              FROM usage_refresh_candidates c
+              WHERE {status_reason_clause}
+                AND {failure_cooldown_clause}
+              ORDER BY sort ASC, updated_at DESC, account_id ASC
+              LIMIT ?2 OFFSET ?3",
             candidate_select = usage_refresh_candidate_select_sql(),
             status_reason_clause = usage_refresh_status_reason_clause(),
+            failure_cooldown_clause = usage_refresh_failure_cooldown_clause(),
         );
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let mut rows = stmt.query((limit.max(1), offset.max(0)))?;
+        let mut rows = stmt.query((failure_cooldown_cutoff_ts, limit.max(1), offset.max(0)))?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
             out.push(map_gateway_candidate_row(row)?);
@@ -1096,6 +1105,21 @@ fn usage_refresh_status_reason_clause() -> &'static str {
     )"
 }
 
+/// 跳过冷却窗口内刚失败的后台用量刷新账号，避免长期失败账号每轮重复打上游。
+fn usage_refresh_failure_cooldown_clause() -> &'static str {
+    "(
+        ?1 IS NULL
+        OR NOT EXISTS (
+            SELECT 1
+            FROM events recent_failure
+            WHERE recent_failure.type = 'usage_refresh_failed'
+              AND recent_failure.account_id = c.account_id
+              AND recent_failure.created_at >= ?1
+            LIMIT 1
+        )
+    )"
+}
+
 /// 函数 `account_select_columns`
 ///
 /// 作者: gaohongshun
@@ -1415,13 +1439,13 @@ mod tests {
 
         assert_eq!(
             storage
-                .usage_refresh_candidate_count()
+                .usage_refresh_candidate_count(None)
                 .expect("candidate count"),
             3
         );
 
         let first_page = storage
-            .list_usage_refresh_candidates_paginated(0, 2)
+            .list_usage_refresh_candidates_paginated(0, 2, None)
             .expect("first page");
         let first_page_ids = first_page
             .iter()
@@ -1434,13 +1458,73 @@ mod tests {
         assert_eq!(first_page[0].0.workspace_id.as_deref(), Some("ws-a"));
 
         let second_page = storage
-            .list_usage_refresh_candidates_paginated(2, 2)
+            .list_usage_refresh_candidates_paginated(2, 2, None)
             .expect("second page");
         let second_page_ids = second_page
             .iter()
             .map(|(account, _)| account.id.as_str())
             .collect::<Vec<_>>();
         assert_eq!(second_page_ids, vec!["acc-restored"]);
+    }
+
+    #[test]
+    fn list_usage_refresh_candidates_paginated_skips_recent_failures() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        let mut active = sample_account("acc-active", "active", now);
+        active.sort = 1;
+        let mut recent_failure = sample_account("acc-recent-failure", "active", now);
+        recent_failure.sort = 2;
+        let mut old_failure = sample_account("acc-old-failure", "active", now);
+        old_failure.sort = 3;
+
+        for account in [&active, &recent_failure, &old_failure] {
+            storage.insert_account(account).expect("insert account");
+            storage
+                .insert_token(&sample_token(account.id.as_str(), now))
+                .expect("insert token");
+        }
+        storage
+            .insert_event(&Event {
+                account_id: Some(recent_failure.id.clone()),
+                event_type: "usage_refresh_failed".to_string(),
+                message: "usage endpoint failed: status=503".to_string(),
+                created_at: now - 60,
+            })
+            .expect("insert recent failure");
+        storage
+            .insert_event(&Event {
+                account_id: Some(old_failure.id.clone()),
+                event_type: "usage_refresh_failed".to_string(),
+                message: "usage endpoint failed: status=503".to_string(),
+                created_at: now - 7_200,
+            })
+            .expect("insert old failure");
+
+        let cutoff = Some(now - 3_600);
+        assert_eq!(
+            storage
+                .usage_refresh_candidate_count(cutoff)
+                .expect("candidate count"),
+            2
+        );
+        let candidates = storage
+            .list_usage_refresh_candidates_paginated(0, 10, cutoff)
+            .expect("candidates");
+        let candidate_ids = candidates
+            .iter()
+            .map(|(account, _)| account.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(candidate_ids, vec!["acc-active", "acc-old-failure"]);
+
+        assert_eq!(
+            storage
+                .usage_refresh_candidate_count(None)
+                .expect("candidate count without cooldown"),
+            3
+        );
     }
 
     #[test]
