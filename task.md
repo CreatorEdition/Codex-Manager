@@ -56,6 +56,7 @@
 - 网关候选基础查询按账号取最新用量：`list_gateway_candidates()` 不再用 latest usage 全表窗口 CTE，改为按候选账号通过 `(account_id, captured_at, id)` 索引查最新快照，降低候选缓存失效时的 CPU 峰值。
 - 网关无候选诊断限载：`log_no_candidates()` 不再全量读取账号、Token 和最新 usage 快照，只记录总数摘要与前 12 个账号样本，避免故障场景把 CPU 与日志写入继续放大。
 - 后台用量轮询失败账号冷却：轮询候选 SQL 会跳过 `CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS` 窗口内刚写入 `usage_refresh_failed` 的账号，默认 6 小时，避免长期失败账号每轮继续打上游。
+- Token 用量按 Key 聚合下推过滤：`summarize_request_token_stats_by_key_ids*` 在 `request_token_stats` 与 `request_token_stat_rollups` 两个 UNION 分支内先按 keyIds 过滤，避免成员仪表盘和平台 Key 用量页扫描全量 token_stats 后再过滤。
 
 ### ⚠️ 待处理
 
@@ -63,5 +64,5 @@
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
 - `dashboard/adminUsageSummary` 已完成首页 TopN 限载；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并将 TopN/分页进一步下推到 SQL 聚合层。
-- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate、网关候选配额保护、网关候选基础查询、用量快照维护剪枝、用量刷新失败事件降噪和失败账号轮询冷却已限载/下推，后续仍需继续审计 request_logs / request_token_stats 聚合与 WAL 收缩效果。
+- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate、网关候选配额保护、网关候选基础查询、用量快照维护剪枝、用量刷新失败事件降噪、失败账号轮询冷却和按 Key token_stats 聚合已限载/下推，后续仍需继续审计 request_logs 写入放大、观测维护后台化与 WAL 收缩效果。
 - 首页模型池卡片在 summary 模式下容量数字会显示未知；后续如要展示容量，应通过独立轻量汇总或分页来源接口懒加载，不能回退到裸 RPC 全量扫描。

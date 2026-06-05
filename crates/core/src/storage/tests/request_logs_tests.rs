@@ -480,3 +480,66 @@ fn request_logs_support_time_range_filters() {
     assert_eq!(summary.count, 2);
     assert_eq!(summary.total_tokens, 20);
 }
+
+#[test]
+fn request_token_stats_key_id_summaries_merge_rollups_and_filter_keys() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    for (request_log_id, key_id, model, total_tokens, cost) in [
+        (1_i64, "gk-a", "gpt-5", 30_i64, 0.30_f64),
+        (2_i64, "gk-b", "gpt-5", 50_i64, 0.50_f64),
+        (3_i64, "gk-other", "gpt-5", 900_i64, 9.00_f64),
+    ] {
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id,
+                key_id: Some(key_id.to_string()),
+                account_id: Some(format!("acc-{key_id}")),
+                model: Some(model.to_string()),
+                total_tokens: Some(total_tokens),
+                estimated_cost_usd: Some(cost),
+                created_at: 1_000 + request_log_id,
+                ..Default::default()
+            })
+            .expect("insert old token stat");
+    }
+    storage
+        .rollup_request_token_stats_before(2_000)
+        .expect("roll up old token stats");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: 10,
+            key_id: Some("gk-a".to_string()),
+            account_id: Some("acc-gk-a".to_string()),
+            model: Some("gpt-5-mini".to_string()),
+            total_tokens: Some(20),
+            estimated_cost_usd: Some(0.20),
+            created_at: 3_000,
+            ..Default::default()
+        })
+        .expect("insert hot token stat");
+
+    let key_summary = storage
+        .summarize_request_token_stats_by_key_ids(&["gk-a".to_string(), "gk-b".to_string()])
+        .expect("summarize by key ids");
+    let key_totals = key_summary
+        .iter()
+        .map(|item| (item.key_id.as_str(), item.total_tokens))
+        .collect::<Vec<_>>();
+    assert_eq!(key_totals, vec![("gk-a", 50), ("gk-b", 50)]);
+    assert!(!key_summary.iter().any(|item| item.key_id == "gk-other"));
+
+    let model_summary = storage
+        .summarize_request_token_stats_by_key_ids_and_model(&["gk-a".to_string()], None, None)
+        .expect("summarize by key ids and model");
+    let model_totals = model_summary
+        .iter()
+        .map(|item| (item.key_id.as_str(), item.model.as_str(), item.total_tokens))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        model_totals,
+        vec![("gk-a", "gpt-5", 30), ("gk-a", "gpt-5-mini", 20)]
+    );
+    assert!(!model_summary.iter().any(|item| item.key_id == "gk-other"));
+}
