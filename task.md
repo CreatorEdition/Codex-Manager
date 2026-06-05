@@ -53,6 +53,7 @@
 - 网关候选配额保护限载：候选缓存失效时，quota guard 只按当前候选账号 ID 分批读取最新 usage 快照，不再为每次网关候选重建扫描全部账号用量。
 - 用量快照维护集合式剪枝：观测数据维护不再先 DISTINCT 全账号再逐账号 DELETE，改为 SQLite 窗口函数一次性删除每个账号超出保留数的旧快照，减少后台 CPU 和 WAL 写入放大。
 - 用量刷新失败事件默认降噪：`usage_refresh_failed` 同账号同错误类默认节流窗口从 60 秒提高到 6 小时，避免默认 10 分钟轮询失败时每轮为几千账号重复写事件。
+- 网关候选基础查询按账号取最新用量：`list_gateway_candidates()` 不再用 latest usage 全表窗口 CTE，改为按候选账号通过 `(account_id, captured_at, id)` 索引查最新快照，降低候选缓存失效时的 CPU 峰值。
 
 ### ⚠️ 待处理
 
@@ -60,6 +61,6 @@
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
 - `dashboard/adminUsageSummary` 已完成首页 TopN 限载；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并将 TopN/分页进一步下推到 SQL 聚合层。
-- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate、网关候选配额保护、用量快照维护剪枝和用量刷新失败事件降噪已限载/下推，后续仍需继续审计失败账号的调度退避策略。
+- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate、网关候选配额保护、网关候选基础查询、用量快照维护剪枝和用量刷新失败事件降噪已限载/下推，后续仍需继续审计失败账号的调度退避策略。
 - 首页模型池卡片在 summary 模式下容量数字会显示未知；后续如要展示容量，应通过独立轻量汇总或分页来源接口懒加载，不能回退到裸 RPC 全量扫描。
 - `log_no_candidates()` 仍会在无候选诊断分支全量读取账号、Token 和 usage 快照；该分支只应在异常时触发，但后续应改成限量摘要，避免故障场景放大 CPU 与日志写入。

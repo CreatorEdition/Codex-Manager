@@ -320,21 +320,18 @@ impl Storage {
         let availability_clause =
             account_usage_filter_clause(AccountUsageQueryMode::ActiveAvailable, "a", "lu");
         let sql = format!(
-            "{latest_usage_cte}
-             SELECT
+            "SELECT
                {account_select},
                {token_select}
              FROM accounts a
              JOIN tokens t
                ON t.account_id = a.id
-             LEFT JOIN latest_usage lu
-               ON lu.account_id = a.id
-              AND lu.rn = 1
+             {latest_usage_join}
              WHERE {availability_clause}
              ORDER BY a.sort ASC, a.updated_at DESC",
-            latest_usage_cte = latest_usage_cte_sql(),
             account_select = account_select_columns("a"),
             token_select = token_select_columns("t"),
+            latest_usage_join = latest_usage_for_account_join_sql("a", "lu"),
             availability_clause = availability_clause,
         );
 
@@ -974,6 +971,19 @@ fn latest_usage_cte_sql() -> &'static str {
     )"
 }
 
+fn latest_usage_for_account_join_sql(account_alias: &str, usage_alias: &str) -> String {
+    format!(
+        "LEFT JOIN usage_snapshots {usage_alias}
+           ON {usage_alias}.id = (
+             SELECT us.id
+             FROM usage_snapshots us
+             WHERE us.account_id = {account_alias}.id
+             ORDER BY us.captured_at DESC, us.id DESC
+             LIMIT 1
+           )"
+    )
+}
+
 /// 函数 `available_usage_clause`
 ///
 /// 作者: gaohongshun
@@ -1261,6 +1271,27 @@ mod tests {
         }
     }
 
+    fn sample_usage_snapshot(
+        account_id: &str,
+        captured_at: i64,
+        used_percent: Option<f64>,
+        window_minutes: Option<i64>,
+        secondary_used_percent: Option<f64>,
+        secondary_window_minutes: Option<i64>,
+    ) -> UsageSnapshotRecord {
+        UsageSnapshotRecord {
+            account_id: account_id.to_string(),
+            used_percent,
+            window_minutes,
+            resets_at: None,
+            secondary_used_percent,
+            secondary_window_minutes,
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at,
+        }
+    }
+
     #[test]
     fn insert_account_update_preserves_existing_token() {
         let mut storage = Storage::open_in_memory().expect("open");
@@ -1472,6 +1503,91 @@ mod tests {
                 "acc-active-ok".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn list_gateway_candidates_uses_latest_usage_per_account() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        for (id, sort) in [
+            ("acc-old-exhausted-now-ok", 0_i64),
+            ("acc-old-ok-now-exhausted", 1_i64),
+            ("acc-no-usage", 2_i64),
+            ("acc-incomplete-latest", 3_i64),
+        ] {
+            let mut account = sample_account(id, "active", now + sort);
+            account.sort = sort;
+            storage.insert_account(&account).expect("insert account");
+            storage
+                .insert_token(&sample_token(account.id.as_str(), now))
+                .expect("insert token");
+        }
+
+        for snapshot in [
+            sample_usage_snapshot(
+                "acc-old-exhausted-now-ok",
+                now,
+                Some(100.0),
+                Some(300),
+                None,
+                None,
+            ),
+            sample_usage_snapshot(
+                "acc-old-exhausted-now-ok",
+                now + 10,
+                Some(20.0),
+                Some(300),
+                None,
+                None,
+            ),
+            sample_usage_snapshot(
+                "acc-old-ok-now-exhausted",
+                now,
+                Some(20.0),
+                Some(300),
+                None,
+                None,
+            ),
+            sample_usage_snapshot(
+                "acc-old-ok-now-exhausted",
+                now + 10,
+                Some(100.0),
+                Some(300),
+                None,
+                None,
+            ),
+            sample_usage_snapshot(
+                "acc-incomplete-latest",
+                now,
+                Some(20.0),
+                Some(300),
+                None,
+                None,
+            ),
+            sample_usage_snapshot(
+                "acc-incomplete-latest",
+                now + 10,
+                Some(20.0),
+                None,
+                None,
+                None,
+            ),
+        ] {
+            storage
+                .insert_usage_snapshot(&snapshot)
+                .expect("insert usage snapshot");
+        }
+
+        let ids = storage
+            .list_gateway_candidates()
+            .expect("list gateway candidates")
+            .into_iter()
+            .map(|(account, _)| account.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["acc-old-exhausted-now-ok", "acc-no-usage"]);
     }
 
     #[test]
