@@ -62,10 +62,6 @@ export const serviceClient = {
       withAddr({
         accountLimit: STARTUP_SNAPSHOT_ACCOUNT_LIMIT,
         apiKeyLimit: STARTUP_SNAPSHOT_API_KEY_LIMIT,
-        includeUsageAggregate: true,
-        includeTodaySummary: true,
-        includeRecentLogs: true,
-        includeApiModels: true,
         ...(params || {}),
       })
     );
