@@ -4,6 +4,7 @@ import {
   normalizeAggregateApiBalanceRefreshResult,
   normalizeAggregateApiCreateResult,
   normalizeAggregateApiList,
+  normalizeAggregateApiListResult,
   normalizeAggregateApiSecretResult,
   normalizeAggregateApiSupplierModel,
   normalizeAggregateApiSupplierModelImportResult,
@@ -49,6 +50,7 @@ import {
   AggregateApi,
   AggregateApiBalanceRefreshResult,
   AggregateApiCreateResult,
+  AggregateApiListResult,
   AggregateApiSecretResult,
   AggregateApiSupplierModel,
   AggregateApiSupplierModelImportResult,
@@ -81,6 +83,14 @@ export interface ApiKeyListParams {
   page?: number;
   pageSize?: number;
   query?: string | null;
+  statusFilter?: string | null;
+}
+
+export interface AggregateApiListParams {
+  page?: number;
+  pageSize?: number;
+  query?: string | null;
+  providerType?: string | null;
   statusFilter?: string | null;
 }
 
@@ -613,8 +623,29 @@ export const accountClient = {
   },
 
   async listAggregateApis(): Promise<AggregateApi[]> {
-    const result = await invoke<unknown>("service_aggregate_api_list", withAddr());
+    const result = await invoke<unknown>(
+      "service_aggregate_api_list",
+      withAddr({ page: 1, pageSize: 500 }),
+    );
     return normalizeAggregateApiList(result);
+  },
+  async listAggregateApiPage(
+    params: AggregateApiListParams,
+  ): Promise<AggregateApiListResult> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_list",
+      withAddr({
+        page: params.page ?? 1,
+        pageSize: params.pageSize ?? 20,
+        page_size: params.pageSize ?? 20,
+        query: params.query || null,
+        providerType: params.providerType || null,
+        provider_type: params.providerType || null,
+        statusFilter: params.statusFilter || null,
+        status_filter: params.statusFilter || null,
+      }),
+    );
+    return normalizeAggregateApiListResult(result);
   },
   async lookupAggregateApis(ids: string[]): Promise<AggregateApi[]> {
     const normalizedIds = Array.from(

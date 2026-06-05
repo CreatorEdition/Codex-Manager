@@ -123,6 +123,47 @@ impl Storage {
         Ok(out)
     }
 
+    pub fn aggregate_api_count_filtered(
+        &self,
+        query: Option<&str>,
+        provider_type: Option<&str>,
+        status_filter: Option<&str>,
+    ) -> Result<i64> {
+        let mut params = Vec::new();
+        let where_clause =
+            build_aggregate_api_filter_sql(query, provider_type, status_filter, &mut params);
+        let sql = format!("SELECT COUNT(1) FROM aggregate_apis a{where_clause}");
+        self.conn
+            .query_row(&sql, params_from_iter(params.iter()), |row| row.get(0))
+    }
+
+    pub fn list_aggregate_apis_paginated(
+        &self,
+        query: Option<&str>,
+        provider_type: Option<&str>,
+        status_filter: Option<&str>,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<AggregateApi>> {
+        let mut params = Vec::new();
+        let where_clause =
+            build_aggregate_api_filter_sql(query, provider_type, status_filter, &mut params);
+        params.push(Value::Integer(limit.max(1)));
+        params.push(Value::Integer(offset.max(0)));
+        let sql = format!(
+            "{AGGREGATE_API_SELECT_SQL} a{where_clause}
+             ORDER BY a.sort ASC, a.updated_at DESC, a.id ASC
+             LIMIT ? OFFSET ?"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params.iter()))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_aggregate_api_row(row)?);
+        }
+        Ok(out)
+    }
+
     /// 按 ID 批量读取聚合 API，用于日志页当前页展示 lookup。
     pub fn list_aggregate_apis_by_ids(&self, api_ids: &[String]) -> Result<Vec<AggregateApi>> {
         let mut ids = api_ids
@@ -844,6 +885,50 @@ fn map_aggregate_api_supplier_model_row(row: &Row<'_>) -> Result<AggregateApiSup
         created_at: row.get(5)?,
         updated_at: row.get(6)?,
     })
+}
+
+fn build_aggregate_api_filter_sql(
+    query: Option<&str>,
+    provider_type: Option<&str>,
+    status_filter: Option<&str>,
+    params: &mut Vec<Value>,
+) -> String {
+    let mut clauses = Vec::new();
+    if let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) {
+        let like = format!("%{}%", query.to_ascii_lowercase());
+        params.push(Value::Text(like.clone()));
+        params.push(Value::Text(like.clone()));
+        params.push(Value::Text(like));
+        clauses.push(
+            "(LOWER(COALESCE(a.supplier_name, '')) LIKE ?
+              OR LOWER(a.url) LIKE ?
+              OR LOWER(a.id) LIKE ?)"
+                .to_string(),
+        );
+    }
+    if let Some(provider_type) = provider_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("all"))
+    {
+        params.push(Value::Text(provider_type.to_ascii_lowercase()));
+        clauses.push("LOWER(a.provider_type) = ?".to_string());
+    }
+    if let Some(status_filter) = status_filter
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("all"))
+    {
+        match status_filter.to_ascii_lowercase().as_str() {
+            "active" | "enabled" => clauses.push("a.status != 'disabled'".to_string()),
+            "disabled" => clauses.push("a.status = 'disabled'".to_string()),
+            _ => {}
+        }
+    }
+
+    if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    }
 }
 
 fn normalize_supplier_model_text(value: &str) -> String {

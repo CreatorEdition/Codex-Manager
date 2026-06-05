@@ -1173,6 +1173,100 @@ fn rpc_account_list_active_filter_uses_backend_filtered_pagination() {
     assert_eq!(ids, vec!["acc-active-1", "acc-active-2"]);
 }
 
+#[test]
+fn rpc_aggregate_api_list_supports_backend_filters_and_pagination() {
+    let ctx = RpcTestContext::new("rpc-aggregate-api-list-paged");
+    let mut storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    for (idx, provider, status) in [
+        ("0", "codex", "active"),
+        ("1", "codex", "active"),
+        ("2", "claude", "active"),
+        ("3", "codex", "disabled"),
+    ] {
+        let idx_num = idx.parse::<i64>().expect("idx");
+        let api_id = format!("paged-aggregate-{idx}");
+        storage
+            .insert_aggregate_api(&AggregateApi {
+                id: api_id.clone(),
+                provider_type: provider.to_string(),
+                supplier_name: Some(format!("Paged Aggregate {idx}")),
+                sort: idx_num,
+                url: format!("https://paged-aggregate-{idx}.example.invalid/v1"),
+                auth_type: "apikey".to_string(),
+                auth_params_json: None,
+                action: None,
+                model_override: None,
+                status: status.to_string(),
+                created_at: now + idx_num,
+                updated_at: now + idx_num,
+                last_test_at: None,
+                last_test_status: None,
+                last_test_error: None,
+                balance_query_enabled: false,
+                balance_query_template: None,
+                balance_query_base_url: None,
+                balance_query_user_id: None,
+                balance_query_config_json: None,
+                last_balance_at: None,
+                last_balance_status: None,
+                last_balance_error: None,
+                last_balance_json: None,
+            })
+            .expect("insert aggregate api");
+        storage
+            .set_quota_source_model_assignments(
+                "aggregate_api",
+                api_id.as_str(),
+                &[format!("model-{idx}")],
+            )
+            .expect("set aggregate api models");
+    }
+
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+    let req = JsonRpcRequest {
+        id: 31.into(),
+        method: "aggregateApi/list".to_string(),
+        params: Some(serde_json::json!({
+            "page": 2,
+            "pageSize": 1,
+            "providerType": "codex",
+            "statusFilter": "active"
+        })),
+        trace: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize");
+    let v = post_rpc(&server.addr, &json);
+    let result = v.get("result").expect("result");
+    assert_eq!(
+        result.get("total").and_then(|value| value.as_i64()),
+        Some(2)
+    );
+    assert_eq!(result.get("page").and_then(|value| value.as_i64()), Some(2));
+    assert_eq!(
+        result.get("pageSize").and_then(|value| value.as_i64()),
+        Some(1)
+    );
+    let items = result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("items array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].get("id").and_then(|value| value.as_str()),
+        Some("paged-aggregate-1")
+    );
+    assert_eq!(
+        items[0]
+            .get("modelSlugs")
+            .and_then(|value| value.as_array())
+            .and_then(|items| items.first())
+            .and_then(|value| value.as_str()),
+        Some("model-1")
+    );
+}
+
 /// 函数 `rpc_account_delete_many_deletes_requested_accounts`
 ///
 /// 作者: gaohongshun

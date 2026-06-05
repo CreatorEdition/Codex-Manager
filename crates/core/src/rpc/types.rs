@@ -849,9 +849,60 @@ pub struct PluginRunLogSummary {
     pub error: Option<String>,
 }
 
+fn default_rpc_page() -> i64 {
+    1
+}
+
+fn default_rpc_page_size() -> i64 {
+    20
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiListParams {
+    #[serde(default = "default_rpc_page")]
+    pub page: i64,
+    #[serde(default = "default_rpc_page_size")]
+    pub page_size: i64,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub provider_type: Option<String>,
+    #[serde(default)]
+    pub status_filter: Option<String>,
+}
+
+impl Default for AggregateApiListParams {
+    fn default() -> Self {
+        Self {
+            page: default_rpc_page(),
+            page_size: default_rpc_page_size(),
+            query: None,
+            provider_type: None,
+            status_filter: None,
+        }
+    }
+}
+
+impl AggregateApiListParams {
+    pub fn normalized(self) -> Self {
+        Self {
+            page: self.page.max(1),
+            page_size: self.page_size.clamp(1, 200),
+            query: self.query,
+            provider_type: self.provider_type,
+            status_filter: self.status_filter,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AggregateApiListResult {
     pub items: Vec<AggregateApiSummary>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

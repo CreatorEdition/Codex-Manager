@@ -452,7 +452,19 @@ export function createWebCommandMap(
             : [],
       }),
     },
-    service_aggregate_api_list: { rpcMethod: "aggregateApi/list" },
+    service_aggregate_api_list: {
+      rpcMethod: "aggregateApi/list",
+      mapParams: (params) => {
+        const source = asRecord(params) ?? {};
+        return {
+          page: source.page,
+          pageSize: source.pageSize ?? source.page_size,
+          query: source.query,
+          providerType: source.providerType ?? source.provider_type,
+          statusFilter: source.statusFilter ?? source.status_filter,
+        };
+      },
+    },
     service_aggregate_api_lookup: { rpcMethod: "aggregateApi/lookup" },
     service_aggregate_api_create: { rpcMethod: "aggregateApi/create" },
     service_aggregate_api_update: { rpcMethod: "aggregateApi/update" },

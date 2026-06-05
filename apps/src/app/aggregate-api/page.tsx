@@ -191,6 +191,10 @@ export default function AggregateApiPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [providerFilter, setProviderFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [pageSize, setPageSize] = useState("20");
+  const [page, setPage] = useState(1);
+  const pageSizeNumber = Number(pageSize) || 20;
   const [revealedSecrets, setRevealedSecrets] = useState<
     Record<string, AggregateApiSecretResult>
   >({});
@@ -213,21 +217,47 @@ export default function AggregateApiPage() {
     displayName: "",
   });
 
-  const { data: aggregateApis = [], isLoading } = useQuery({
-    queryKey: ["aggregate-apis"],
-    queryFn: () => accountClient.listAggregateApis(),
+  const { data: aggregateApiListResult, isLoading } = useQuery({
+    queryKey: [
+      "aggregate-apis",
+      "page",
+      page,
+      pageSizeNumber,
+      providerFilter,
+      statusFilter,
+    ],
+    queryFn: () =>
+      accountClient.listAggregateApiPage({
+        page,
+        pageSize: pageSizeNumber,
+        providerType: providerFilter,
+        statusFilter,
+      }),
     enabled: isQueryEnabled,
     retry: 1,
   });
+  const aggregateApis = aggregateApiListResult?.items ?? [];
+  const aggregateApiTotal = aggregateApiListResult?.total ?? 0;
+  const aggregateApiPage = aggregateApiListResult?.page ?? page;
+  const aggregateApiPageSize =
+    aggregateApiListResult?.pageSize ?? pageSizeNumber;
+  const aggregateApiTotalPages = Math.max(
+    1,
+    Math.ceil(aggregateApiTotal / Math.max(1, aggregateApiPageSize)),
+  );
+  const aggregateApiRangeStart =
+    aggregateApiTotal <= 0
+      ? 0
+      : (Math.max(1, aggregateApiPage) - 1) * Math.max(1, aggregateApiPageSize) +
+        1;
+  const aggregateApiRangeEnd =
+    aggregateApiTotal <= 0
+      ? 0
+      : Math.min(aggregateApiTotal, aggregateApiRangeStart + aggregateApis.length - 1);
 
   const aggregateQuotaSourceIds = useMemo(
-    () =>
-      aggregateApis
-        .filter(
-          (api) => providerFilter === "all" || api.providerType === providerFilter,
-        )
-        .map((api) => api.id),
-    [aggregateApis, providerFilter],
+    () => aggregateApis.map((api) => api.id),
+    [aggregateApis],
   );
 
   const { data: quotaModelPoolSources } = useQuery({
@@ -263,6 +293,10 @@ export default function AggregateApiPage() {
     setSourceModelDraft({ upstreamModel: "", displayName: "" });
     setSupplierModelDraft({ upstreamModel: "", displayName: "" });
   }, [modelPoolApiId]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [providerFilter, statusFilter, pageSize]);
 
   useEffect(() => {
     setStatusOverrides((current) => {
@@ -340,12 +374,7 @@ export default function AggregateApiPage() {
     [sourceModels],
   );
 
-  const filteredAggregateApis = useMemo(() => {
-    if (providerFilter === "all") {
-      return aggregateApis;
-    }
-    return aggregateApis.filter((api) => api.providerType === providerFilter);
-  }, [aggregateApis, providerFilter]);
+  const filteredAggregateApis = aggregateApis;
 
   const defaultCreateSort = useMemo(() => {
     const maxSort = aggregateApis.reduce(
@@ -992,7 +1021,7 @@ export default function AggregateApiPage() {
         <Card className="glass-card shadow-sm">
           <CardContent className="px-4 ">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-muted-foreground">{t("查询")}</span>
                 <Select
                   value={providerFilter}
@@ -1018,10 +1047,48 @@ export default function AggregateApiPage() {
                     </SelectGroup>
                   </SelectContent>
                 </Select>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(value) => setStatusFilter(value || "all")}
+                >
+                  <SelectTrigger className="w-[128px]">
+                    <SelectValue>
+                      {(value) =>
+                        t(
+                          String(value || "") === "active"
+                            ? "启用"
+                            : String(value || "") === "disabled"
+                              ? "禁用"
+                              : "全部状态",
+                        )
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="all">{t("全部状态")}</SelectItem>
+                      <SelectItem value="active">{t("启用")}</SelectItem>
+                      <SelectItem value="disabled">{t("禁用")}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <Select value={pageSize} onValueChange={(value) => setPageSize(value || "20")}>
+                  <SelectTrigger className="w-[104px]">
+                    <SelectValue>{(value) => `${value || "20"} / ${t("页")}`}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="10">10 / {t("页")}</SelectItem>
+                      <SelectItem value="20">20 / {t("页")}</SelectItem>
+                      <SelectItem value="50">50 / {t("页")}</SelectItem>
+                      <SelectItem value="100">100 / {t("页")}</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-xs text-muted-foreground">
-                  {t("共")} {filteredAggregateApis.length} {t("条")}
+                  {t("共")} {aggregateApiTotal} {t("条")}
                 </div>
                 <Button
                   variant="outline"
@@ -1037,7 +1104,7 @@ export default function AggregateApiPage() {
                   disabled={!isServiceReady || testingAll || filteredAggregateApis.length === 0}
                 >
                   <RefreshCw className={testingAll ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                  {t("测试全部")}
+                  {t("测试当前页")}
                 </Button>
                 <Button
                   variant="outline"
@@ -1059,7 +1126,7 @@ export default function AggregateApiPage() {
                   }
                 >
                   <RefreshCw className={refreshingBalances ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-                  {t("刷新余额")}
+                  {t("刷新当前页余额")}
                 </Button>
                 <Button
                   className="h-10 gap-2 shadow-sm shadow-primary/20"
@@ -1501,6 +1568,46 @@ export default function AggregateApiPage() {
                 )}
               </TableBody>
             </Table>
+            <div className="flex flex-col gap-3 border-t border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-muted-foreground">
+                {t("共")} {aggregateApiTotal} {t("条聚合 API")}
+                {aggregateApiTotal > 0 ? (
+                  <>
+                    {" "}
+                    ({aggregateApiRangeStart}-{aggregateApiRangeEnd})
+                  </>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2 sm:justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  disabled={!isServiceReady || aggregateApiPage <= 1 || isLoading}
+                  onClick={() => setPage(Math.max(1, aggregateApiPage - 1))}
+                >
+                  {t("上一页")}
+                </Button>
+                <div className="min-w-[68px] text-center text-xs font-medium">
+                  {t("第")} {aggregateApiPage} / {aggregateApiTotalPages} {t("页")}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  disabled={
+                    !isServiceReady ||
+                    aggregateApiPage >= aggregateApiTotalPages ||
+                    isLoading
+                  }
+                  onClick={() =>
+                    setPage(Math.min(aggregateApiTotalPages, aggregateApiPage + 1))
+                  }
+                >
+                  {t("下一页")}
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>

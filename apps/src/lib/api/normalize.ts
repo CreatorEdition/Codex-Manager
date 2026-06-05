@@ -8,6 +8,7 @@ import {
   AggregateApiBalanceRefreshResult,
   AggregateApiBalanceSnapshot,
   AggregateApiCreateResult,
+  AggregateApiListResult,
   AggregateApiSecretResult,
   AggregateApiSupplierModel,
   AggregateApiSupplierModelImportResult,
@@ -914,6 +915,17 @@ export function normalizeAggregateApiList(payload: unknown): AggregateApi[] {
   return items
     .map((item) => normalizeAggregateApi(item))
     .filter((item): item is AggregateApi => Boolean(item));
+}
+
+export function normalizeAggregateApiListResult(payload: unknown): AggregateApiListResult {
+  const source = asObject(payload);
+  const items = normalizeAggregateApiList(source.items ?? payload);
+  return {
+    items,
+    total: asInteger(source.total, items.length, 0),
+    page: asInteger(source.page, 1, 1),
+    pageSize: asInteger(source.pageSize, items.length || 20, 1),
+  };
 }
 
 /**

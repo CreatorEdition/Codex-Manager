@@ -1,5 +1,5 @@
 use codexmanager_core::rpc::types::{
-    AggregateApiListResult, AggregateApiSupplierModelDeleteParams,
+    AggregateApiListParams, AggregateApiSupplierModelDeleteParams,
     AggregateApiSupplierModelImportParams, AggregateApiSupplierModelListResult,
     AggregateApiSupplierModelUpsertParams, JsonRpcRequest, JsonRpcResponse,
 };
@@ -39,9 +39,19 @@ fn api_id_param(req: &JsonRpcRequest) -> Option<&str> {
 /// 返回函数执行结果
 pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
     let result = match req.method.as_str() {
-        "aggregateApi/list" => super::value_or_error(
-            list_aggregate_apis().map(|items| AggregateApiListResult { items }),
-        ),
+        "aggregateApi/list" => {
+            let params = req
+                .params
+                .clone()
+                .map(|value| {
+                    serde_json::from_value::<AggregateApiListParams>(value)
+                        .map_err(|err| format!("解析聚合 API 列表参数失败: {err}"))
+                })
+                .transpose();
+            super::value_or_error(
+                params.and_then(|params| list_aggregate_apis(params.unwrap_or_default())),
+            )
+        }
         "aggregateApi/lookup" => {
             let ids = req
                 .params

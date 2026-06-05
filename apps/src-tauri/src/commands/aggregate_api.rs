@@ -12,8 +12,22 @@ use crate::commands::shared::rpc_call_in_background;
 /// # 返回
 /// 返回函数执行结果
 #[tauri::command]
-pub async fn service_aggregate_api_list(addr: Option<String>) -> Result<serde_json::Value, String> {
-    rpc_call_in_background("aggregateApi/list", addr, None).await
+pub async fn service_aggregate_api_list(
+    addr: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+    query: Option<String>,
+    provider_type: Option<String>,
+    status_filter: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+        "page": page,
+        "pageSize": page_size,
+        "query": query,
+        "providerType": provider_type,
+        "statusFilter": status_filter,
+    });
+    rpc_call_in_background("aggregateApi/list", addr, Some(params)).await
 }
 
 /// 按 ID 批量读取聚合 API 摘要，供日志页按当前页日志补齐展示信息。

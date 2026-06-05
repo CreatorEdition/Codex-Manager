@@ -36,11 +36,11 @@
 - 平台 Key 归属按需查询：`accountManager/apiKeyOwners/list` 支持 `keyIds`，`accountManager/users/list` 支持 `ids`，平台 Key 页首屏只读取当前页归属和相关用户，member Key ID 查询改为数据库条件过滤。
 - 启动快照预取轻量化：`startup/snapshot` 支持关闭用量聚合、今日摘要、最近日志和模型目录，应用启动预取使用独立轻量缓存，避免首屏预热触发重聚合 RPC。
 - 模型池来源按需查询：新增 `quota/modelPoolSources`，支持 `sourceKind/sourceIds/page/pageSize`，聚合 API 页不再通过 `quota/modelPools(includeSources:true)` 拉取全量来源明细。
+- 聚合 API 列表后端分页：`aggregateApi/list` 支持 `page/pageSize/providerType/statusFilter/query`，管理页下推筛选和分页，并仅按当前页 API ID 装饰模型池来源。
 
 ### ⚠️ 待处理
 
 - `cargo test --workspace` 尚未全量执行，后续安全/CI 阶段再跑完整工作区测试。
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
-- `aggregateApi/list` 仍是后端全量列表、前端本地 provider 过滤；下一步应新增后端分页/筛选，并让 `quota/modelPoolSources` 只装饰当前页 sourceIds。
 - `dashboard/adminUsageSummary` 仍存在全量账号/聚合 API 元数据与多组日志聚合慢路径；下一步应拆 overview 与 rankings，并按 top ID 批量查询元数据。

@@ -62,6 +62,13 @@ export interface AggregateApi {
   modelSlugs: string[];
 }
 
+export interface AggregateApiListResult {
+  items: AggregateApi[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface AggregateApiCreateResult {
   id: string;
   key: string;

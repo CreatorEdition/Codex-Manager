@@ -1,9 +1,9 @@
 use codexmanager_core::rpc::types::{
     AggregateApiBalanceRefreshResult, AggregateApiBalanceSnapshot, AggregateApiCreateResult,
-    AggregateApiSecretResult, AggregateApiSummary, AggregateApiSupplierModelDeleteParams,
-    AggregateApiSupplierModelEntry, AggregateApiSupplierModelImportParams,
-    AggregateApiSupplierModelImportResult, AggregateApiSupplierModelUpsertParams,
-    AggregateApiTestResult, ManagedModelSourceModelEntry,
+    AggregateApiListParams, AggregateApiListResult, AggregateApiSecretResult, AggregateApiSummary,
+    AggregateApiSupplierModelDeleteParams, AggregateApiSupplierModelEntry,
+    AggregateApiSupplierModelImportParams, AggregateApiSupplierModelImportResult,
+    AggregateApiSupplierModelUpsertParams, AggregateApiTestResult, ManagedModelSourceModelEntry,
 };
 use codexmanager_core::storage::{
     now_ts, AggregateApi, AggregateApiSupplierModel, ModelSourceModel,
@@ -2354,12 +2354,36 @@ fn probe_gemini_endpoint(
 ///
 /// # 返回
 /// 返回函数执行结果
-pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> {
+pub(crate) fn list_aggregate_apis(
+    params: AggregateApiListParams,
+) -> Result<AggregateApiListResult, String> {
+    let params = params.normalized();
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let total = storage
+        .aggregate_api_count_filtered(
+            params.query.as_deref(),
+            params.provider_type.as_deref(),
+            params.status_filter.as_deref(),
+        )
+        .map_err(|err| format!("count aggregate apis failed: {err}"))?;
+    let page = clamp_page(params.page, total, params.page_size);
+    let offset = page.saturating_sub(1).saturating_mul(params.page_size);
     let items = storage
-        .list_aggregate_apis()
+        .list_aggregate_apis_paginated(
+            params.query.as_deref(),
+            params.provider_type.as_deref(),
+            params.status_filter.as_deref(),
+            offset,
+            params.page_size,
+        )
         .map_err(|err| format!("list aggregate apis failed: {err}"))?;
-    aggregate_api_summaries(&storage, items)
+    let items = aggregate_api_summaries(&storage, items)?;
+    Ok(AggregateApiListResult {
+        items,
+        total,
+        page,
+        page_size: params.page_size,
+    })
 }
 
 pub(crate) fn lookup_aggregate_apis(ids: Vec<String>) -> Result<Vec<AggregateApiSummary>, String> {
@@ -2429,6 +2453,16 @@ fn aggregate_api_summaries(
             last_balance_json: item.last_balance_json,
         })
         .collect())
+}
+
+fn clamp_page(page: i64, total: i64, page_size: i64) -> i64 {
+    let normalized_page = page.max(1);
+    let total_pages = if total <= 0 {
+        1
+    } else {
+        ((total + page_size.max(1) - 1) / page_size.max(1)).max(1)
+    };
+    normalized_page.min(total_pages)
 }
 
 fn normalize_lookup_ids(ids: Vec<String>) -> Vec<String> {
