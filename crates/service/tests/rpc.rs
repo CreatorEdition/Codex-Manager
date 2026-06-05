@@ -2516,6 +2516,37 @@ fn rpc_startup_snapshot_limits_prefetch_sections_and_returns_totals() {
             })
             .expect("insert startup key");
     }
+    let request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("startup-trace".to_string()),
+            key_id: Some("startup-key-0".to_string()),
+            account_id: Some("startup-acc-0".to_string()),
+            request_path: "/v1/responses".to_string(),
+            original_path: Some("/v1/responses".to_string()),
+            adapted_path: Some("/v1/responses".to_string()),
+            method: "POST".to_string(),
+            model: Some("gpt-5.4".to_string()),
+            status_code: Some(200),
+            duration_ms: Some(120),
+            created_at: now,
+            ..Default::default()
+        })
+        .expect("insert startup request log");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id,
+            key_id: Some("startup-key-0".to_string()),
+            account_id: Some("startup-acc-0".to_string()),
+            model: Some("gpt-5.4".to_string()),
+            input_tokens: Some(10),
+            cached_input_tokens: Some(2),
+            output_tokens: Some(4),
+            total_tokens: Some(16),
+            reasoning_output_tokens: Some(1),
+            estimated_cost_usd: Some(0.01),
+            created_at: now,
+        })
+        .expect("insert startup token stat");
 
     let server = codexmanager_service::start_one_shot_server().expect("start startup server");
     let req = JsonRpcRequest {
@@ -2561,10 +2592,80 @@ fn rpc_startup_snapshot_limits_prefetch_sections_and_returns_totals() {
     );
     assert_eq!(
         result
+            .get("requestLogs")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        result
             .get("apiKeys")
             .and_then(|value| value.as_array())
             .map(Vec::len),
         Some(1)
+    );
+
+    let light_server =
+        codexmanager_service::start_one_shot_server().expect("start light startup server");
+    let light_req = JsonRpcRequest {
+        id: 809.into(),
+        method: "startup/snapshot".to_string(),
+        params: Some(serde_json::json!({
+            "accountLimit": 1,
+            "apiKeyLimit": 1,
+            "requestLogLimit": 5,
+            "includeUsageAggregate": false,
+            "includeTodaySummary": false,
+            "includeRecentLogs": false,
+            "includeApiModels": false
+        })),
+        trace: None,
+    };
+    let light_json = serde_json::to_string(&light_req).expect("serialize light startup snapshot");
+    let light_v = post_rpc(&light_server.addr, &light_json);
+    let light_result = light_v.get("result").expect("light result");
+    assert_eq!(
+        light_result
+            .get("accounts")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        light_result
+            .get("apiKeys")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        light_result
+            .get("requestLogs")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        light_result
+            .get("requestLogTodaySummary")
+            .and_then(|value| value.get("todayTokens"))
+            .and_then(|value| value.as_i64()),
+        Some(0)
+    );
+    assert_eq!(
+        light_result
+            .get("usageAggregateSummary")
+            .and_then(|value| value.get("primaryKnownCount"))
+            .and_then(|value| value.as_i64()),
+        Some(0)
+    );
+    assert_eq!(
+        light_result
+            .get("apiModels")
+            .and_then(|value| value.get("models"))
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
     );
 }
 

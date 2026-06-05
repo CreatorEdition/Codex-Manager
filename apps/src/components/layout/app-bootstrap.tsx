@@ -10,6 +10,7 @@ import { useAppStore } from "@/lib/store/useAppStore";
 import { serviceClient } from "@/lib/api/service-client";
 import {
   buildStartupSnapshotQueryKey,
+  STARTUP_SNAPSHOT_PROFILE_PREFETCH,
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
   STARTUP_SNAPSHOT_STALE_TIME,
 } from "@/lib/api/startup-snapshot";
@@ -227,12 +228,16 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
           addr,
           STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
           localDayRange.dayStartTs,
+          STARTUP_SNAPSHOT_PROFILE_PREFETCH,
         ),
         queryFn: () =>
           serviceClient.getStartupSnapshot({
             requestLogLimit: STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
             dayStartTs: localDayRange.dayStartTs,
             dayEndTs: localDayRange.dayEndTs,
+            includeUsageAggregate: false,
+            includeTodaySummary: false,
+            includeRecentLogs: false,
           }),
         staleTime: STARTUP_SNAPSHOT_STALE_TIME,
       });

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { accountClient, ApiKeyListParams } from "@/lib/api/account-client";
 import {
   buildStartupSnapshotQueryKey,
+  STARTUP_SNAPSHOT_PROFILE_PREFETCH,
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
 } from "@/lib/api/startup-snapshot";
 import { getAppErrorMessage } from "@/lib/api/transport";
@@ -60,13 +61,22 @@ export function useApiKeys(params?: ApiKeyListParams) {
   const areApiKeyQueriesEnabled = useDeferredDesktopActivation(
     isServiceReady && isPageActive,
   );
-  const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
-    buildStartupSnapshotQueryKey(
-      serviceStatus.addr,
-      STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
-      localDayRange.dayStartTs,
-    )
-  );
+  const startupSnapshot =
+    queryClient.getQueryData<StartupSnapshot>(
+      buildStartupSnapshotQueryKey(
+        serviceStatus.addr,
+        STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
+        localDayRange.dayStartTs,
+      )
+    ) ||
+    queryClient.getQueryData<StartupSnapshot>(
+      buildStartupSnapshotQueryKey(
+        serviceStatus.addr,
+        STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
+        localDayRange.dayStartTs,
+        STARTUP_SNAPSHOT_PROFILE_PREFETCH,
+      )
+    );
   const startupApiKeys = startupSnapshot?.apiKeys || [];
   const startupApiModels = startupSnapshot?.apiModels;
   const hasStartupApiKeySnapshot = startupApiKeys.length > 0;

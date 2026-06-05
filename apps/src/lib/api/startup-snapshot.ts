@@ -8,6 +8,12 @@ export const STARTUP_SNAPSHOT_API_KEY_LIMIT = 20;
 export const STARTUP_SNAPSHOT_STALE_TIME = 15_000;
 export const STARTUP_SNAPSHOT_WARMUP_INTERVAL_MS = 2_500;
 export const STARTUP_SNAPSHOT_WARMUP_TIMEOUT_MS = 45_000;
+export const STARTUP_SNAPSHOT_PROFILE_FULL = "full";
+export const STARTUP_SNAPSHOT_PROFILE_PREFETCH = "prefetch";
+
+export type StartupSnapshotProfile =
+  | typeof STARTUP_SNAPSHOT_PROFILE_FULL
+  | typeof STARTUP_SNAPSHOT_PROFILE_PREFETCH;
 
 /**
  * 函数 `buildStartupSnapshotQueryKey`
@@ -27,8 +33,15 @@ export function buildStartupSnapshotQueryKey(
   addr: string | null | undefined,
   requestLogLimit = STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
   dayStartTs?: number | null,
+  profile: StartupSnapshotProfile = STARTUP_SNAPSHOT_PROFILE_FULL,
 ) {
-  return ["startup-snapshot", addr || null, requestLogLimit, dayStartTs || null] as const;
+  return [
+    "startup-snapshot",
+    profile,
+    addr || null,
+    requestLogLimit,
+    dayStartTs || null,
+  ] as const;
 }
 
 /**

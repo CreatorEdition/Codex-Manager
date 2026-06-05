@@ -15,6 +15,10 @@ use crate::commands::shared::rpc_call_in_background;
 /// - day_end_ts: 参数 day_end_ts
 /// - account_limit: 参数 account_limit
 /// - api_key_limit: 参数 api_key_limit
+/// - include_usage_aggregate: 参数 include_usage_aggregate
+/// - include_today_summary: 参数 include_today_summary
+/// - include_recent_logs: 参数 include_recent_logs
+/// - include_api_models: 参数 include_api_models
 ///
 /// # 返回
 /// 返回函数执行结果
@@ -27,6 +31,10 @@ pub async fn service_startup_snapshot(
     day_end_ts: Option<i64>,
     account_limit: Option<i64>,
     api_key_limit: Option<i64>,
+    include_usage_aggregate: Option<bool>,
+    include_today_summary: Option<bool>,
+    include_recent_logs: Option<bool>,
+    include_api_models: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     apply_runtime_storage_env(&app);
     let params = serde_json::json!({
@@ -35,6 +43,10 @@ pub async fn service_startup_snapshot(
         "dayEndTs": day_end_ts,
         "accountLimit": account_limit,
         "apiKeyLimit": api_key_limit,
+        "includeUsageAggregate": include_usage_aggregate,
+        "includeTodaySummary": include_today_summary,
+        "includeRecentLogs": include_recent_logs,
+        "includeApiModels": include_api_models,
     });
     rpc_call_in_background("startup/snapshot", addr, Some(params)).await
 }

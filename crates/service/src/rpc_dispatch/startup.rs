@@ -1,6 +1,6 @@
 use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
 
-use crate::startup_snapshot;
+use crate::startup_snapshot::{self, StartupSnapshotOptions};
 use crate::RpcActor;
 
 /// 函数 `try_handle`
@@ -22,6 +22,14 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
             let day_end_ts = super::i64_param(req, "dayEndTs");
             let account_limit = super::i64_param(req, "accountLimit");
             let api_key_limit = super::i64_param(req, "apiKeyLimit");
+            let options = StartupSnapshotOptions {
+                include_usage_aggregate: super::bool_param(req, "includeUsageAggregate")
+                    .unwrap_or(true),
+                include_today_summary: super::bool_param(req, "includeTodaySummary")
+                    .unwrap_or(true),
+                include_recent_logs: super::bool_param(req, "includeRecentLogs").unwrap_or(true),
+                include_api_models: super::bool_param(req, "includeApiModels").unwrap_or(true),
+            };
             super::value_or_error(startup_snapshot::read_startup_snapshot_for_actor(
                 actor,
                 request_log_limit,
@@ -29,6 +37,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                 day_end_ts,
                 account_limit,
                 api_key_limit,
+                options,
             ))
         }
         _ => return None,

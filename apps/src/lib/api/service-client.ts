@@ -51,6 +51,10 @@ export const serviceClient = {
       dayEndTs?: number;
       accountLimit?: number;
       apiKeyLimit?: number;
+      includeUsageAggregate?: boolean;
+      includeTodaySummary?: boolean;
+      includeRecentLogs?: boolean;
+      includeApiModels?: boolean;
     }
   ): Promise<StartupSnapshot> {
     const result = await invoke<unknown>(

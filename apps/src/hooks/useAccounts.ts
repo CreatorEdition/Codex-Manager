@@ -7,6 +7,7 @@ import { accountClient, AccountListParams } from "@/lib/api/account-client";
 import { attachUsagesToAccounts } from "@/lib/api/normalize";
 import {
   buildStartupSnapshotQueryKey,
+  STARTUP_SNAPSHOT_PROFILE_PREFETCH,
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
 } from "@/lib/api/startup-snapshot";
 import { getAppErrorMessage } from "@/lib/api/transport";
@@ -186,13 +187,22 @@ export function useAccounts(params?: AccountListParams) {
     backgroundTasks.usagePollIntervalSecs,
   );
   const usageListFingerprintRef = useRef<string | null>(null);
-  const startupSnapshot = queryClient.getQueryData<StartupSnapshot>(
-    buildStartupSnapshotQueryKey(
-      serviceStatus.addr,
-      STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
-      localDayRange.dayStartTs,
-    )
-  );
+  const startupSnapshot =
+    queryClient.getQueryData<StartupSnapshot>(
+      buildStartupSnapshotQueryKey(
+        serviceStatus.addr,
+        STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
+        localDayRange.dayStartTs,
+      )
+    ) ||
+    queryClient.getQueryData<StartupSnapshot>(
+      buildStartupSnapshotQueryKey(
+        serviceStatus.addr,
+        STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
+        localDayRange.dayStartTs,
+        STARTUP_SNAPSHOT_PROFILE_PREFETCH,
+      )
+    );
   const startupAccounts = startupSnapshot?.accounts || [];
   const startupUsages = startupSnapshot?.usageSnapshots || [];
   const hasStartupAccountSnapshot = startupAccounts.length > 0;
