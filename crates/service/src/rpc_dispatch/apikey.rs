@@ -234,6 +234,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
             super::ok_or_error(apikey_models::delete_managed_model_catalog_model(slug))
         }
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 5724052e (Address model catalog cleanup review feedback)
         "apikey/modelCatalogPruneStaleRemote" => {
             if !actor.is_admin() {
                 super::value_or_error::<ManagedModelCatalogResult>(Err(super::permission_denied(
@@ -246,12 +249,15 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                 )
             }
         }
+<<<<<<< HEAD
 =======
         "apikey/modelCatalogPruneStaleRemote" => super::value_or_error(
             apikey_models::prune_stale_remote_managed_model_catalog()
                 .and_then(|catalog| filter_catalog_for_actor(actor, catalog)),
         ),
 >>>>>>> ee8d443a (Add explicit stale remote model pruning action)
+=======
+>>>>>>> 5724052e (Address model catalog cleanup review feedback)
         "apikey/modelRouting" => {
             if actor.is_admin() {
                 super::value_or_error(apikey_models::read_managed_model_routing())

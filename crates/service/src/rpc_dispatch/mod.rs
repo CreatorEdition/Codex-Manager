@@ -202,7 +202,6 @@ const MEMBER_METHOD_ALLOWLIST: &[&str] = &[
     "apikey/list",
     "apikey/lookup",
     "apikey/modelCatalogList",
-    "apikey/modelCatalogPruneStaleRemote",
     "apikey/modelRouting",
     "apikey/models",
     "apikey/readSecret",

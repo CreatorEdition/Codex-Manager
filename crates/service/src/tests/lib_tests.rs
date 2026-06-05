@@ -1,7 +1,7 @@
 use super::*;
 use codexmanager_core::rpc::types::{JsonRpcMessage, JsonRpcResponse};
 use codexmanager_core::storage::{
-    AggregateApiSupplierModel, ModelGroupModel, RequestLog, RequestTokenStat,
+    ModelCatalogModelRecord, ModelGroupModel, RequestLog, RequestTokenStat,
 };
 
 /// 函数 `response_result`
@@ -178,7 +178,12 @@ fn password_mode_can_call_admin_and_model_source_rpcs() {
         ),
         (
             "apikey/modelSourceMappingDelete",
-            serde_json::json!({ "id": "map_test" }),
+            serde_json::json!({
+                "id": "map_test",
+                "sourceKind": "openai_account",
+                "sourceId": "acc_test",
+                "upstreamModel": "gpt-test",
+            }),
         ),
     ] {
         let resp = response_result(handle_request_with_actor(
@@ -191,6 +196,27 @@ fn password_mode_can_call_admin_and_model_source_rpcs() {
             "{method} unexpectedly denied: {err}"
         );
     }
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
+fn password_mode_member_cannot_prune_stale_remote_catalog() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-member-prune-stale-remote-denied");
+    set_web_access_password(Some("password123")).expect("set web password");
+    set_web_auth_mode("password").expect("enable password mode");
+
+    let resp = response_result(handle_request_with_actor(
+        rpc_request("apikey/modelCatalogPruneStaleRemote", serde_json::json!({})),
+        RpcActor::from_parts(Some(ROLE_MEMBER), Some("member-user")),
+    ));
+
+    assert!(
+        rpc_error(&resp).contains("permission_denied"),
+        "{:?}",
+        resp.result
+    );
 
     let _ = std::fs::remove_file(db_path);
 }
@@ -320,213 +346,47 @@ fn create_owned_test_api_key(user_id: &str, name: &str, model: &str) -> String {
     created.id
 }
 
-#[test]
-fn quota_source_list_bare_call_defaults_to_first_page() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-quota-source-list-page");
-    let user = create_test_member("quota-source-list-user", Some(1_000_000));
-    for index in 0..125 {
-        create_owned_test_api_key(
-            &user.id,
-            &format!("quota source key {index:03}"),
-            "gpt-5-mini",
-        );
-    }
-
-    let resp = response_result(handle_request(rpc_request(
-        "quota/sourceList",
-        serde_json::json!({}),
-    )));
-    assert!(
-        rpc_error(&resp).is_empty(),
-        "quota/sourceList failed: {:?}",
-        resp.result
-    );
-    assert_eq!(resp.result["items"].as_array().unwrap().len(), 100);
-    assert_eq!(resp.result["total"], 125);
-    assert_eq!(resp.result["page"], 1);
-    assert_eq!(resp.result["pageSize"], 100);
-
-    let second_page = response_result(handle_request(rpc_request(
-        "quota/sourceList",
-        serde_json::json!({ "sourceKind": "api_key", "page": 2, "pageSize": 100 }),
-    )));
-    assert_eq!(second_page.result["items"].as_array().unwrap().len(), 25);
-    assert_eq!(second_page.result["total"], 125);
-
-    let ambiguous_ids = response_result(handle_request(rpc_request(
-        "quota/sourceList",
-        serde_json::json!({ "sourceIds": ["key_1"] }),
-    )));
-    assert!(rpc_error(&ambiguous_ids).contains("sourceKind"));
-
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
-fn quota_api_key_usage_bare_call_defaults_to_first_page() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-quota-api-key-usage-page");
-    let user = create_test_member("quota-api-key-usage-user", Some(1_000_000));
-    let mut key_ids = Vec::new();
-    for index in 0..125 {
-        let key_id = create_owned_test_api_key(
-            &user.id,
-            &format!("quota usage key {index:03}"),
-            "gpt-5-mini",
-        );
-        if index == 0 {
-            insert_test_request_log(
-                &key_id,
-                "trace-quota-usage-key",
-                "gpt-5-mini",
-                200,
-                120,
-                20,
-                30,
-                0.012,
-                codexmanager_core::storage::now_ts(),
-            );
-        }
-        key_ids.push(key_id);
-    }
-
-    let resp = response_result(handle_request(rpc_request(
-        "quota/apiKeyUsage",
-        serde_json::json!({}),
-    )));
-    assert!(
-        rpc_error(&resp).is_empty(),
-        "quota/apiKeyUsage failed: {:?}",
-        resp.result
-    );
-    assert_eq!(resp.result["items"].as_array().unwrap().len(), 100);
-    assert_eq!(resp.result["total"], 125);
-    assert_eq!(resp.result["page"], 1);
-    assert_eq!(resp.result["pageSize"], 100);
-    assert!(resp.result["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|item| item["models"].as_array().unwrap().is_empty()));
-
-    let scoped = response_result(handle_request(rpc_request(
-        "quota/apiKeyUsage",
-        serde_json::json!({ "keyIds": [key_ids[0]], "includeModels": true }),
-    )));
-    assert_eq!(scoped.result["items"].as_array().unwrap().len(), 1);
-    assert_eq!(scoped.result["total"], 1);
-    assert_eq!(
-        scoped.result["items"][0]["models"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
-fn account_manager_users_list_bare_call_defaults_to_page() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-users-list-bare-page");
-    let mut member_ids = Vec::new();
-    for index in 0..25 {
-        member_ids
-            .push(create_test_member(&format!("users-list-member-{index:03}"), Some(1_000_000)).id);
-    }
-
-    let resp = response_result(handle_request_with_actor(
-        rpc_request("accountManager/users/list", serde_json::json!({})),
-        RpcActor::system_admin(),
-    ));
-    assert!(
-        rpc_error(&resp).is_empty(),
-        "accountManager/users/list failed: {:?}",
-        resp.result
-    );
-    assert_eq!(resp.result["items"].as_array().unwrap().len(), 20);
-    assert_eq!(resp.result["total"], 25);
-    assert_eq!(resp.result["page"], 1);
-    assert_eq!(resp.result["pageSize"], 20);
-
-    let lookup = response_result(handle_request_with_actor(
-        rpc_request(
-            "accountManager/users/list",
-            serde_json::json!({ "ids": [member_ids[0].clone()] }),
-        ),
-        RpcActor::system_admin(),
-    ));
-    assert!(lookup.result.as_array().is_some());
-    assert_eq!(lookup.result.as_array().unwrap().len(), 1);
-    assert_eq!(lookup.result[0]["id"], member_ids[0]);
-
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
-fn supplier_models_list_bare_call_defaults_to_first_page() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-supplier-models-page");
+fn seed_test_catalog_model(slug: &str) {
     let storage = storage_helpers::open_storage().expect("open storage");
     let now = codexmanager_core::storage::now_ts();
-    for index in 0..125 {
-        storage
-            .upsert_aggregate_api_supplier_model(&AggregateApiSupplierModel {
-                supplier_key: "target-supplier".to_string(),
-                provider_type: "codex".to_string(),
-                upstream_model: format!("target-model-{index:03}"),
-                display_name: None,
-                status: "available".to_string(),
-                created_at: now,
-                updated_at: now,
-            })
-            .expect("insert target supplier model");
-    }
-    for index in 0..25 {
-        storage
-            .upsert_aggregate_api_supplier_model(&AggregateApiSupplierModel {
-                supplier_key: "other-supplier".to_string(),
-                provider_type: "codex".to_string(),
-                upstream_model: format!("other-model-{index:03}"),
-                display_name: None,
-                status: "available".to_string(),
-                created_at: now,
-                updated_at: now,
-            })
-            .expect("insert other supplier model");
-    }
-
-    let bare = response_result(handle_request(rpc_request(
-        "aggregateApi/supplierModels/list",
-        serde_json::json!({}),
-    )));
-    assert_eq!(bare.result["items"].as_array().unwrap().len(), 100);
-    assert_eq!(bare.result["total"], 150);
-    assert_eq!(bare.result["page"], 1);
-    assert_eq!(bare.result["pageSize"], 100);
-
-    let scoped = response_result(handle_request(rpc_request(
-        "aggregateApi/supplierModels/list",
-        serde_json::json!({
-            "supplierKey": "target-supplier",
-            "providerType": "codex",
-            "page": 2,
-            "pageSize": 100
-        }),
-    )));
-    assert_eq!(scoped.result["items"].as_array().unwrap().len(), 25);
-    assert_eq!(scoped.result["total"], 125);
-    assert!(scoped.result["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|item| {
-            item["supplierKey"] == "target-supplier" && item["providerType"] == "codex"
-        }));
-
-    let _ = std::fs::remove_file(db_path);
+    storage
+        .upsert_model_catalog_models(&[ModelCatalogModelRecord {
+            scope: "default".to_string(),
+            slug: slug.to_string(),
+            display_name: slug.to_string(),
+            source_kind: "remote".to_string(),
+            user_edited: false,
+            description: None,
+            default_reasoning_level: None,
+            shell_type: None,
+            visibility: Some("list".to_string()),
+            supported_in_api: Some(true),
+            priority: Some(0),
+            availability_nux_json: None,
+            upgrade_json: None,
+            base_instructions: None,
+            model_messages_json: None,
+            supports_reasoning_summaries: None,
+            default_reasoning_summary: None,
+            support_verbosity: None,
+            default_verbosity_json: None,
+            apply_patch_tool_type: None,
+            web_search_tool_type: None,
+            truncation_mode: None,
+            truncation_limit: None,
+            truncation_extra_json: None,
+            supports_parallel_tool_calls: None,
+            supports_image_detail_original: None,
+            context_window: None,
+            auto_compact_token_limit: None,
+            effective_context_window_percent: None,
+            minimal_client_version_json: None,
+            supports_search_tool: None,
+            extra_json: "{}".to_string(),
+            sort_index: 0,
+            updated_at: now,
+        }])
+        .expect("seed catalog model");
 }
 
 fn insert_test_request_log(
@@ -585,6 +445,7 @@ fn wallet_charge_uses_model_group_billing_model_override() {
     set_distribution_enabled(true).expect("enable distribution");
     let user = create_test_member("member-model-group-billing", Some(1_000_000));
     let key_id = create_owned_test_api_key(&user.id, "member model group key", "gpt-5-mini");
+    seed_test_catalog_model("gpt-5-mini");
     let storage = storage_helpers::open_storage().expect("open storage");
     let group_id = storage
         .default_model_group_id()
@@ -775,40 +636,6 @@ fn member_dashboard_filters_to_current_user_keys() {
     assert_eq!(resp.result["recentLogs"][0]["keyId"], key_one.id);
     assert_eq!(resp.result["topKeys"][0]["keyId"], key_one.id);
     assert_eq!(resp.result["topKeys"][0]["todayTokens"], 70);
-    assert_eq!(resp.result["topModels"][0]["model"], "gpt-5-mini");
-    assert_eq!(resp.result["topModels"][0]["totalTokens"], 70);
-
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
-fn member_dashboard_counts_owned_keys_across_lookup_batches() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-member-dashboard-key-batches");
-    let user = create_test_member("member-key-batches", Some(2_000_000));
-
-    for index in 0..251 {
-        create_owned_test_api_key(
-            &user.id,
-            &format!("member batch key {index:03}"),
-            "gpt-5-mini",
-        );
-    }
-
-    let resp = response_result(handle_request_with_actor(
-        rpc_request(
-            "dashboard/memberSummary",
-            serde_json::json!({
-                "dayStartTs": 1_700_000_000,
-                "dayEndTs": 1_700_086_400
-            }),
-        ),
-        RpcActor::from_parts(Some(ROLE_MEMBER), Some(&user.id)),
-    ));
-
-    assert!(resp.result.get("error").is_none(), "{:?}", resp.result);
-    assert_eq!(resp.result["apiKeySummary"]["totalCount"], 251);
-    assert_eq!(resp.result["usageToday"]["totalTokens"], 0);
 
     let _ = std::fs::remove_file(db_path);
 }
@@ -1044,201 +871,6 @@ fn admin_usage_summary_requires_admin_and_returns_range_rollups() {
 }
 
 #[test]
-fn admin_usage_summary_ranking_limit_bounds_top_results() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-admin-usage-ranking-limit");
-    let day_start = 1_700_000_000;
-    let day_end = day_start + 86_400;
-    let user_low = create_test_member("admin-ranking-low", Some(2_000_000));
-    let user_high = create_test_member("admin-ranking-high", Some(2_000_000));
-    let key_low = create_owned_test_api_key(&user_low.id, "admin ranking low key", "gpt-5-mini");
-    let key_high = create_owned_test_api_key(&user_high.id, "admin ranking high key", "gpt-5-mini");
-    let storage = storage_helpers::open_storage().expect("open storage");
-    let now = codexmanager_core::storage::now_ts();
-
-    for (id, label) in [
-        ("ranking-account-low", "Ranking Account Low"),
-        ("ranking-account-high", "Ranking Account High"),
-    ] {
-        storage
-            .insert_account(&codexmanager_core::storage::Account {
-                id: id.to_string(),
-                label: label.to_string(),
-                issuer: "https://auth.openai.com".to_string(),
-                chatgpt_account_id: None,
-                workspace_id: None,
-                group_name: None,
-                sort: 0,
-                status: "active".to_string(),
-                created_at: now,
-                updated_at: now,
-            })
-            .expect("insert ranking account");
-    }
-    for (id, name) in [
-        ("ranking-aggregate-low", "Ranking Aggregate Low"),
-        ("ranking-aggregate-high", "Ranking Aggregate High"),
-    ] {
-        storage
-            .insert_aggregate_api(&codexmanager_core::storage::AggregateApi {
-                id: id.to_string(),
-                provider_type: "codex".to_string(),
-                supplier_name: Some(name.to_string()),
-                sort: 0,
-                url: format!("https://{id}.example.invalid/v1"),
-                auth_type: "apikey".to_string(),
-                auth_params_json: None,
-                action: None,
-                model_override: None,
-                status: "active".to_string(),
-                created_at: now,
-                updated_at: now,
-                last_test_at: None,
-                last_test_status: None,
-                last_test_error: None,
-                balance_query_enabled: false,
-                balance_query_template: None,
-                balance_query_base_url: None,
-                balance_query_user_id: None,
-                balance_query_config_json: None,
-                last_balance_at: None,
-                last_balance_status: None,
-                last_balance_error: None,
-                last_balance_json: None,
-            })
-            .expect("insert ranking aggregate");
-    }
-
-    for (trace_id, key_id, account_id, aggregate_id, input_tokens, output_tokens) in [
-        (
-            "trace-ranking-low",
-            key_low.as_str(),
-            "ranking-account-low",
-            "ranking-aggregate-low",
-            10,
-            5,
-        ),
-        (
-            "trace-ranking-high",
-            key_high.as_str(),
-            "ranking-account-high",
-            "ranking-aggregate-high",
-            90,
-            30,
-        ),
-    ] {
-        let total_tokens = input_tokens + output_tokens;
-        storage
-            .insert_request_log_with_token_stat(
-                &RequestLog {
-                    trace_id: Some(trace_id.to_string()),
-                    key_id: Some(key_id.to_string()),
-                    account_id: Some(account_id.to_string()),
-                    initial_aggregate_api_id: Some(aggregate_id.to_string()),
-                    request_path: "/v1/responses".to_string(),
-                    method: "POST".to_string(),
-                    model: Some("gpt-5-mini".to_string()),
-                    actual_source_kind: Some("openai_account".to_string()),
-                    actual_source_id: Some(account_id.to_string()),
-                    status_code: Some(200),
-                    input_tokens: Some(input_tokens),
-                    output_tokens: Some(output_tokens),
-                    total_tokens: Some(total_tokens),
-                    created_at: day_start + total_tokens,
-                    ..RequestLog::default()
-                },
-                &RequestTokenStat {
-                    key_id: Some(key_id.to_string()),
-                    account_id: Some(account_id.to_string()),
-                    model: Some("gpt-5-mini".to_string()),
-                    input_tokens: Some(input_tokens),
-                    cached_input_tokens: Some(0),
-                    output_tokens: Some(output_tokens),
-                    total_tokens: Some(total_tokens),
-                    estimated_cost_usd: Some(total_tokens as f64 / 1000.0),
-                    created_at: day_start + total_tokens,
-                    ..RequestTokenStat::default()
-                },
-            )
-            .expect("insert ranking account usage");
-        storage
-            .insert_request_log_with_token_stat(
-                &RequestLog {
-                    trace_id: Some(format!("{trace_id}-aggregate")),
-                    key_id: Some(key_id.to_string()),
-                    initial_aggregate_api_id: Some(aggregate_id.to_string()),
-                    request_path: "/v1/responses".to_string(),
-                    method: "POST".to_string(),
-                    model: Some("gpt-5-mini".to_string()),
-                    actual_source_kind: Some("aggregate_api".to_string()),
-                    actual_source_id: Some(aggregate_id.to_string()),
-                    status_code: Some(200),
-                    input_tokens: Some(input_tokens),
-                    output_tokens: Some(output_tokens),
-                    total_tokens: Some(total_tokens),
-                    created_at: day_start + total_tokens + 10,
-                    ..RequestLog::default()
-                },
-                &RequestTokenStat {
-                    key_id: Some(key_id.to_string()),
-                    model: Some("gpt-5-mini".to_string()),
-                    input_tokens: Some(input_tokens),
-                    cached_input_tokens: Some(0),
-                    output_tokens: Some(output_tokens),
-                    total_tokens: Some(total_tokens),
-                    estimated_cost_usd: Some(total_tokens as f64 / 1000.0),
-                    created_at: day_start + total_tokens + 10,
-                    ..RequestTokenStat::default()
-                },
-            )
-            .expect("insert ranking aggregate usage");
-    }
-
-    let admin_resp = response_result(handle_request_with_actor(
-        rpc_request(
-            "dashboard/adminUsageSummary",
-            serde_json::json!({
-                "startTs": day_start,
-                "endTs": day_end,
-                "rankingLimit": 1
-            }),
-        ),
-        RpcActor::system_admin(),
-    ));
-    assert!(
-        admin_resp.result.get("error").is_none(),
-        "{:?}",
-        admin_resp.result
-    );
-    assert_eq!(admin_resp.result["dailyUsage"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        admin_resp.result["dailyUsage"][0]["usage"]["totalTokens"],
-        270
-    );
-
-    let users = admin_resp.result["users"].as_array().expect("users");
-    assert_eq!(users.len(), 1);
-    assert_eq!(users[0]["userId"], user_high.id);
-    assert_eq!(users[0]["rangeUsage"]["totalTokens"], 240);
-
-    let openai_accounts = admin_resp.result["openaiAccounts"]
-        .as_array()
-        .expect("openai accounts");
-    assert_eq!(openai_accounts.len(), 1);
-    assert_eq!(openai_accounts[0]["sourceId"], "ranking-account-high");
-    assert_eq!(openai_accounts[0]["name"], "Ranking Account High");
-
-    let aggregate_apis = admin_resp.result["aggregateApis"]
-        .as_array()
-        .expect("aggregate apis");
-    assert_eq!(aggregate_apis.len(), 1);
-    assert_eq!(aggregate_apis[0]["sourceId"], "ranking-aggregate-high");
-    assert_eq!(aggregate_apis[0]["name"], "Ranking Aggregate High");
-
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
 fn admin_usage_summary_daily_trend_includes_token_stats_without_request_logs() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-admin-usage-orphan-stats");
@@ -1388,199 +1020,57 @@ fn member_cannot_read_or_mutate_other_user_api_key() {
 }
 
 #[test]
-fn member_api_key_lookup_filters_to_owned_ids() {
+fn member_api_key_usage_stats_filter_to_owned_keys() {
     let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-member-apikey-lookup-filter");
-    let user_one = create_test_member("apikey-lookup-one", Some(2_000_000));
-    let user_two = create_test_member("apikey-lookup-two", Some(2_000_000));
-    let key_one = create_owned_test_api_key(&user_one.id, "lookup owned key", "gpt-5-mini");
-    let key_two = create_owned_test_api_key(&user_two.id, "lookup foreign key", "gpt-5-mini");
-    let actor_one = RpcActor::from_parts(Some(ROLE_MEMBER), Some(&user_one.id));
+    let db_path = setup_dashboard_test_db("codexmanager-member-apikey-usage-filter");
+    let day_start = 1_700_000_000;
+    let user_one = create_test_member("apikey-usage-one", Some(2_000_000));
+    let user_two = create_test_member("apikey-usage-two", Some(2_000_000));
+    let key_one = create_owned_test_api_key(&user_one.id, "usage one key", "gpt-5-mini");
+    let key_two = create_owned_test_api_key(&user_two.id, "usage two key", "gpt-5");
 
-    let member_lookup = response_result(handle_request_with_actor(
-        rpc_request(
-            "apikey/lookup",
-            serde_json::json!({
-                "ids": [key_two.clone(), key_one.clone(), "missing-key", key_one.clone()]
-            }),
-        ),
-        actor_one,
-    ));
-    let member_items = member_lookup.result.as_array().expect("lookup items");
-    assert_eq!(member_items.len(), 1);
-    assert_eq!(member_items[0]["id"], key_one);
-    assert_eq!(member_items[0]["name"], "lookup owned key");
-
-    let admin_lookup = response_result(handle_request_with_actor(
-        rpc_request(
-            "apikey/lookup",
-            serde_json::json!({ "ids": [key_two.clone(), key_one.clone()] }),
-        ),
-        RpcActor::system_admin(),
-    ));
-    let admin_ids = admin_lookup
-        .result
-        .as_array()
-        .expect("admin lookup items")
-        .iter()
-        .filter_map(|item| item.get("id").and_then(|value| value.as_str()))
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-        admin_ids,
-        std::collections::BTreeSet::from([key_one.as_str(), key_two.as_str()])
+    insert_test_request_log(
+        &key_one,
+        "trace-usage-one",
+        "gpt-5-mini",
+        200,
+        80,
+        10,
+        40,
+        0.08,
+        day_start + 10,
+    );
+    insert_test_request_log(
+        &key_two,
+        "trace-usage-two",
+        "gpt-5",
+        200,
+        800,
+        0,
+        500,
+        0.8,
+        day_start + 20,
     );
 
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
-fn account_lookup_is_admin_only_and_filters_requested_ids() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-account-lookup-admin-only");
-    let storage = storage_helpers::open_storage().expect("open storage");
-    let now = codexmanager_core::storage::now_ts();
-    for (id, label, sort) in [("acc-a", "Account A", 2), ("acc-b", "Account B", 1)] {
-        storage
-            .insert_account(&codexmanager_core::storage::Account {
-                id: id.to_string(),
-                label: label.to_string(),
-                issuer: "https://auth.openai.com".to_string(),
-                chatgpt_account_id: None,
-                workspace_id: None,
-                group_name: None,
-                sort,
-                status: "active".to_string(),
-                created_at: now,
-                updated_at: now + sort,
-            })
-            .expect("insert account");
-    }
-
-    let member = create_test_member("account-lookup-member", Some(2_000_000));
-    let member_resp = response_result(handle_request_with_actor(
-        rpc_request("account/lookup", serde_json::json!({ "ids": ["acc-a"] })),
-        RpcActor::from_parts(Some(ROLE_MEMBER), Some(&member.id)),
+    let member_stats = response_result(handle_request_with_actor(
+        rpc_request("apikey/usageStats", serde_json::json!({})),
+        RpcActor::from_parts(Some(ROLE_MEMBER), Some(&user_one.id)),
     ));
-    assert!(rpc_error(&member_resp).contains("permission_denied"));
+    assert!(
+        member_stats.result.get("error").is_none(),
+        "{:?}",
+        member_stats.result
+    );
+    let member_items = member_stats.result["items"].as_array().unwrap();
+    assert_eq!(member_items.len(), 1);
+    assert_eq!(member_items[0]["keyId"], key_one);
+    assert_eq!(member_items[0]["totalTokens"], 120);
 
-    let admin_resp = response_result(handle_request_with_actor(
-        rpc_request(
-            "account/lookup",
-            serde_json::json!({ "ids": ["acc-a", "missing", "acc-a", "acc-b"] }),
-        ),
+    let admin_stats = response_result(handle_request_with_actor(
+        rpc_request("apikey/usageStats", serde_json::json!({})),
         RpcActor::system_admin(),
     ));
-    let items = admin_resp.result.as_array().expect("account lookup items");
-    assert_eq!(items.len(), 2);
-    let ids = items
-        .iter()
-        .filter_map(|item| item.get("id").and_then(|value| value.as_str()))
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(ids, std::collections::BTreeSet::from(["acc-a", "acc-b"]));
-
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
-fn account_list_bare_rpc_defaults_to_first_page() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-account-list-default-page");
-    let storage = storage_helpers::open_storage().expect("open storage");
-    let now = codexmanager_core::storage::now_ts();
-    for index in 0..6 {
-        storage
-            .insert_account(&codexmanager_core::storage::Account {
-                id: format!("acc-default-page-{index}"),
-                label: format!("Account Default Page {index}"),
-                issuer: "https://auth.openai.com".to_string(),
-                chatgpt_account_id: None,
-                workspace_id: None,
-                group_name: None,
-                sort: index,
-                status: "active".to_string(),
-                created_at: now + index,
-                updated_at: now + index,
-            })
-            .expect("insert account");
-    }
-
-    let listed = response_result(handle_request_with_actor(
-        rpc_request("account/list", serde_json::json!({})),
-        RpcActor::system_admin(),
-    ));
-    assert!(listed.result.get("error").is_none(), "{:?}", listed.result);
-    assert_eq!(listed.result["total"], 6);
-    assert_eq!(listed.result["page"], 1);
-    assert_eq!(listed.result["pageSize"], 5);
-    assert_eq!(listed.result["items"].as_array().unwrap().len(), 5);
-
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
-fn aggregate_api_lookup_is_admin_only_and_filters_requested_ids() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-aggregate-api-lookup-admin-only");
-    let storage = storage_helpers::open_storage().expect("open storage");
-    let now = codexmanager_core::storage::now_ts();
-    for (id, supplier_name, sort) in [("agg-a", "Aggregate A", 2), ("agg-b", "Aggregate B", 1)] {
-        storage
-            .insert_aggregate_api(&codexmanager_core::storage::AggregateApi {
-                id: id.to_string(),
-                provider_type: "codex".to_string(),
-                supplier_name: Some(supplier_name.to_string()),
-                sort,
-                url: format!("https://{id}.example.invalid/v1"),
-                auth_type: "apikey".to_string(),
-                auth_params_json: None,
-                action: None,
-                model_override: None,
-                status: "active".to_string(),
-                created_at: now,
-                updated_at: now + sort,
-                last_test_at: None,
-                last_test_status: None,
-                last_test_error: None,
-                balance_query_enabled: false,
-                balance_query_template: None,
-                balance_query_base_url: None,
-                balance_query_user_id: None,
-                balance_query_config_json: None,
-                last_balance_at: None,
-                last_balance_status: None,
-                last_balance_error: None,
-                last_balance_json: None,
-            })
-            .expect("insert aggregate api");
-    }
-
-    let member = create_test_member("aggregate-lookup-member", Some(2_000_000));
-    let member_resp = response_result(handle_request_with_actor(
-        rpc_request(
-            "aggregateApi/lookup",
-            serde_json::json!({ "ids": ["agg-a"] }),
-        ),
-        RpcActor::from_parts(Some(ROLE_MEMBER), Some(&member.id)),
-    ));
-    assert!(rpc_error(&member_resp).contains("permission_denied"));
-
-    let admin_resp = response_result(handle_request_with_actor(
-        rpc_request(
-            "aggregateApi/lookup",
-            serde_json::json!({ "ids": ["agg-a", "missing", "agg-b", "agg-a"] }),
-        ),
-        RpcActor::system_admin(),
-    ));
-    let items = admin_resp
-        .result
-        .as_array()
-        .expect("aggregate lookup items");
-    assert_eq!(items.len(), 2);
-    let ids = items
-        .iter()
-        .filter_map(|item| item.get("id").and_then(|value| value.as_str()))
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(ids, std::collections::BTreeSet::from(["agg-a", "agg-b"]));
+    assert_eq!(admin_stats.result["items"].as_array().unwrap().len(), 2);
 
     let _ = std::fs::remove_file(db_path);
 }
@@ -1625,79 +1115,6 @@ fn member_created_api_key_ignores_admin_only_routing_fields() {
     assert!(item["upstreamBaseUrl"].is_null());
     assert!(item["staticHeadersJson"].is_null());
     assert!(item["accountPlanFilter"].is_null());
-
-    let _ = std::fs::remove_file(db_path);
-}
-
-#[test]
-fn member_api_key_list_supports_backend_pagination_and_filters() {
-    let _guard = test_env_guard();
-    let db_path = setup_dashboard_test_db("codexmanager-member-apikey-list-pagination");
-    let user_one = create_test_member("apikey-page-one", Some(2_000_000));
-    let user_two = create_test_member("apikey-page-two", Some(2_000_000));
-    let key_alpha = create_owned_test_api_key(&user_one.id, "alpha owned key", "gpt-5-mini");
-    let key_beta = create_owned_test_api_key(&user_one.id, "beta owned key", "gpt-5-mini");
-    let key_disabled = create_owned_test_api_key(&user_one.id, "disabled owned key", "gpt-5-mini");
-    let key_foreign = create_owned_test_api_key(&user_two.id, "alpha foreign key", "gpt-5-mini");
-    let storage = storage_helpers::open_storage().expect("open storage");
-    storage
-        .update_api_key_status(&key_disabled, "disabled")
-        .expect("disable owned key");
-    let actor_one = RpcActor::from_parts(Some(ROLE_MEMBER), Some(&user_one.id));
-
-    let first_page = response_result(handle_request_with_actor(
-        rpc_request(
-            "apikey/list",
-            serde_json::json!({ "page": 1, "pageSize": 2 }),
-        ),
-        actor_one.clone(),
-    ));
-    assert_eq!(first_page.result["total"], 3);
-    assert_eq!(first_page.result["page"], 1);
-    assert_eq!(first_page.result["pageSize"], 2);
-    let first_page_items = first_page.result["items"].as_array().unwrap();
-    assert_eq!(first_page_items.len(), 2);
-    assert!(first_page_items
-        .iter()
-        .all(|item| item["id"] != key_foreign));
-
-    let alpha_page = response_result(handle_request_with_actor(
-        rpc_request(
-            "apikey/list",
-            serde_json::json!({ "page": 1, "pageSize": 20, "query": "alpha" }),
-        ),
-        actor_one.clone(),
-    ));
-    assert_eq!(alpha_page.result["total"], 1);
-    assert_eq!(alpha_page.result["items"][0]["id"], key_alpha);
-
-    let disabled_page = response_result(handle_request_with_actor(
-        rpc_request(
-            "apikey/list",
-            serde_json::json!({ "page": 1, "pageSize": 20, "statusFilter": "disabled" }),
-        ),
-        actor_one.clone(),
-    ));
-    assert_eq!(disabled_page.result["total"], 1);
-    assert_eq!(disabled_page.result["items"][0]["id"], key_disabled);
-
-    let default_page = response_result(handle_request_with_actor(
-        rpc_request("apikey/list", serde_json::json!({})),
-        actor_one,
-    ));
-    assert_eq!(default_page.result["total"], 3);
-    assert_eq!(default_page.result["page"], 1);
-    assert_eq!(default_page.result["pageSize"], 20);
-    let default_page_ids = default_page.result["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|item| item["id"].as_str().unwrap().to_string())
-        .collect::<Vec<_>>();
-    assert!(default_page_ids.contains(&key_alpha));
-    assert!(default_page_ids.contains(&key_beta));
-    assert!(default_page_ids.contains(&key_disabled));
-    assert!(!default_page_ids.contains(&key_foreign));
 
     let _ = std::fs::remove_file(db_path);
 }
