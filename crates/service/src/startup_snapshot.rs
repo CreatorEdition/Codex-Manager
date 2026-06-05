@@ -21,10 +21,10 @@ pub(crate) struct StartupSnapshotOptions {
 impl Default for StartupSnapshotOptions {
     fn default() -> Self {
         Self {
-            include_usage_aggregate: true,
-            include_today_summary: true,
-            include_recent_logs: true,
-            include_api_models: true,
+            include_usage_aggregate: false,
+            include_today_summary: false,
+            include_recent_logs: false,
+            include_api_models: false,
         }
     }
 }

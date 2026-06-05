@@ -34,8 +34,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "quota/sourceList" => super::value_or_error(read::read_quota_source_list()),
         "quota/modelPools" => {
             super::value_or_error(read::read_quota_model_pools(QuotaModelPoolsInput {
-                include_sources: super::bool_param(req, "includeSources").unwrap_or(true),
-                include_config: super::bool_param(req, "includeConfig").unwrap_or(true),
+                include_sources: super::bool_param(req, "includeSources").unwrap_or(false),
+                include_config: super::bool_param(req, "includeConfig").unwrap_or(false),
                 source_kind: super::string_param(req, "sourceKind"),
             }))
         }

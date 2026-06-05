@@ -59,8 +59,8 @@ const MAX_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 500;
 impl Default for QuotaModelPoolsInput {
     fn default() -> Self {
         Self {
-            include_sources: true,
-            include_config: true,
+            include_sources: false,
+            include_config: false,
             source_kind: None,
         }
     }

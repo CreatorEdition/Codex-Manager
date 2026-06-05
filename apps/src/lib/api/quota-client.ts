@@ -465,8 +465,8 @@ export const quotaClient = {
       await invoke<unknown>(
         "service_quota_model_pools",
         withAddr({
-          includeSources: params?.includeSources ?? true,
-          includeConfig: params?.includeConfig ?? true,
+          includeSources: params?.includeSources ?? false,
+          includeConfig: params?.includeConfig ?? false,
           sourceKind,
         }),
       ),

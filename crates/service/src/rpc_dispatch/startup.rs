@@ -3,6 +3,8 @@ use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
 use crate::startup_snapshot::{self, StartupSnapshotOptions};
 use crate::RpcActor;
 
+const DEFAULT_STARTUP_SECTION_LIMIT: i64 = 20;
+
 /// 函数 `try_handle`
 ///
 /// 作者: gaohongshun
@@ -20,15 +22,17 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
             let request_log_limit = super::i64_param(req, "requestLogLimit");
             let day_start_ts = super::i64_param(req, "dayStartTs");
             let day_end_ts = super::i64_param(req, "dayEndTs");
-            let account_limit = super::i64_param(req, "accountLimit");
-            let api_key_limit = super::i64_param(req, "apiKeyLimit");
+            let account_limit =
+                super::i64_param(req, "accountLimit").or(Some(DEFAULT_STARTUP_SECTION_LIMIT));
+            let api_key_limit =
+                super::i64_param(req, "apiKeyLimit").or(Some(DEFAULT_STARTUP_SECTION_LIMIT));
             let options = StartupSnapshotOptions {
                 include_usage_aggregate: super::bool_param(req, "includeUsageAggregate")
-                    .unwrap_or(true),
+                    .unwrap_or(false),
                 include_today_summary: super::bool_param(req, "includeTodaySummary")
-                    .unwrap_or(true),
-                include_recent_logs: super::bool_param(req, "includeRecentLogs").unwrap_or(true),
-                include_api_models: super::bool_param(req, "includeApiModels").unwrap_or(true),
+                    .unwrap_or(false),
+                include_recent_logs: super::bool_param(req, "includeRecentLogs").unwrap_or(false),
+                include_api_models: super::bool_param(req, "includeApiModels").unwrap_or(false),
             };
             super::value_or_error(startup_snapshot::read_startup_snapshot_for_actor(
                 actor,

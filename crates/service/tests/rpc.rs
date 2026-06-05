@@ -2649,7 +2649,8 @@ fn rpc_startup_snapshot_limits_prefetch_sections_and_returns_totals() {
         params: Some(serde_json::json!({
             "accountLimit": 1,
             "apiKeyLimit": 1,
-            "requestLogLimit": 0
+            "requestLogLimit": 0,
+            "includeRecentLogs": true
         })),
         trace: None,
     };
@@ -2755,6 +2756,163 @@ fn rpc_startup_snapshot_limits_prefetch_sections_and_returns_totals() {
     );
     assert_eq!(
         light_result
+            .get("apiModels")
+            .and_then(|value| value.get("models"))
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
+    );
+}
+
+#[test]
+fn rpc_startup_snapshot_defaults_to_bounded_light_payload() {
+    let ctx = RpcTestContext::new("rpc-startup-snapshot-default-light");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    for idx in 0..25 {
+        storage
+            .insert_account(&Account {
+                id: format!("default-startup-acc-{idx}"),
+                label: format!("Default Startup Account {idx}"),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: Some(format!("default-startup-chatgpt-{idx}")),
+                workspace_id: Some(format!("default-startup-workspace-{idx}")),
+                group_name: None,
+                sort: idx as i64,
+                status: "active".to_string(),
+                created_at: now + idx as i64,
+                updated_at: now + idx as i64,
+            })
+            .expect("insert default startup account");
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: format!("default-startup-acc-{idx}"),
+                used_percent: Some(10.0),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: None,
+                secondary_window_minutes: None,
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now + idx as i64,
+            })
+            .expect("insert default startup usage");
+        storage
+            .insert_api_key(&ApiKey {
+                id: format!("default-startup-key-{idx}"),
+                name: Some(format!("Default Startup Key {idx}")),
+                model_slug: Some("gpt-5.4".to_string()),
+                reasoning_effort: Some("medium".to_string()),
+                service_tier: None,
+                rotation_strategy: "account_rotation".to_string(),
+                aggregate_api_id: None,
+                account_plan_filter: None,
+                aggregate_api_url: None,
+                client_type: "codex".to_string(),
+                protocol_type: "openai_compat".to_string(),
+                auth_scheme: "authorization_bearer".to_string(),
+                upstream_base_url: None,
+                static_headers_json: None,
+                key_hash: format!("default-startup-key-hash-{idx}"),
+                status: "active".to_string(),
+                created_at: now + idx as i64,
+                last_used_at: None,
+            })
+            .expect("insert default startup key");
+    }
+    let request_log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("default-startup-trace".to_string()),
+            key_id: Some("default-startup-key-0".to_string()),
+            account_id: Some("default-startup-acc-0".to_string()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            model: Some("gpt-5.4".to_string()),
+            status_code: Some(200),
+            created_at: now,
+            ..Default::default()
+        })
+        .expect("insert default startup request log");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id,
+            key_id: Some("default-startup-key-0".to_string()),
+            account_id: Some("default-startup-acc-0".to_string()),
+            model: Some("gpt-5.4".to_string()),
+            input_tokens: Some(10),
+            cached_input_tokens: Some(0),
+            output_tokens: Some(5),
+            total_tokens: Some(15),
+            reasoning_output_tokens: Some(1),
+            estimated_cost_usd: Some(0.01),
+            created_at: now,
+        })
+        .expect("insert default startup token stat");
+
+    let server =
+        codexmanager_service::start_one_shot_server().expect("start default startup server");
+    let req = JsonRpcRequest {
+        id: 810.into(),
+        method: "startup/snapshot".to_string(),
+        params: Some(serde_json::json!({})),
+        trace: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize default startup snapshot");
+    let v = post_rpc(&server.addr, &json);
+    let result = v.get("result").expect("default startup result");
+    assert_eq!(
+        result.get("accountTotal").and_then(|value| value.as_i64()),
+        Some(25)
+    );
+    assert_eq!(
+        result.get("apiKeyTotal").and_then(|value| value.as_i64()),
+        Some(25)
+    );
+    assert_eq!(
+        result
+            .get("accounts")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(20)
+    );
+    assert_eq!(
+        result
+            .get("apiKeys")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(20)
+    );
+    assert_eq!(
+        result
+            .get("usageSnapshots")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(20)
+    );
+    assert_eq!(
+        result
+            .get("requestLogs")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        result
+            .get("requestLogTodaySummary")
+            .and_then(|value| value.get("todayTokens"))
+            .and_then(|value| value.as_i64()),
+        Some(0)
+    );
+    assert_eq!(
+        result
+            .get("usageAggregateSummary")
+            .and_then(|value| value.get("primaryKnownCount"))
+            .and_then(|value| value.as_i64()),
+        Some(0)
+    );
+    assert_eq!(
+        result
             .get("apiModels")
             .and_then(|value| value.get("models"))
             .and_then(|value| value.as_array())
@@ -2892,6 +3050,7 @@ fn rpc_quota_model_pools_supports_lightweight_source_filters() {
         method: "quota/modelPools".to_string(),
         params: Some(serde_json::json!({
             "sourceKind": "aggregate_api",
+            "includeSources": true,
             "includeConfig": false
         })),
         trace: None,
@@ -2920,6 +3079,176 @@ fn rpc_quota_model_pools_supports_lightweight_source_filters() {
     assert!(aggregate_sources.iter().all(|source| {
         source.get("sourceKind").and_then(|value| value.as_str()) == Some("aggregate_api")
     }));
+}
+
+#[test]
+fn rpc_quota_model_pools_defaults_to_summary_without_sources_or_config() {
+    let ctx = RpcTestContext::new("rpc-quota-model-pools-default-light");
+    let mut storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    storage
+        .insert_account(&Account {
+            id: "default-pool-account".to_string(),
+            label: "Default Pool Account".to_string(),
+            issuer: "https://auth.openai.com".to_string(),
+            chatgpt_account_id: Some("default-pool-chatgpt".to_string()),
+            workspace_id: Some("default-pool-workspace".to_string()),
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        })
+        .expect("insert default pool account");
+    storage
+        .insert_usage_snapshot(&UsageSnapshotRecord {
+            account_id: "default-pool-account".to_string(),
+            used_percent: Some(10.0),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: Some(20.0),
+            secondary_window_minutes: Some(10_080),
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at: now,
+        })
+        .expect("insert default pool usage");
+    storage
+        .insert_aggregate_api(&AggregateApi {
+            id: "default-pool-aggregate".to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some("Default Pool Aggregate".to_string()),
+            sort: 0,
+            url: "https://default-pool-aggregate.example.invalid/v1".to_string(),
+            auth_type: "apikey".to_string(),
+            auth_params_json: None,
+            action: None,
+            model_override: None,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+            balance_query_enabled: true,
+            balance_query_template: None,
+            balance_query_base_url: None,
+            balance_query_user_id: None,
+            balance_query_config_json: None,
+            last_balance_at: Some(now),
+            last_balance_status: Some("success".to_string()),
+            last_balance_error: None,
+            last_balance_json: Some(
+                serde_json::json!({
+                    "remaining": 12.5,
+                    "unit": "USD"
+                })
+                .to_string(),
+            ),
+        })
+        .expect("insert default pool aggregate");
+    storage
+        .set_quota_source_model_assignments(
+            "openai_account",
+            "default-pool-account",
+            &["gpt-5.4".to_string()],
+        )
+        .expect("set default account model assignment");
+    storage
+        .set_quota_source_model_assignments(
+            "aggregate_api",
+            "default-pool-aggregate",
+            &["gpt-5.4".to_string()],
+        )
+        .expect("set default aggregate model assignment");
+    storage
+        .upsert_account_quota_capacity_template("plus", Some(100_000), Some(200_000))
+        .expect("insert capacity template");
+    storage
+        .upsert_account_quota_capacity_override("default-pool-account", Some(50_000), Some(150_000))
+        .expect("insert capacity override");
+
+    let server =
+        codexmanager_service::start_one_shot_server().expect("start default model pools server");
+    let req = JsonRpcRequest {
+        id: 820.into(),
+        method: "quota/modelPools".to_string(),
+        params: Some(serde_json::json!({})),
+        trace: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize default model pools request");
+    let v = post_rpc(&server.addr, &json);
+    let result = v.get("result").expect("default model pools result");
+    let items = result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("default model pools items");
+    assert!(
+        !items.is_empty(),
+        "default model pools should return summaries"
+    );
+    assert!(
+        items.iter().all(|item| item
+            .get("sources")
+            .and_then(|value| value.as_array())
+            .is_some_and(|sources| sources.is_empty())),
+        "default model pools should not return source details"
+    );
+    assert_eq!(
+        result
+            .get("templates")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        result
+            .get("accountOverrides")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0)
+    );
+
+    let full_server =
+        codexmanager_service::start_one_shot_server().expect("start full model pools server");
+    let full_req = JsonRpcRequest {
+        id: 821.into(),
+        method: "quota/modelPools".to_string(),
+        params: Some(serde_json::json!({
+            "includeSources": true,
+            "includeConfig": true
+        })),
+        trace: None,
+    };
+    let full_json = serde_json::to_string(&full_req).expect("serialize full model pools request");
+    let full_v = post_rpc(&full_server.addr, &full_json);
+    let full_result = full_v.get("result").expect("full model pools result");
+    let full_items = full_result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("full model pools items");
+    assert!(
+        full_items.iter().any(|item| item
+            .get("sources")
+            .and_then(|value| value.as_array())
+            .is_some_and(|sources| !sources.is_empty())),
+        "explicit full model pools should return source details"
+    );
+    assert!(
+        full_result
+            .get("templates")
+            .and_then(|value| value.as_array())
+            .is_some_and(|items| !items.is_empty()),
+        "explicit full model pools should return capacity templates"
+    );
+    assert!(
+        full_result
+            .get("accountOverrides")
+            .and_then(|value| value.as_array())
+            .is_some_and(|items| !items.is_empty()),
+        "explicit full model pools should return account overrides"
+    );
 }
 
 #[test]

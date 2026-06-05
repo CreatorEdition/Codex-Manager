@@ -238,6 +238,7 @@ export function AppBootstrap({ children }: { children: React.ReactNode }) {
             includeUsageAggregate: false,
             includeTodaySummary: false,
             includeRecentLogs: false,
+            includeApiModels: false,
           }),
         staleTime: STARTUP_SNAPSHOT_STALE_TIME,
       });
