@@ -8,7 +8,7 @@ use crate::account_status::{
     mark_account_unavailable_for_usage_http_error,
 };
 
-const DEFAULT_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS: i64 = 60;
+const DEFAULT_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS: i64 = 21_600;
 const USAGE_REFRESH_FAILURE_EVENT_WINDOW_ENV: &str =
     "CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS";
 

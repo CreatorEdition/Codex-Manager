@@ -1,6 +1,8 @@
 use super::{
-    classify_usage_refresh_error, should_record_failure_event_with_state, FailureThrottleKey,
+    classify_usage_refresh_error, should_record_failure_event_with_state,
+    usage_refresh_failure_event_window_secs, FailureThrottleKey,
 };
+use crate::usage_scheduler::DEFAULT_USAGE_POLL_INTERVAL_SECS;
 use std::collections::HashMap;
 
 /// 函数 `usage_refresh_error_class_groups_by_status_code`
@@ -94,6 +96,25 @@ fn failure_event_throttle_dedupes_within_window() {
     assert!(should_record_failure_event_with_state(
         &mut state, key, 161, 60
     ));
+}
+
+#[test]
+fn default_failure_event_window_covers_usage_poll_interval() {
+    let _guard = crate::test_env_guard();
+    let previous = std::env::var("CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS").ok();
+    std::env::remove_var("CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS");
+
+    assert!(
+        usage_refresh_failure_event_window_secs() >= DEFAULT_USAGE_POLL_INTERVAL_SECS as i64,
+        "默认失败事件窗口必须覆盖至少一个用量轮询周期，避免每轮失败都写入 events"
+    );
+
+    if let Some(previous) = previous {
+        std::env::set_var(
+            "CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS",
+            previous,
+        );
+    }
 }
 
 /// 函数 `failure_event_throttle_isolated_by_error_class`
