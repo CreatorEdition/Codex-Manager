@@ -400,7 +400,13 @@ pub(crate) fn refresh_tokens_before_expiry_for_all_accounts() -> Result<(), Stri
     if tokens.is_empty() {
         return Ok(());
     }
-    let accounts = storage.list_accounts().map_err(|e| e.to_string())?;
+    let account_ids = tokens
+        .iter()
+        .map(|token| token.account_id.clone())
+        .collect::<Vec<_>>();
+    let accounts = storage
+        .list_accounts_by_ids(&account_ids)
+        .map_err(|e| e.to_string())?;
     let account_map = accounts
         .iter()
         .map(|account| (account.id.clone(), account.clone()))

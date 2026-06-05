@@ -58,40 +58,44 @@ impl Storage {
         limit: usize,
     ) -> Result<Vec<Token>> {
         let mut stmt = self.conn.prepare(
-            "WITH latest_status AS (
+            "WITH due_token_candidates AS (
                 SELECT
-                    account_id,
-                    message,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY account_id
-                        ORDER BY created_at DESC, id DESC
-                    ) AS rn
-                FROM events
-                WHERE type = 'account_status_update'
+                    tokens.account_id,
+                    tokens.id_token,
+                    tokens.access_token,
+                    tokens.refresh_token,
+                    tokens.api_key_access_token,
+                    tokens.last_refresh,
+                    tokens.next_refresh_at,
+                    (
+                        SELECT events.message
+                        FROM events
+                        WHERE events.type = 'account_status_update'
+                          AND events.account_id = tokens.account_id
+                        ORDER BY events.created_at DESC, events.id DESC
+                        LIMIT 1
+                    ) AS latest_status_message
+                FROM tokens
+                WHERE TRIM(COALESCE(refresh_token, '')) <> ''
+                  AND (
+                       next_refresh_at IS NULL
+                       OR next_refresh_at <= ?1
+                       OR (
+                           access_token_exp IS NOT NULL
+                           AND access_token_exp <= ?2
+                       )
+                  )
              )
-             SELECT tokens.account_id, tokens.id_token, tokens.access_token, tokens.refresh_token, tokens.api_key_access_token, tokens.last_refresh
-             FROM tokens
-             LEFT JOIN latest_status
-               ON latest_status.account_id = tokens.account_id
-              AND latest_status.rn = 1
-             WHERE TRIM(COALESCE(refresh_token, '')) <> ''
-               AND (
-                    latest_status.message IS NULL
-                    OR (
-                        latest_status.message NOT LIKE '% reason=account_deactivated'
-                        AND latest_status.message NOT LIKE '% reason=workspace_deactivated'
-                        AND latest_status.message NOT LIKE '% reason=refresh_token_region_blocked'
-                    )
-               )
-               AND (
-                    next_refresh_at IS NULL
-                    OR next_refresh_at <= ?1
-                    OR (
-                        access_token_exp IS NOT NULL
-                        AND access_token_exp <= ?2
-                    )
-               )
-             ORDER BY COALESCE(tokens.next_refresh_at, 0) ASC, tokens.account_id ASC
+             SELECT account_id, id_token, access_token, refresh_token, api_key_access_token, last_refresh
+             FROM due_token_candidates
+             WHERE latest_status_message IS NULL
+                OR (
+                    LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=account_deactivated'
+                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=workspace_deactivated'
+                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=deactivated_workspace'
+                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_region_blocked'
+                )
+             ORDER BY COALESCE(next_refresh_at, 0) ASC, account_id ASC
              LIMIT ?3",
         )?;
         let mut rows = stmt.query((refresh_due_cutoff_ts, access_exp_cutoff_ts, limit as i64))?;
@@ -320,4 +324,89 @@ fn map_token_row(row: &Row<'_>) -> Result<Token> {
         api_key_access_token: row.get(4)?,
         last_refresh: row.get(5)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{now_ts, Account, Event};
+
+    fn sample_account(id: &str, now: i64) -> Account {
+        Account {
+            id: id.to_string(),
+            label: id.to_string(),
+            issuer: "issuer".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn sample_token(account_id: &str, now: i64) -> Token {
+        Token {
+            account_id: account_id.to_string(),
+            id_token: "id".to_string(),
+            access_token: "access".to_string(),
+            refresh_token: "refresh".to_string(),
+            api_key_access_token: None,
+            last_refresh: now,
+        }
+    }
+
+    #[test]
+    fn list_tokens_due_for_refresh_filters_latest_blocked_status() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        for account_id in ["acc-due", "acc-blocked", "acc-restored"] {
+            storage
+                .insert_account(&sample_account(account_id, now))
+                .expect("insert account");
+            storage
+                .insert_token(&sample_token(account_id, now))
+                .expect("insert token");
+            storage
+                .update_token_refresh_schedule(account_id, None, Some(now - 1))
+                .expect("schedule token");
+        }
+
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-blocked".to_string()),
+                event_type: "account_status_update".to_string(),
+                message: "status=banned reason=refresh_token_region_blocked".to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert blocked status");
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-restored".to_string()),
+                event_type: "account_status_update".to_string(),
+                message: "status=banned reason=workspace_deactivated".to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert old blocked status");
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-restored".to_string()),
+                event_type: "account_status_update".to_string(),
+                message: "status=active reason=usage_ok".to_string(),
+                created_at: now + 20,
+            })
+            .expect("insert restored status");
+
+        let ids = storage
+            .list_tokens_due_for_refresh(now, now, 2)
+            .expect("list due tokens")
+            .into_iter()
+            .map(|token| token.account_id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["acc-due".to_string(), "acc-restored".to_string()]);
+    }
 }
