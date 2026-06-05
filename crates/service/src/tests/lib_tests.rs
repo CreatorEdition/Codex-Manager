@@ -871,6 +871,201 @@ fn admin_usage_summary_requires_admin_and_returns_range_rollups() {
 }
 
 #[test]
+fn admin_usage_summary_ranking_limit_bounds_top_results() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-admin-usage-ranking-limit");
+    let day_start = 1_700_000_000;
+    let day_end = day_start + 86_400;
+    let user_low = create_test_member("admin-ranking-low", Some(2_000_000));
+    let user_high = create_test_member("admin-ranking-high", Some(2_000_000));
+    let key_low = create_owned_test_api_key(&user_low.id, "admin ranking low key", "gpt-5-mini");
+    let key_high = create_owned_test_api_key(&user_high.id, "admin ranking high key", "gpt-5-mini");
+    let storage = storage_helpers::open_storage().expect("open storage");
+    let now = codexmanager_core::storage::now_ts();
+
+    for (id, label) in [
+        ("ranking-account-low", "Ranking Account Low"),
+        ("ranking-account-high", "Ranking Account High"),
+    ] {
+        storage
+            .insert_account(&codexmanager_core::storage::Account {
+                id: id.to_string(),
+                label: label.to_string(),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort: 0,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert ranking account");
+    }
+    for (id, name) in [
+        ("ranking-aggregate-low", "Ranking Aggregate Low"),
+        ("ranking-aggregate-high", "Ranking Aggregate High"),
+    ] {
+        storage
+            .insert_aggregate_api(&codexmanager_core::storage::AggregateApi {
+                id: id.to_string(),
+                provider_type: "codex".to_string(),
+                supplier_name: Some(name.to_string()),
+                sort: 0,
+                url: format!("https://{id}.example.invalid/v1"),
+                auth_type: "apikey".to_string(),
+                auth_params_json: None,
+                action: None,
+                model_override: None,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+                last_test_at: None,
+                last_test_status: None,
+                last_test_error: None,
+                balance_query_enabled: false,
+                balance_query_template: None,
+                balance_query_base_url: None,
+                balance_query_user_id: None,
+                balance_query_config_json: None,
+                last_balance_at: None,
+                last_balance_status: None,
+                last_balance_error: None,
+                last_balance_json: None,
+            })
+            .expect("insert ranking aggregate");
+    }
+
+    for (trace_id, key_id, account_id, aggregate_id, input_tokens, output_tokens) in [
+        (
+            "trace-ranking-low",
+            key_low.as_str(),
+            "ranking-account-low",
+            "ranking-aggregate-low",
+            10,
+            5,
+        ),
+        (
+            "trace-ranking-high",
+            key_high.as_str(),
+            "ranking-account-high",
+            "ranking-aggregate-high",
+            90,
+            30,
+        ),
+    ] {
+        let total_tokens = input_tokens + output_tokens;
+        storage
+            .insert_request_log_with_token_stat(
+                &RequestLog {
+                    trace_id: Some(trace_id.to_string()),
+                    key_id: Some(key_id.to_string()),
+                    account_id: Some(account_id.to_string()),
+                    initial_aggregate_api_id: Some(aggregate_id.to_string()),
+                    request_path: "/v1/responses".to_string(),
+                    method: "POST".to_string(),
+                    model: Some("gpt-5-mini".to_string()),
+                    actual_source_kind: Some("openai_account".to_string()),
+                    actual_source_id: Some(account_id.to_string()),
+                    status_code: Some(200),
+                    input_tokens: Some(input_tokens),
+                    output_tokens: Some(output_tokens),
+                    total_tokens: Some(total_tokens),
+                    created_at: day_start + total_tokens,
+                    ..RequestLog::default()
+                },
+                &RequestTokenStat {
+                    key_id: Some(key_id.to_string()),
+                    account_id: Some(account_id.to_string()),
+                    model: Some("gpt-5-mini".to_string()),
+                    input_tokens: Some(input_tokens),
+                    cached_input_tokens: Some(0),
+                    output_tokens: Some(output_tokens),
+                    total_tokens: Some(total_tokens),
+                    estimated_cost_usd: Some(total_tokens as f64 / 1000.0),
+                    created_at: day_start + total_tokens,
+                    ..RequestTokenStat::default()
+                },
+            )
+            .expect("insert ranking account usage");
+        storage
+            .insert_request_log_with_token_stat(
+                &RequestLog {
+                    trace_id: Some(format!("{trace_id}-aggregate")),
+                    key_id: Some(key_id.to_string()),
+                    initial_aggregate_api_id: Some(aggregate_id.to_string()),
+                    request_path: "/v1/responses".to_string(),
+                    method: "POST".to_string(),
+                    model: Some("gpt-5-mini".to_string()),
+                    actual_source_kind: Some("aggregate_api".to_string()),
+                    actual_source_id: Some(aggregate_id.to_string()),
+                    status_code: Some(200),
+                    input_tokens: Some(input_tokens),
+                    output_tokens: Some(output_tokens),
+                    total_tokens: Some(total_tokens),
+                    created_at: day_start + total_tokens + 10,
+                    ..RequestLog::default()
+                },
+                &RequestTokenStat {
+                    key_id: Some(key_id.to_string()),
+                    model: Some("gpt-5-mini".to_string()),
+                    input_tokens: Some(input_tokens),
+                    cached_input_tokens: Some(0),
+                    output_tokens: Some(output_tokens),
+                    total_tokens: Some(total_tokens),
+                    estimated_cost_usd: Some(total_tokens as f64 / 1000.0),
+                    created_at: day_start + total_tokens + 10,
+                    ..RequestTokenStat::default()
+                },
+            )
+            .expect("insert ranking aggregate usage");
+    }
+
+    let admin_resp = response_result(handle_request_with_actor(
+        rpc_request(
+            "dashboard/adminUsageSummary",
+            serde_json::json!({
+                "startTs": day_start,
+                "endTs": day_end,
+                "rankingLimit": 1
+            }),
+        ),
+        RpcActor::system_admin(),
+    ));
+    assert!(
+        admin_resp.result.get("error").is_none(),
+        "{:?}",
+        admin_resp.result
+    );
+    assert_eq!(admin_resp.result["dailyUsage"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        admin_resp.result["dailyUsage"][0]["usage"]["totalTokens"],
+        270
+    );
+
+    let users = admin_resp.result["users"].as_array().expect("users");
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0]["userId"], user_high.id);
+    assert_eq!(users[0]["rangeUsage"]["totalTokens"], 240);
+
+    let openai_accounts = admin_resp.result["openaiAccounts"]
+        .as_array()
+        .expect("openai accounts");
+    assert_eq!(openai_accounts.len(), 1);
+    assert_eq!(openai_accounts[0]["sourceId"], "ranking-account-high");
+    assert_eq!(openai_accounts[0]["name"], "Ranking Account High");
+
+    let aggregate_apis = admin_resp.result["aggregateApis"]
+        .as_array()
+        .expect("aggregate apis");
+    assert_eq!(aggregate_apis.len(), 1);
+    assert_eq!(aggregate_apis[0]["sourceId"], "ranking-aggregate-high");
+    assert_eq!(aggregate_apis[0]["name"], "Ranking Aggregate High");
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
 fn admin_usage_summary_daily_trend_includes_token_stats_without_request_logs() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-admin-usage-orphan-stats");

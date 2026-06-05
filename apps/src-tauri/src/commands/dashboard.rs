@@ -5,6 +5,7 @@ pub async fn service_dashboard_admin_usage_summary(
     addr: Option<String>,
     start_ts: Option<i64>,
     end_ts: Option<i64>,
+    ranking_limit: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     rpc_call_in_background(
         "dashboard/adminUsageSummary",
@@ -12,6 +13,7 @@ pub async fn service_dashboard_admin_usage_summary(
         Some(serde_json::json!({
             "startTs": start_ts,
             "endTs": end_ts,
+            "rankingLimit": ranking_limit,
         })),
     )
     .await

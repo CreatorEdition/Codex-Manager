@@ -329,6 +329,7 @@ export function createWebCommandMap(
         return {
           startTs: source.start_ts ?? source.startTs,
           endTs: source.end_ts ?? source.endTs,
+          rankingLimit: source.ranking_limit ?? source.rankingLimit,
         };
       },
     },

@@ -38,10 +38,11 @@
 - 模型池来源按需查询：新增 `quota/modelPoolSources`，支持 `sourceKind/sourceIds/page/pageSize`，聚合 API 页不再通过 `quota/modelPools(includeSources:true)` 拉取全量来源明细。
 - 聚合 API 列表后端分页：`aggregateApi/list` 支持 `page/pageSize/providerType/statusFilter/query`，管理页下推筛选和分页，并仅按当前页 API ID 装饰模型池来源。
 - RPC 默认轻量化防护：`startup/snapshot` 裸调用默认限制账号/API Key 预载 20 条并关闭聚合、今日摘要、最近日志和模型目录；`quota/modelPools` 裸调用默认不返回来源明细和容量配置，完整读取必须显式传 include 参数。
+- 管理员用量排行限载：`dashboard/adminUsageSummary` 新增 `rankingLimit`，默认仅返回 Top 8 用户、OpenAI 账号和聚合 API，并按 Top ID 读取元数据，避免首页返回全量排行。
 
 ### ⚠️ 待处理
 
 - `cargo test --workspace` 尚未全量执行，后续安全/CI 阶段再跑完整工作区测试。
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
-- `dashboard/adminUsageSummary` 仍存在全量账号/聚合 API 元数据与多组日志聚合慢路径；下一步应拆 overview 与 rankings，并按 top ID 批量查询元数据。
+- `dashboard/adminUsageSummary` 已完成首页 TopN 限载；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并将 TopN/分页进一步下推到 SQL 聚合层。

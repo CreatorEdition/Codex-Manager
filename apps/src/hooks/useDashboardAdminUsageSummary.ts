@@ -11,10 +11,12 @@ export const DASHBOARD_ADMIN_USAGE_QUERY_KEY = [
   "dashboard",
   "admin-usage-summary",
 ] as const;
+export const DASHBOARD_ADMIN_USAGE_RANKING_LIMIT = 8;
 
 interface DashboardAdminUsageSummaryQueryParams {
   startTs?: number | null;
   endTs?: number | null;
+  rankingLimit?: number | null;
 }
 
 export function useDashboardAdminUsageSummary(
@@ -34,11 +36,14 @@ export function useDashboardAdminUsageSummary(
       serviceStatus.addr,
       params?.startTs ?? null,
       params?.endTs ?? null,
+      params?.rankingLimit ?? DASHBOARD_ADMIN_USAGE_RANKING_LIMIT,
     ],
     queryFn: () =>
       dashboardClient.getAdminUsageSummary({
         startTs: params?.startTs ?? null,
         endTs: params?.endTs ?? null,
+        rankingLimit:
+          params?.rankingLimit ?? DASHBOARD_ADMIN_USAGE_RANKING_LIMIT,
       }),
     enabled: isQueryEnabled,
     retry: 1,

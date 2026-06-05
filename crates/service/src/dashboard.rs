@@ -24,11 +24,14 @@ const MEMBER_RECENT_LOG_LIMIT: i64 = 8;
 const LOW_WALLET_CREDIT_MICROS: i64 = 1_000_000;
 const DAY_SECONDS: i64 = 24 * 60 * 60;
 const ADMIN_USAGE_RANGE_DAYS: i64 = 7;
+const ADMIN_USAGE_DEFAULT_RANKING_LIMIT: usize = 8;
+const ADMIN_USAGE_MAX_RANKING_LIMIT: usize = 100;
 
 pub(crate) fn read_admin_usage_summary(
     actor: &RpcActor,
     start_ts: Option<i64>,
     end_ts: Option<i64>,
+    ranking_limit: Option<i64>,
 ) -> Result<DashboardAdminUsageSummaryResult, String> {
     if !actor.is_admin() {
         return Err("permission_denied: admin dashboard usage requires admin session".to_string());
@@ -43,6 +46,7 @@ pub(crate) fn read_admin_usage_summary(
     let range_end = end_ts
         .filter(|value| *value > range_start)
         .unwrap_or(today_end);
+    let ranking_limit = normalize_admin_usage_ranking_limit(ranking_limit);
 
     let today_usage = storage
         .summarize_request_token_stats_daily(today_start, today_end, DAY_SECONDS)
@@ -67,10 +71,11 @@ pub(crate) fn read_admin_usage_summary(
         storage
             .summarize_request_token_stats_by_user_between(range_start, range_end)
             .map_err(|err| format!("summarize range user usage failed: {err}"))?,
+        ranking_limit,
     )?;
     let openai_accounts = build_dashboard_source_summaries(
+        &storage,
         "openai_account",
-        account_source_metadata(&storage)?,
         storage
             .summarize_request_token_stats_by_source_between(
                 "openai_account",
@@ -85,10 +90,11 @@ pub(crate) fn read_admin_usage_summary(
                 range_end,
             )
             .map_err(|err| format!("summarize range account usage failed: {err}"))?,
-    );
+        ranking_limit,
+    )?;
     let aggregate_apis = build_dashboard_source_summaries(
+        &storage,
         "aggregate_api",
-        aggregate_source_metadata(&storage)?,
         storage
             .summarize_request_token_stats_by_source_between(
                 "aggregate_api",
@@ -103,7 +109,8 @@ pub(crate) fn read_admin_usage_summary(
                 range_end,
             )
             .map_err(|err| format!("summarize range aggregate API usage failed: {err}"))?,
-    );
+        ranking_limit,
+    )?;
 
     Ok(DashboardAdminUsageSummaryResult {
         range_start_ts: range_start,
@@ -161,6 +168,40 @@ fn dashboard_usage(usage: &TokenUsageRollup) -> DashboardTokenUsageResult {
     }
 }
 
+fn normalize_admin_usage_ranking_limit(value: Option<i64>) -> Option<usize> {
+    match value {
+        Some(limit) if limit < 0 => None,
+        Some(limit) => Some((limit as usize).min(ADMIN_USAGE_MAX_RANKING_LIMIT)),
+        None => Some(ADMIN_USAGE_DEFAULT_RANKING_LIMIT),
+    }
+}
+
+fn usage_total(map: &HashMap<String, TokenUsageRollup>, id: &str) -> i64 {
+    map.get(id)
+        .map(|usage| usage.total_tokens.max(0))
+        .unwrap_or(0)
+}
+
+fn ranked_usage_ids(
+    today_map: &HashMap<String, TokenUsageRollup>,
+    range_map: &HashMap<String, TokenUsageRollup>,
+    limit: Option<usize>,
+) -> Vec<String> {
+    let mut ids = today_map.keys().cloned().collect::<HashSet<_>>();
+    ids.extend(range_map.keys().cloned());
+    let mut ids = ids.into_iter().collect::<Vec<_>>();
+    ids.sort_by(|a, b| {
+        usage_total(today_map, b)
+            .cmp(&usage_total(today_map, a))
+            .then_with(|| usage_total(range_map, b).cmp(&usage_total(range_map, a)))
+            .then_with(|| a.cmp(b))
+    });
+    if let Some(limit) = limit {
+        ids.truncate(limit);
+    }
+    ids
+}
+
 fn fill_daily_usage(
     start_ts: i64,
     end_ts: i64,
@@ -198,6 +239,7 @@ fn build_dashboard_user_summaries(
     storage: &codexmanager_core::storage::Storage,
     today_items: Vec<UserTokenUsageRollup>,
     range_items: Vec<UserTokenUsageRollup>,
+    ranking_limit: Option<usize>,
 ) -> Result<Vec<DashboardUserUsageSummary>, String> {
     let today_map = today_items
         .into_iter()
@@ -207,22 +249,35 @@ fn build_dashboard_user_summaries(
         .into_iter()
         .map(|item| (item.user_id, item.usage))
         .collect::<HashMap<_, _>>();
-    let users = storage
-        .list_app_users()
-        .map_err(|err| format!("list app users failed: {err}"))?;
-    let wallets = storage
-        .list_wallets()
-        .map_err(|err| format!("list app wallets failed: {err}"))?
-        .into_iter()
-        .filter(|wallet| wallet.owner_kind == "user")
-        .map(|wallet| (wallet.owner_id.clone(), wallet))
-        .collect::<HashMap<_, _>>();
-    let mut user_ids = users
-        .iter()
-        .map(|user| user.id.clone())
-        .collect::<HashSet<_>>();
-    user_ids.extend(today_map.keys().cloned());
-    user_ids.extend(range_map.keys().cloned());
+    let mut user_ids = ranked_usage_ids(&today_map, &range_map, ranking_limit);
+    let users = if ranking_limit.is_some() {
+        storage
+            .list_app_users_by_ids(&user_ids)
+            .map_err(|err| format!("list app users failed: {err}"))?
+    } else {
+        let users = storage
+            .list_app_users()
+            .map_err(|err| format!("list app users failed: {err}"))?;
+        let mut all_user_ids = users
+            .iter()
+            .map(|user| user.id.clone())
+            .collect::<HashSet<_>>();
+        all_user_ids.extend(today_map.keys().cloned());
+        all_user_ids.extend(range_map.keys().cloned());
+        user_ids = all_user_ids.into_iter().collect();
+        users
+    };
+    let wallets = if ranking_limit.is_some() {
+        wallets_for_user_ids(storage, &user_ids)?
+    } else {
+        storage
+            .list_wallets()
+            .map_err(|err| format!("list app wallets failed: {err}"))?
+            .into_iter()
+            .filter(|wallet| wallet.owner_kind == "user")
+            .map(|wallet| (wallet.owner_id.clone(), wallet))
+            .collect::<HashMap<_, _>>()
+    };
     let user_map = users
         .into_iter()
         .map(|user| (user.id.clone(), user))
@@ -262,15 +317,41 @@ fn build_dashboard_user_summaries(
             .then_with(|| b.range_usage.total_tokens.cmp(&a.range_usage.total_tokens))
             .then_with(|| a.user_id.cmp(&b.user_id))
     });
+    if let Some(limit) = ranking_limit {
+        results.truncate(limit);
+    }
     Ok(results)
+}
+
+fn wallets_for_user_ids(
+    storage: &codexmanager_core::storage::Storage,
+    user_ids: &[String],
+) -> Result<HashMap<String, codexmanager_core::storage::AppWallet>, String> {
+    let mut wallets = HashMap::new();
+    for user_id in user_ids {
+        if let Some(wallet) = storage
+            .find_wallet_by_owner("user", user_id)
+            .map_err(|err| format!("read app wallet failed: {err}"))?
+        {
+            wallets.insert(wallet.owner_id.clone(), wallet);
+        }
+    }
+    Ok(wallets)
 }
 
 fn account_source_metadata(
     storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<&[String]>,
 ) -> Result<HashMap<String, SourceMetadata>, String> {
-    Ok(storage
-        .list_accounts()
-        .map_err(|err| format!("list accounts failed: {err}"))?
+    let accounts = match source_ids {
+        Some(ids) => storage
+            .list_accounts_by_ids(ids)
+            .map_err(|err| format!("list accounts failed: {err}"))?,
+        None => storage
+            .list_accounts()
+            .map_err(|err| format!("list accounts failed: {err}"))?,
+    };
+    Ok(accounts
         .into_iter()
         .map(|account| {
             (
@@ -287,10 +368,17 @@ fn account_source_metadata(
 
 fn aggregate_source_metadata(
     storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<&[String]>,
 ) -> Result<HashMap<String, SourceMetadata>, String> {
-    Ok(storage
-        .list_aggregate_apis()
-        .map_err(|err| format!("list aggregate APIs failed: {err}"))?
+    let aggregate_apis = match source_ids {
+        Some(ids) => storage
+            .list_aggregate_apis_by_ids(ids)
+            .map_err(|err| format!("list aggregate APIs failed: {err}"))?,
+        None => storage
+            .list_aggregate_apis()
+            .map_err(|err| format!("list aggregate APIs failed: {err}"))?,
+    };
+    Ok(aggregate_apis
         .into_iter()
         .map(|api| {
             let name = api
@@ -313,11 +401,12 @@ fn aggregate_source_metadata(
 }
 
 fn build_dashboard_source_summaries(
+    storage: &codexmanager_core::storage::Storage,
     source_kind: &str,
-    metadata: HashMap<String, SourceMetadata>,
     today_items: Vec<SourceTokenUsageRollup>,
     range_items: Vec<SourceTokenUsageRollup>,
-) -> Vec<DashboardSourceUsageSummary> {
+    ranking_limit: Option<usize>,
+) -> Result<Vec<DashboardSourceUsageSummary>, String> {
     let today_map = today_items
         .into_iter()
         .map(|item| (item.source_id, item.usage))
@@ -326,9 +415,22 @@ fn build_dashboard_source_summaries(
         .into_iter()
         .map(|item| (item.source_id, item.usage))
         .collect::<HashMap<_, _>>();
-    let mut ids = metadata.keys().cloned().collect::<HashSet<_>>();
-    ids.extend(today_map.keys().cloned());
-    ids.extend(range_map.keys().cloned());
+    let mut ids = ranked_usage_ids(&today_map, &range_map, ranking_limit);
+    let metadata = match source_kind {
+        "openai_account" => {
+            account_source_metadata(storage, ranking_limit.map(|_| ids.as_slice()))?
+        }
+        "aggregate_api" => {
+            aggregate_source_metadata(storage, ranking_limit.map(|_| ids.as_slice()))?
+        }
+        _ => HashMap::new(),
+    };
+    if ranking_limit.is_none() {
+        let mut all_ids = metadata.keys().cloned().collect::<HashSet<_>>();
+        all_ids.extend(today_map.keys().cloned());
+        all_ids.extend(range_map.keys().cloned());
+        ids = all_ids.into_iter().collect();
+    }
     let mut results = ids
         .into_iter()
         .map(|source_id| {
@@ -362,7 +464,10 @@ fn build_dashboard_source_summaries(
             .then_with(|| b.range_usage.total_tokens.cmp(&a.range_usage.total_tokens))
             .then_with(|| a.source_id.cmp(&b.source_id))
     });
-    results
+    if let Some(limit) = ranking_limit {
+        results.truncate(limit);
+    }
+    Ok(results)
 }
 
 pub(crate) fn read_member_dashboard_summary(

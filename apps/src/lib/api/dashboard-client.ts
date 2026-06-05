@@ -276,12 +276,14 @@ export const dashboardClient = {
   async getAdminUsageSummary(params?: {
     startTs?: number | null;
     endTs?: number | null;
+    rankingLimit?: number | null;
   }): Promise<DashboardAdminUsageSummary> {
     const result = await invoke<unknown>(
       "service_dashboard_admin_usage_summary",
       withAddr({
         startTs: params?.startTs ?? null,
         endTs: params?.endTs ?? null,
+        rankingLimit: params?.rankingLimit ?? null,
       }),
     );
     return readAdminUsageSummary(result);

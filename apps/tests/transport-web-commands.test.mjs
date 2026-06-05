@@ -122,10 +122,12 @@ test("createWebCommandMap 为管理员用量分析提供 Web RPC 映射", () => 
     summary.mapParams({
       start_ts: 100,
       end_ts: 200,
+      ranking_limit: 8,
     }),
     {
       startTs: 100,
       endTs: 200,
+      rankingLimit: 8,
     },
   );
 });
