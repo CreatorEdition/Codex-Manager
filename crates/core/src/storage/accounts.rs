@@ -347,6 +347,64 @@ impl Storage {
         Ok(out)
     }
 
+    /// 统计后台用量轮询当前可刷新的账号候选数量。
+    pub fn usage_refresh_candidate_count(&self) -> Result<i64> {
+        let sql = format!(
+            "WITH usage_refresh_candidates AS (
+                {candidate_select}
+             )
+             SELECT COUNT(1)
+             FROM usage_refresh_candidates
+             WHERE {status_reason_clause}",
+            candidate_select = usage_refresh_candidate_select_sql(),
+            status_reason_clause = usage_refresh_status_reason_clause(),
+        );
+        self.conn.query_row(&sql, [], |row| row.get(0))
+    }
+
+    /// 按页读取后台用量轮询候选，避免每轮全量加载账号、Token 和状态事件。
+    pub fn list_usage_refresh_candidates_paginated(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<(Account, Token)>> {
+        let sql = format!(
+            "WITH usage_refresh_candidates AS (
+                {candidate_select}
+             )
+             SELECT
+               account_id,
+               label,
+               issuer,
+               chatgpt_account_id,
+               workspace_id,
+               sort,
+               status,
+               created_at,
+               updated_at,
+               token_account_id,
+               id_token,
+               access_token,
+               refresh_token,
+               api_key_access_token,
+               last_refresh
+             FROM usage_refresh_candidates
+             WHERE {status_reason_clause}
+             ORDER BY sort ASC, updated_at DESC, account_id ASC
+             LIMIT ?1 OFFSET ?2",
+            candidate_select = usage_refresh_candidate_select_sql(),
+            status_reason_clause = usage_refresh_status_reason_clause(),
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query((limit.max(1), offset.max(0)))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_gateway_candidate_row(row)?);
+        }
+        Ok(out)
+    }
+
     /// 函数 `find_account_by_id`
     ///
     /// 作者: gaohongshun
@@ -982,6 +1040,52 @@ fn account_usage_filter_clause(
     }
 }
 
+/// 后台用量轮询候选的基础查询，仅保留账号状态和 Token 可用性等廉价条件。
+fn usage_refresh_candidate_select_sql() -> &'static str {
+    "SELECT
+       a.id AS account_id,
+       a.label AS label,
+       a.issuer AS issuer,
+       a.chatgpt_account_id AS chatgpt_account_id,
+       a.workspace_id AS workspace_id,
+       a.sort AS sort,
+       a.status AS status,
+       a.created_at AS created_at,
+       a.updated_at AS updated_at,
+       t.account_id AS token_account_id,
+       t.id_token AS id_token,
+       t.access_token AS access_token,
+       t.refresh_token AS refresh_token,
+       t.api_key_access_token AS api_key_access_token,
+       t.last_refresh AS last_refresh,
+       (
+         SELECT e.message
+         FROM events e
+         WHERE e.type = 'account_status_update'
+           AND e.account_id = a.id
+         ORDER BY e.created_at DESC, e.id DESC
+         LIMIT 1
+       ) AS latest_status_message
+     FROM accounts a
+     JOIN tokens t
+       ON t.account_id = a.id
+     WHERE LOWER(TRIM(COALESCE(a.status, ''))) NOT IN ('disabled', 'banned')
+       AND TRIM(COALESCE(t.refresh_token, '')) <> ''"
+}
+
+/// 保持与 `is_account_refresh_blocked_status_reason` 一致的状态原因过滤。
+fn usage_refresh_status_reason_clause() -> &'static str {
+    "(
+        latest_status_message IS NULL
+        OR (
+            LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=account_deactivated'
+            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=workspace_deactivated'
+            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=deactivated_workspace'
+            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_region_blocked'
+        )
+    )"
+}
+
 /// 函数 `account_select_columns`
 ///
 /// 作者: gaohongshun
@@ -1122,7 +1226,7 @@ fn map_gateway_candidate_row(row: &Row<'_>) -> Result<(Account, Token)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::UsageSnapshotRecord;
+    use crate::storage::{Event, UsageSnapshotRecord};
 
     fn sample_account(id: &str, status: &str, now: i64) -> Account {
         Account {
@@ -1147,6 +1251,13 @@ mod tests {
             refresh_token: "refresh".to_string(),
             api_key_access_token: None,
             last_refresh: now,
+        }
+    }
+
+    fn sample_token_with_refresh(account_id: &str, refresh_token: &str, now: i64) -> Token {
+        Token {
+            refresh_token: refresh_token.to_string(),
+            ..sample_token(account_id, now)
         }
     }
 
@@ -1196,6 +1307,109 @@ mod tests {
             .expect("token still exists");
         assert_eq!(token.access_token, "access");
         assert_eq!(token.refresh_token, "refresh");
+    }
+
+    #[test]
+    fn list_usage_refresh_candidates_paginated_filters_blocked_accounts() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        let mut active_a = sample_account("acc-active-a", "active", now);
+        active_a.sort = 1;
+        active_a.workspace_id = Some("ws-a".to_string());
+        let mut active_b = sample_account("acc-active-b", "active", now + 1);
+        active_b.sort = 2;
+        let mut disabled = sample_account("acc-disabled", "disabled", now);
+        disabled.sort = 3;
+        let mut banned = sample_account("acc-banned", "banned", now);
+        banned.sort = 4;
+        let mut empty_refresh = sample_account("acc-empty-refresh", "active", now);
+        empty_refresh.sort = 5;
+        let mut blocked = sample_account("acc-blocked", "active", now);
+        blocked.sort = 6;
+        let mut restored = sample_account("acc-restored", "active", now);
+        restored.sort = 7;
+
+        for account in [
+            &active_a,
+            &active_b,
+            &disabled,
+            &banned,
+            &empty_refresh,
+            &blocked,
+            &restored,
+        ] {
+            storage.insert_account(account).expect("insert account");
+        }
+
+        for account in [
+            &active_a, &active_b, &disabled, &banned, &blocked, &restored,
+        ] {
+            storage
+                .insert_token(&sample_token(account.id.as_str(), now))
+                .expect("insert token");
+        }
+        storage
+            .insert_token(&sample_token_with_refresh(
+                empty_refresh.id.as_str(),
+                "   ",
+                now,
+            ))
+            .expect("insert empty refresh token");
+        storage
+            .insert_event(&Event {
+                account_id: Some(blocked.id.clone()),
+                event_type: "account_status_update".to_string(),
+                message: "status=banned reason=workspace_deactivated".to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert blocked status event");
+        storage
+            .insert_event(&Event {
+                account_id: Some(restored.id.clone()),
+                event_type: "account_status_update".to_string(),
+                message: "status=banned reason=workspace_deactivated".to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert old blocked status event");
+        storage
+            .insert_event(&Event {
+                account_id: Some(restored.id.clone()),
+                event_type: "account_status_update".to_string(),
+                message: "status=active reason=usage_ok".to_string(),
+                created_at: now + 20,
+            })
+            .expect("insert restored status event");
+
+        assert_eq!(
+            storage
+                .usage_refresh_candidate_count()
+                .expect("candidate count"),
+            3
+        );
+
+        let first_page = storage
+            .list_usage_refresh_candidates_paginated(0, 2)
+            .expect("first page");
+        let first_page_ids = first_page
+            .iter()
+            .map(|(account, token)| {
+                assert_eq!(account.id, token.account_id);
+                account.id.as_str()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(first_page_ids, vec!["acc-active-a", "acc-active-b"]);
+        assert_eq!(first_page[0].0.workspace_id.as_deref(), Some("ws-a"));
+
+        let second_page = storage
+            .list_usage_refresh_candidates_paginated(2, 2)
+            .expect("second page");
+        let second_page_ids = second_page
+            .iter()
+            .map(|(account, _)| account.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(second_page_ids, vec!["acc-restored"]);
     }
 
     #[test]

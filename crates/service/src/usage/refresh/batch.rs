@@ -55,26 +55,19 @@ pub(crate) fn refresh_usage_for_all_accounts() -> Result<(), String> {
 /// 返回函数执行结果
 pub(crate) fn refresh_usage_for_polling_batch() -> Result<(), String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
-    let accounts = storage.list_accounts().map_err(|e| e.to_string())?;
-    let all_tasks = build_usage_refresh_tasks(
-        storage.list_tokens().map_err(|e| e.to_string())?,
-        &accounts,
-        &load_banned_account_ids(&storage, &accounts)?,
-    );
-    if all_tasks.is_empty() {
+    let total = storage
+        .usage_refresh_candidate_count()
+        .map_err(|e| e.to_string())?
+        .max(0) as usize;
+    if total == 0 {
         return Ok(());
     }
 
-    let total = all_tasks.len();
     let start_cursor = USAGE_POLL_CURSOR.load(Ordering::Relaxed) % total;
     let batch_limit = usage_poll_batch_limit(total);
     let cycle_budget = usage_poll_cycle_budget();
     let cycle_started_at = Instant::now();
-    let indices = usage_poll_batch_indices(total, start_cursor, batch_limit);
-    let selected_tasks = indices
-        .into_iter()
-        .map(|index| all_tasks[index].clone())
-        .collect::<Vec<_>>();
+    let selected_tasks = load_usage_refresh_polling_tasks(&storage, start_cursor, batch_limit)?;
     let processed = run_usage_refresh_tasks(selected_tasks)?;
 
     if processed > 0 {
@@ -105,6 +98,29 @@ pub(crate) fn refresh_usage_for_polling_batch() -> Result<(), String> {
     }
     notify_usage_refresh_completed("polling", processed, total);
     Ok(())
+}
+
+/// 从数据库按游标读取本轮用量刷新任务，避免先构造全量任务列表。
+fn load_usage_refresh_polling_tasks(
+    storage: &Storage,
+    start_cursor: usize,
+    batch_limit: usize,
+) -> Result<Vec<UsageRefreshBatchTask>, String> {
+    if batch_limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut candidates = storage
+        .list_usage_refresh_candidates_paginated(start_cursor as i64, batch_limit as i64)
+        .map_err(|err| err.to_string())?;
+    if candidates.len() < batch_limit && start_cursor > 0 {
+        let mut wrapped = storage
+            .list_usage_refresh_candidates_paginated(0, batch_limit as i64)
+            .map_err(|err| err.to_string())?;
+        wrapped.truncate(batch_limit.saturating_sub(candidates.len()));
+        candidates.extend(wrapped);
+    }
+    Ok(build_usage_refresh_tasks_from_candidates(candidates))
 }
 
 pub(crate) fn refresh_usage_and_aggregate_balances_for_polling_cycle() -> Result<(), String> {
@@ -224,6 +240,19 @@ fn build_usage_refresh_tasks(
                 token,
                 account_id,
             }
+        })
+        .collect()
+}
+
+fn build_usage_refresh_tasks_from_candidates(
+    candidates: Vec<(Account, Token)>,
+) -> Vec<UsageRefreshBatchTask> {
+    candidates
+        .into_iter()
+        .map(|(account, token)| UsageRefreshBatchTask {
+            account_id: account.id,
+            token,
+            workspace_id: account.workspace_id,
         })
         .collect()
 }
@@ -466,30 +495,6 @@ pub(crate) fn next_usage_poll_cursor(total: usize, cursor: usize, processed: usi
         return 0;
     }
     (cursor % total + processed.min(total)) % total
-}
-
-/// 函数 `usage_poll_batch_indices`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - total: 参数 total
-/// - cursor: 参数 cursor
-/// - batch_limit: 参数 batch_limit
-///
-/// # 返回
-/// 返回函数执行结果
-#[cfg(not(test))]
-fn usage_poll_batch_indices(total: usize, cursor: usize, batch_limit: usize) -> Vec<usize> {
-    if total == 0 || batch_limit == 0 {
-        return Vec::new();
-    }
-    let start = cursor % total;
-    (0..batch_limit.min(total))
-        .map(|offset| (start + offset) % total)
-        .collect()
 }
 
 /// 函数 `next_usage_poll_cursor`
