@@ -1,10 +1,13 @@
 use rusqlite::{params_from_iter, Result, Row};
 
+use crate::rpc::types::UsageAggregateSummaryResult;
+
 use super::{sqlite_placeholders, sqlite_text_params, Storage, UsageSnapshotRecord};
 
 const DEFAULT_USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT: usize = 1;
 const USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT_ENV: &str =
     "CODEXMANAGER_USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT";
+const LONG_USAGE_WINDOW_MINUTES: i64 = 24 * 60 + 3;
 
 pub(super) fn usage_snapshots_retain_per_account() -> usize {
     std::env::var(USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT_ENV)
@@ -83,22 +86,24 @@ impl Storage {
         if retain == 0 {
             return Ok(0);
         }
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT account_id FROM usage_snapshots")?;
-        let mut rows = stmt.query([])?;
-        let mut account_ids = Vec::new();
-        while let Some(row) = rows.next()? {
-            account_ids.push(row.get::<_, String>(0)?);
-        }
-        drop(rows);
-        drop(stmt);
-        let mut removed = 0_usize;
-        for account_id in account_ids {
-            removed = removed
-                .saturating_add(self.prune_usage_snapshots_for_account(&account_id, retain)?);
-        }
-        Ok(removed)
+        self.conn.execute(
+            "WITH ranked AS (
+                SELECT
+                    id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY account_id
+                        ORDER BY captured_at DESC, id DESC
+                    ) AS rn
+                FROM usage_snapshots
+            )
+            DELETE FROM usage_snapshots
+            WHERE id IN (
+                SELECT id
+                FROM ranked
+                WHERE rn > ?1
+            )",
+            [retain as i64],
+        )
     }
 
     /// 函数 `usage_snapshot_count_for_account`
@@ -345,6 +350,169 @@ impl Storage {
         Ok(out)
     }
 
+    /// 在数据库内聚合账号用量摘要，避免 RPC 读取全量账号与快照后本地统计。
+    pub fn usage_aggregate_summary(&self) -> Result<UsageAggregateSummaryResult> {
+        self.conn.query_row(
+            "WITH latest_usage AS (
+                SELECT
+                    account_id,
+                    used_percent,
+                    window_minutes,
+                    secondary_used_percent,
+                    secondary_window_minutes,
+                    credits_json,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY account_id
+                        ORDER BY captured_at DESC, id DESC
+                    ) AS rn
+                FROM usage_snapshots
+            ),
+            scoped AS (
+                SELECT
+                    a.id AS account_id,
+                    lu.used_percent,
+                    lu.window_minutes,
+                    lu.secondary_used_percent,
+                    lu.secondary_window_minutes,
+                    lu.credits_json,
+                    CASE
+                        WHEN lu.account_id IS NOT NULL
+                             AND (lu.used_percent IS NOT NULL OR lu.window_minutes IS NOT NULL)
+                        THEN 1 ELSE 0
+                    END AS has_primary_signal,
+                    CASE
+                        WHEN lu.account_id IS NOT NULL
+                             AND (
+                                lu.secondary_used_percent IS NOT NULL
+                                OR lu.secondary_window_minutes IS NOT NULL
+                             )
+                        THEN 1 ELSE 0
+                    END AS has_secondary_signal,
+                    CASE
+                        WHEN lu.account_id IS NOT NULL
+                             AND (lu.used_percent IS NOT NULL OR lu.window_minutes IS NOT NULL)
+                             AND NOT (
+                                lu.secondary_used_percent IS NOT NULL
+                                OR lu.secondary_window_minutes IS NOT NULL
+                             )
+                             AND (
+                                COALESCE(lu.window_minutes, 0) > ?1
+                                OR (
+                                    lu.credits_json IS NOT NULL
+                                    AND json_valid(lu.credits_json)
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM json_tree(lu.credits_json) AS credits
+                                        WHERE credits.type = 'text'
+                                          AND credits.key IN (
+                                            'plan_type',
+                                            'planType',
+                                            'subscription_tier',
+                                            'subscriptionTier',
+                                            'tier',
+                                            'account_type',
+                                            'accountType',
+                                            'type'
+                                          )
+                                          AND LOWER(credits.value) LIKE '%free%'
+                                    )
+                                )
+                             )
+                        THEN 1 ELSE 0
+                    END AS primary_belongs_to_secondary
+                FROM accounts a
+                LEFT JOIN latest_usage lu
+                  ON lu.account_id = a.id
+                 AND lu.rn = 1
+            )
+            SELECT
+                COALESCE(SUM(
+                    CASE
+                        WHEN has_primary_signal = 1 AND primary_belongs_to_secondary = 0
+                        THEN 1 ELSE 0
+                    END
+                ), 0) AS primary_bucket_count,
+                COALESCE(SUM(
+                    CASE
+                        WHEN has_primary_signal = 1
+                             AND primary_belongs_to_secondary = 0
+                             AND used_percent IS NOT NULL
+                        THEN 1 ELSE 0
+                    END
+                ), 0) AS primary_known_count,
+                COALESCE(SUM(
+                    CASE
+                        WHEN has_primary_signal = 1
+                             AND primary_belongs_to_secondary = 0
+                             AND used_percent IS NOT NULL
+                        THEN MAX(0.0, 100.0 - MIN(100.0, MAX(0.0, used_percent)))
+                        ELSE 0.0
+                    END
+                ), 0.0) AS primary_remaining_total,
+                COALESCE(SUM(
+                    CASE
+                        WHEN primary_belongs_to_secondary = 1 THEN 1 ELSE 0
+                    END
+                    +
+                    CASE
+                        WHEN has_secondary_signal = 1 THEN 1 ELSE 0
+                    END
+                ), 0) AS secondary_bucket_count,
+                COALESCE(SUM(
+                    CASE
+                        WHEN primary_belongs_to_secondary = 1 AND used_percent IS NOT NULL
+                        THEN 1 ELSE 0
+                    END
+                    +
+                    CASE
+                        WHEN has_secondary_signal = 1 AND secondary_used_percent IS NOT NULL
+                        THEN 1 ELSE 0
+                    END
+                ), 0) AS secondary_known_count,
+                COALESCE(SUM(
+                    CASE
+                        WHEN primary_belongs_to_secondary = 1 AND used_percent IS NOT NULL
+                        THEN MAX(0.0, 100.0 - MIN(100.0, MAX(0.0, used_percent)))
+                        ELSE 0.0
+                    END
+                    +
+                    CASE
+                        WHEN has_secondary_signal = 1 AND secondary_used_percent IS NOT NULL
+                        THEN MAX(0.0, 100.0 - MIN(100.0, MAX(0.0, secondary_used_percent)))
+                        ELSE 0.0
+                    END
+                ), 0.0) AS secondary_remaining_total
+            FROM scoped",
+            [LONG_USAGE_WINDOW_MINUTES],
+            |row| {
+                let primary_bucket_count: i64 = row.get(0)?;
+                let primary_known_count: i64 = row.get(1)?;
+                let primary_remaining_total: f64 = row.get(2)?;
+                let secondary_bucket_count: i64 = row.get(3)?;
+                let secondary_known_count: i64 = row.get(4)?;
+                let secondary_remaining_total: f64 = row.get(5)?;
+
+                Ok(UsageAggregateSummaryResult {
+                    primary_bucket_count,
+                    primary_known_count,
+                    primary_unknown_count: (primary_bucket_count - primary_known_count).max(0),
+                    primary_remain_percent: average_percent(
+                        primary_remaining_total,
+                        primary_known_count,
+                    ),
+                    secondary_bucket_count,
+                    secondary_known_count,
+                    secondary_unknown_count: (secondary_bucket_count - secondary_known_count)
+                        .max(0),
+                    secondary_remain_percent: average_percent(
+                        secondary_remaining_total,
+                        secondary_known_count,
+                    ),
+                })
+            },
+        )
+    }
+
     /// 函数 `ensure_usage_secondary_columns`
     ///
     /// 作者: gaohongshun
@@ -389,10 +557,32 @@ fn map_usage_snapshot_row(row: &Row<'_>) -> Result<UsageSnapshotRecord> {
     })
 }
 
+fn average_percent(total: f64, count: i64) -> Option<i64> {
+    if count <= 0 {
+        return None;
+    }
+    Some((total / count as f64).round() as i64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::now_ts;
+    use crate::storage::{now_ts, Account};
+
+    fn sample_account(id: &str, now: i64) -> Account {
+        Account {
+            id: id.to_string(),
+            label: id.to_string(),
+            issuer: "issuer".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
 
     fn sample_snapshot(
         account_id: &str,
@@ -408,6 +598,28 @@ mod tests {
             secondary_window_minutes: None,
             secondary_resets_at: None,
             credits_json: None,
+            captured_at,
+        }
+    }
+
+    fn usage_snapshot(
+        account_id: &str,
+        captured_at: i64,
+        used_percent: Option<f64>,
+        window_minutes: Option<i64>,
+        secondary_used_percent: Option<f64>,
+        secondary_window_minutes: Option<i64>,
+        credits_json: Option<&str>,
+    ) -> UsageSnapshotRecord {
+        UsageSnapshotRecord {
+            account_id: account_id.to_string(),
+            used_percent,
+            window_minutes,
+            resets_at: None,
+            secondary_used_percent,
+            secondary_window_minutes,
+            secondary_resets_at: None,
+            credits_json: credits_json.map(ToOwned::to_owned),
             captured_at,
         }
     }
@@ -447,5 +659,153 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[test]
+    fn prune_usage_snapshots_all_accounts_keeps_recent_rows_per_account() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        for snapshot in [
+            sample_snapshot("acc-a", now, 10.0),
+            sample_snapshot("acc-a", now + 10, 20.0),
+            sample_snapshot("acc-a", now + 10, 30.0),
+            sample_snapshot("acc-b", now, 40.0),
+            sample_snapshot("acc-b", now + 20, 50.0),
+            sample_snapshot("acc-b", now + 30, 55.0),
+            sample_snapshot("acc-c", now, 60.0),
+        ] {
+            storage
+                .insert_usage_snapshot(&snapshot)
+                .expect("insert usage snapshot");
+        }
+
+        let removed = storage
+            .prune_usage_snapshots_all_accounts(2)
+            .expect("prune all account usage snapshots");
+        assert_eq!(removed, 2);
+
+        assert_eq!(
+            storage
+                .usage_snapshot_count_for_account("acc-a")
+                .expect("count acc-a"),
+            2
+        );
+        assert_eq!(
+            storage
+                .usage_snapshot_count_for_account("acc-b")
+                .expect("count acc-b"),
+            2
+        );
+        assert_eq!(
+            storage
+                .usage_snapshot_count_for_account("acc-c")
+                .expect("count acc-c"),
+            1
+        );
+
+        let latest_a = storage
+            .latest_usage_snapshots_by_account_ids(&["acc-a".to_string()])
+            .expect("read acc-a latest");
+        assert_eq!(latest_a.len(), 1);
+        assert_eq!(latest_a[0].used_percent, Some(30.0));
+    }
+
+    #[test]
+    fn usage_aggregate_summary_matches_bucket_semantics() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        for account_id in [
+            "acc-pro",
+            "acc-free",
+            "acc-unknown",
+            "acc-note-free",
+            "acc-nested-free",
+            "acc-unused",
+        ] {
+            storage
+                .insert_account(&sample_account(account_id, now))
+                .expect("insert account");
+        }
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-pro",
+                now,
+                Some(99.0),
+                Some(300),
+                Some(99.0),
+                Some(10080),
+                None,
+            ))
+            .expect("insert old pro usage");
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-pro",
+                now + 10,
+                Some(20.0),
+                Some(300),
+                Some(40.0),
+                Some(10080),
+                None,
+            ))
+            .expect("insert latest pro usage");
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-free",
+                now + 20,
+                Some(10.0),
+                Some(10080),
+                None,
+                None,
+                Some(r#"{"planType":"free"}"#),
+            ))
+            .expect("insert free usage");
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-unknown",
+                now + 30,
+                None,
+                Some(10080),
+                None,
+                None,
+                Some(r#"{"planType":"free"}"#),
+            ))
+            .expect("insert unknown usage");
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-note-free",
+                now + 40,
+                Some(30.0),
+                Some(300),
+                None,
+                None,
+                Some(r#"{"note":"free text should not classify plan"}"#),
+            ))
+            .expect("insert note usage");
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-nested-free",
+                now + 50,
+                Some(50.0),
+                Some(300),
+                None,
+                None,
+                Some(r#"{"nested":{"planType":"free"}} "#),
+            ))
+            .expect("insert nested free usage");
+
+        let result = storage.usage_aggregate_summary().expect("usage aggregate");
+
+        assert_eq!(result.primary_bucket_count, 2);
+        assert_eq!(result.primary_known_count, 2);
+        assert_eq!(result.primary_unknown_count, 0);
+        assert_eq!(result.primary_remain_percent, Some(75));
+        assert_eq!(result.secondary_bucket_count, 4);
+        assert_eq!(result.secondary_known_count, 3);
+        assert_eq!(result.secondary_unknown_count, 1);
+        assert_eq!(result.secondary_remain_percent, Some(67));
     }
 }
