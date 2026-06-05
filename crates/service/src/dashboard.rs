@@ -21,6 +21,7 @@ const TREND_DAYS: i64 = 7;
 const MEMBER_TOP_KEY_LIMIT: usize = 8;
 const MEMBER_TOP_MODEL_LIMIT: usize = 6;
 const MEMBER_RECENT_LOG_LIMIT: i64 = 8;
+const MEMBER_USAGE_KEY_BATCH_SIZE: usize = 250;
 const LOW_WALLET_CREDIT_MICROS: i64 = 1_000_000;
 const DAY_SECONDS: i64 = 24 * 60 * 60;
 const ADMIN_USAGE_RANGE_DAYS: i64 = 7;
@@ -498,10 +499,7 @@ pub(crate) fn read_member_dashboard_summary(
 
     let key_ids = crate::list_api_key_ids_for_user(&user_id)?;
     let key_id_set = key_ids.iter().cloned().collect::<HashSet<_>>();
-    let api_keys = apikey_list::read_api_keys()?
-        .into_iter()
-        .filter(|key| key_id_set.contains(&key.id))
-        .collect::<Vec<_>>();
+    let api_keys = apikey_list::read_api_keys_by_ids(&key_ids)?;
     let api_key_summary = build_api_key_summary(&api_keys);
     let wallet = read_member_wallet(&user_id)?;
 
@@ -527,7 +525,7 @@ pub(crate) fn read_member_dashboard_summary(
 
     let usage_trend_7d = read_usage_trend_7d(&user_id, day_start, day_end)?;
     let (top_keys, top_models) =
-        read_member_usage_breakdown(&api_keys, &key_id_set, day_start, day_end)?;
+        read_member_usage_breakdown(&api_keys, &key_ids, &key_id_set, day_start, day_end)?;
     let available_models = read_available_models_with_price_summary()?;
     let recent_logs = requestlog_list::read_request_log_page_for_key_ids(
         RequestLogListParams {
@@ -703,24 +701,35 @@ fn read_usage_trend_7d(
 
 fn read_member_usage_breakdown(
     api_keys: &[ApiKeySummary],
+    key_ids: &[String],
     key_id_set: &HashSet<String>,
     day_start: i64,
     day_end: i64,
 ) -> Result<(Vec<MemberDashboardKeyUsage>, Vec<MemberDashboardModelUsage>), String> {
     let storage =
         storage_helpers::open_storage().ok_or_else(|| "open storage failed".to_string())?;
-    let today_usage = storage
-        .summarize_request_token_stats_by_key_and_model(Some(day_start), Some(day_end))
-        .map_err(|err| format!("summarize today key usage failed: {err}"))?;
-    let total_usage = storage
-        .summarize_request_token_stats_by_key()
-        .map_err(|err| format!("summarize key usage failed: {err}"))?;
-    let seven_day_usage = storage
-        .summarize_request_token_stats_by_key_and_model(
-            Some(day_start.saturating_sub((TREND_DAYS - 1) * (day_end - day_start).max(1))),
-            Some(day_end),
-        )
-        .map_err(|err| format!("summarize model usage failed: {err}"))?;
+    let today_usage = summarize_key_model_usage_in_batches(
+        &storage,
+        key_ids,
+        Some(day_start),
+        Some(day_end),
+        "summarize today key usage",
+    )?;
+    let mut total_usage = Vec::new();
+    for chunk in key_ids.chunks(MEMBER_USAGE_KEY_BATCH_SIZE) {
+        total_usage.extend(
+            storage
+                .summarize_request_token_stats_by_key_ids(chunk)
+                .map_err(|err| format!("summarize key usage failed: {err}"))?,
+        );
+    }
+    let seven_day_usage = summarize_key_model_usage_in_batches(
+        &storage,
+        key_ids,
+        Some(day_start.saturating_sub((TREND_DAYS - 1) * (day_end - day_start).max(1))),
+        Some(day_end),
+        "summarize model usage",
+    )?;
 
     let mut today_by_key: HashMap<String, (i64, f64)> = HashMap::new();
     for item in today_usage
@@ -798,6 +807,24 @@ fn read_member_usage_breakdown(
     top_models.truncate(MEMBER_TOP_MODEL_LIMIT);
 
     Ok((top_keys, top_models))
+}
+
+fn summarize_key_model_usage_in_batches(
+    storage: &codexmanager_core::storage::Storage,
+    key_ids: &[String],
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    action: &str,
+) -> Result<Vec<codexmanager_core::storage::ApiKeyModelTokenUsageSummary>, String> {
+    let mut items = Vec::new();
+    for chunk in key_ids.chunks(MEMBER_USAGE_KEY_BATCH_SIZE) {
+        items.extend(
+            storage
+                .summarize_request_token_stats_by_key_ids_and_model(chunk, start_ts, end_ts)
+                .map_err(|err| format!("{action} failed: {err}"))?,
+        );
+    }
+    Ok(items)
 }
 
 fn build_alerts(

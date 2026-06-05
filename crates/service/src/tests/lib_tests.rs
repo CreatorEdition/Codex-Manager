@@ -636,6 +636,40 @@ fn member_dashboard_filters_to_current_user_keys() {
     assert_eq!(resp.result["recentLogs"][0]["keyId"], key_one.id);
     assert_eq!(resp.result["topKeys"][0]["keyId"], key_one.id);
     assert_eq!(resp.result["topKeys"][0]["todayTokens"], 70);
+    assert_eq!(resp.result["topModels"][0]["model"], "gpt-5-mini");
+    assert_eq!(resp.result["topModels"][0]["totalTokens"], 70);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
+fn member_dashboard_counts_owned_keys_across_lookup_batches() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-member-dashboard-key-batches");
+    let user = create_test_member("member-key-batches", Some(2_000_000));
+
+    for index in 0..251 {
+        create_owned_test_api_key(
+            &user.id,
+            &format!("member batch key {index:03}"),
+            "gpt-5-mini",
+        );
+    }
+
+    let resp = response_result(handle_request_with_actor(
+        rpc_request(
+            "dashboard/memberSummary",
+            serde_json::json!({
+                "dayStartTs": 1_700_000_000,
+                "dayEndTs": 1_700_086_400
+            }),
+        ),
+        RpcActor::from_parts(Some(ROLE_MEMBER), Some(&user.id)),
+    ));
+
+    assert!(resp.result.get("error").is_none(), "{:?}", resp.result);
+    assert_eq!(resp.result["apiKeySummary"]["totalCount"], 251);
+    assert_eq!(resp.result["usageToday"]["totalTokens"], 0);
 
     let _ = std::fs::remove_file(db_path);
 }

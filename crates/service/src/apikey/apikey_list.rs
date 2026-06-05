@@ -6,26 +6,7 @@ use crate::RpcActor;
 const DEFAULT_API_KEY_PAGE_SIZE: i64 = 20;
 const MAX_API_KEY_PAGE_SIZE: i64 = 200;
 const MAX_API_KEY_LOOKUP_IDS: usize = 500;
-
-/// 函数 `read_api_keys`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - crate: 参数 crate
-///
-/// # 返回
-/// 返回函数执行结果
-pub(crate) fn read_api_keys() -> Result<Vec<ApiKeySummary>, String> {
-    // 读取平台 Key 列表
-    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
-    let keys = storage
-        .list_api_keys()
-        .map_err(|err| format!("list api keys failed: {err}"))?;
-    to_api_key_summaries(&storage, keys)
-}
+const API_KEY_LOOKUP_BATCH_SIZE: usize = 250;
 
 pub(crate) fn read_api_keys_for_actor(actor: &RpcActor) -> Result<Vec<ApiKeySummary>, String> {
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
@@ -49,6 +30,29 @@ pub(crate) fn lookup_api_keys_for_actor(
     let keys = storage
         .list_api_keys_by_ids(&ids, owner_user_id.as_deref())
         .map_err(|err| format!("lookup api keys failed: {err}"))?;
+    to_api_key_summaries(&storage, keys)
+}
+
+pub(crate) fn read_api_keys_by_ids(ids: &[String]) -> Result<Vec<ApiKeySummary>, String> {
+    let mut ids = ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let mut keys = Vec::new();
+    for chunk in ids.chunks(API_KEY_LOOKUP_BATCH_SIZE) {
+        keys.extend(
+            storage
+                .list_api_keys_by_ids(chunk, None)
+                .map_err(|err| format!("lookup api keys failed: {err}"))?,
+        );
+    }
     to_api_key_summaries(&storage, keys)
 }
 

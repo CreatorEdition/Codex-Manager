@@ -548,6 +548,114 @@ impl Storage {
         Ok(items)
     }
 
+    pub fn summarize_request_token_stats_by_key_ids_and_model(
+        &self,
+        key_ids: &[String],
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
+    ) -> Result<Vec<ApiKeyModelTokenUsageSummary>> {
+        if key_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = sqlite_placeholders(key_ids.len());
+        let include_rollups = start_ts.is_none() && end_ts.is_none();
+        let sql = if include_rollups {
+            format!(
+                "WITH all_stats AS (
+                    SELECT
+                        key_id,
+                        model,
+                        input_tokens,
+                        cached_input_tokens,
+                        output_tokens,
+                        reasoning_output_tokens,
+                        total_tokens,
+                        estimated_cost_usd
+                    FROM request_token_stats
+                    UNION ALL
+                    SELECT
+                        NULLIF(key_id, '') AS key_id,
+                        NULLIF(model, '') AS model,
+                        input_tokens,
+                        cached_input_tokens,
+                        output_tokens,
+                        reasoning_output_tokens,
+                        total_tokens,
+                        estimated_cost_usd
+                    FROM request_token_stat_rollups
+                 )
+                 SELECT
+                    key_id,
+                    COALESCE(NULLIF(TRIM(model), ''), 'unknown') AS normalized_model,
+                    IFNULL(SUM(input_tokens), 0) AS input_tokens,
+                    IFNULL(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+                    IFNULL(SUM(output_tokens), 0) AS output_tokens,
+                    IFNULL(SUM(reasoning_output_tokens), 0) AS reasoning_output_tokens,
+                    IFNULL(SUM({token_total}), 0) AS total_tokens,
+                    IFNULL(SUM(estimated_cost_usd), 0.0) AS estimated_cost_usd
+                 FROM all_stats
+                 WHERE key_id IN ({placeholders})
+                 GROUP BY key_id, normalized_model
+                 ORDER BY total_tokens DESC, key_id ASC, normalized_model ASC",
+                token_total = token_total_sql_expr(),
+            )
+        } else {
+            format!(
+                "SELECT
+                    key_id,
+                    COALESCE(NULLIF(TRIM(model), ''), 'unknown') AS normalized_model,
+                    IFNULL(SUM(input_tokens), 0) AS input_tokens,
+                    IFNULL(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+                    IFNULL(SUM(output_tokens), 0) AS output_tokens,
+                    IFNULL(SUM(reasoning_output_tokens), 0) AS reasoning_output_tokens,
+                    IFNULL(SUM({token_total}), 0) AS total_tokens,
+                    IFNULL(SUM(estimated_cost_usd), 0.0) AS estimated_cost_usd
+                 FROM request_token_stats
+                 WHERE key_id IN ({placeholders})
+                   AND (? IS NULL OR created_at >= ?)
+                   AND (? IS NULL OR created_at < ?)
+                 GROUP BY key_id, normalized_model
+                 ORDER BY total_tokens DESC, key_id ASC, normalized_model ASC",
+                token_total = token_total_sql_expr(),
+            )
+        };
+        let mut params = sqlite_text_params(key_ids);
+        if !include_rollups {
+            params.push(start_ts.map_or(
+                rusqlite::types::Value::Null,
+                rusqlite::types::Value::Integer,
+            ));
+            params.push(start_ts.map_or(
+                rusqlite::types::Value::Null,
+                rusqlite::types::Value::Integer,
+            ));
+            params.push(end_ts.map_or(
+                rusqlite::types::Value::Null,
+                rusqlite::types::Value::Integer,
+            ));
+            params.push(end_ts.map_or(
+                rusqlite::types::Value::Null,
+                rusqlite::types::Value::Integer,
+            ));
+        }
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params))?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(ApiKeyModelTokenUsageSummary {
+                key_id: row.get(0)?,
+                model: row.get(1)?,
+                input_tokens: row.get::<_, i64>(2)?.max(0),
+                cached_input_tokens: row.get::<_, i64>(3)?.max(0),
+                output_tokens: row.get::<_, i64>(4)?.max(0),
+                reasoning_output_tokens: row.get::<_, i64>(5)?.max(0),
+                total_tokens: row.get::<_, i64>(6)?.max(0),
+                estimated_cost_usd: row.get::<_, f64>(7)?.max(0.0),
+            });
+        }
+        Ok(items)
+    }
+
     pub fn summarize_request_token_stats_daily(
         &self,
         start_ts: i64,
