@@ -25,6 +25,11 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             })
         }
         "account/usage/list" => {
+            let limit = req
+                .params
+                .as_ref()
+                .and_then(|params| params.get("limit"))
+                .and_then(|value| value.as_i64());
             let account_ids = req
                 .params
                 .as_ref()
@@ -42,7 +47,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                         .collect::<Vec<_>>()
                 });
             super::value_or_error(
-                usage_list::read_usage_snapshots(account_ids)
+                usage_list::read_usage_snapshots(account_ids, limit)
                     .map(|items| UsageListResult { items }),
             )
         }

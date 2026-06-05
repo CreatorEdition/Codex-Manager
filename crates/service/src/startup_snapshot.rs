@@ -67,9 +67,9 @@ pub(crate) fn read_startup_snapshot(
                 .iter()
                 .map(|account| account.id.clone())
                 .collect::<Vec<_>>();
-            usage_list::read_usage_snapshots(Some(account_ids))?
+            usage_list::read_usage_snapshots(Some(account_ids), None)?
         }
-        None => usage_list::read_usage_snapshots(None)?,
+        None => usage_list::read_usage_snapshots(None, account_limit)?,
     };
     let usage_aggregate_summary = if options.include_usage_aggregate {
         usage_aggregate::read_usage_aggregate_summary()?

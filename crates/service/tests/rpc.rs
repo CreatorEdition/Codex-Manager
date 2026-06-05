@@ -2552,6 +2552,55 @@ fn rpc_usage_list_filters_requested_account_ids() {
 }
 
 #[test]
+fn rpc_usage_list_unscoped_respects_limit() {
+    let ctx = RpcTestContext::new("rpc-usage-list-unscoped-limit");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    for idx in 0..3 {
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: format!("acc-{idx}"),
+                used_percent: Some((idx * 10) as f64),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: None,
+                secondary_window_minutes: None,
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now + idx as i64,
+            })
+            .expect("insert usage snapshot");
+    }
+
+    let server = codexmanager_service::start_one_shot_server().expect("start server");
+    let req = JsonRpcRequest {
+        id: 709.into(),
+        method: "account/usage/list".to_string(),
+        params: Some(serde_json::json!({ "limit": 2 })),
+        trace: None,
+    };
+    let json = serde_json::to_string(&req).expect("serialize");
+    let v = post_rpc(&server.addr, &json);
+    let result = v.get("result").expect("result");
+    let ids = result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("items array")
+        .iter()
+        .map(|value| {
+            value
+                .get("accountId")
+                .and_then(|value| value.as_str())
+                .expect("account id")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids, vec!["acc-2".to_string(), "acc-1".to_string()]);
+}
+
+#[test]
 fn rpc_startup_snapshot_limits_prefetch_sections_and_returns_totals() {
     let ctx = RpcTestContext::new("rpc-startup-snapshot-limited");
     let storage = Storage::open(ctx.db_path()).expect("open db");

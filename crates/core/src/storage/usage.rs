@@ -230,6 +230,57 @@ impl Storage {
         Ok(out)
     }
 
+    /// 按最近捕获时间限量读取各账号最新用量，供兼容性无参接口使用。
+    pub fn latest_usage_snapshots_by_account_limited(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<UsageSnapshotRecord>> {
+        if limit <= 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut stmt = self.conn.prepare(
+            "WITH ranked AS (
+                SELECT
+                    id,
+                    account_id,
+                    used_percent,
+                    window_minutes,
+                    resets_at,
+                    secondary_used_percent,
+                    secondary_window_minutes,
+                    secondary_resets_at,
+                    credits_json,
+                    captured_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY account_id
+                        ORDER BY captured_at DESC, id DESC
+                    ) AS rn
+                FROM usage_snapshots
+            )
+            SELECT
+                account_id,
+                used_percent,
+                window_minutes,
+                resets_at,
+                secondary_used_percent,
+                secondary_window_minutes,
+                secondary_resets_at,
+                credits_json,
+                captured_at
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY captured_at DESC, id DESC
+            LIMIT ?1",
+        )?;
+        let mut rows = stmt.query([limit])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_usage_snapshot_row(row)?);
+        }
+        Ok(out)
+    }
+
     /// 函数 `latest_usage_snapshots_by_account_ids`
     ///
     /// 作者: gaohongshun
@@ -336,4 +387,65 @@ fn map_usage_snapshot_row(row: &Row<'_>) -> Result<UsageSnapshotRecord> {
         credits_json: row.get(7)?,
         captured_at: row.get(8)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::now_ts;
+
+    fn sample_snapshot(
+        account_id: &str,
+        captured_at: i64,
+        used_percent: f64,
+    ) -> UsageSnapshotRecord {
+        UsageSnapshotRecord {
+            account_id: account_id.to_string(),
+            used_percent: Some(used_percent),
+            window_minutes: Some(300),
+            resets_at: None,
+            secondary_used_percent: None,
+            secondary_window_minutes: None,
+            secondary_resets_at: None,
+            credits_json: None,
+            captured_at,
+        }
+    }
+
+    #[test]
+    fn latest_usage_snapshots_by_account_limited_returns_recent_unique_accounts() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-a", now, 10.0))
+            .expect("insert old acc-a usage");
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-a", now + 10, 20.0))
+            .expect("insert latest acc-a usage");
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-b", now + 20, 30.0))
+            .expect("insert acc-b usage");
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-c", now + 30, 40.0))
+            .expect("insert acc-c usage");
+
+        let records = storage
+            .latest_usage_snapshots_by_account_limited(2)
+            .expect("read limited usage snapshots");
+        let ids = records
+            .iter()
+            .map(|record| record.account_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["acc-c", "acc-b"]);
+        assert_eq!(
+            storage
+                .latest_usage_snapshots_by_account_limited(0)
+                .expect("zero limit")
+                .len(),
+            0
+        );
+    }
 }
