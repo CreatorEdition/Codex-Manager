@@ -1,6 +1,6 @@
 use codexmanager_core::storage::{Account, ConversationBinding, Token};
 
-use super::super::super::IncomingHeaderSnapshot;
+use super::super::super::{trace_log, IncomingHeaderSnapshot};
 use crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE;
 use crate::gateway::conversation_binding::{ConversationRoutingContext, RouteConversationSource};
 
@@ -69,14 +69,16 @@ pub(in super::super) fn prepare_request_setup(
     );
     let candidate_order = candidates
         .iter()
-        .map(|(account, _)| format!("{}#sort={}", account.id, account.sort))
+        .take(trace_log::CANDIDATE_POOL_TRACE_SAMPLE_LIMIT)
+        .map(|(account, _)| trace_log::candidate_pool_trace_sample(&account.id, account.sort))
         .collect::<Vec<_>>();
-    super::super::super::trace_log::log_candidate_pool(
+    trace_log::log_candidate_pool(
         trace_id,
         key_id,
         rotation_plan.strategy_label,
         rotation_plan.source.as_str(),
         rotation_plan.strategy_applied,
+        candidate_count,
         candidate_order.as_slice(),
     );
 

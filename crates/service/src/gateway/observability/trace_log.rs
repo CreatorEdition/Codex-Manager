@@ -17,6 +17,7 @@ const ENV_GEMINI_TRACE_DIAGNOSTICS: &str = "CODEXMANAGER_GEMINI_TRACE_DIAGNOSTIC
 const ENV_GATEWAY_TRACE_STDOUT: &str = "CODEXMANAGER_GATEWAY_TRACE_STDOUT";
 const ENV_GATEWAY_TRACE_STDOUT_SLOW_MS: &str = "CODEXMANAGER_GATEWAY_TRACE_STDOUT_SLOW_MS";
 const TRACE_PENDING_LINE_LIMIT: usize = 32;
+pub(crate) const CANDIDATE_POOL_TRACE_SAMPLE_LIMIT: usize = 12;
 
 static TRACE_WRITER: OnceLock<TraceAsyncWriter> = OnceLock::new();
 static TRACE_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -447,6 +448,22 @@ fn short_fingerprint(value: &str) -> String {
         hash = hash.wrapping_mul(1099511628211);
     }
     format!("{hash:016x}")
+}
+
+pub(crate) fn candidate_pool_trace_sample(account_id: &str, sort: i64) -> String {
+    format!("account_fp={}#sort={sort}", short_fingerprint(account_id))
+}
+
+fn format_candidate_pool_samples(samples: &[String]) -> String {
+    if samples.is_empty() {
+        return "-".to_string();
+    }
+
+    samples
+        .iter()
+        .map(|value| sanitize_text(value))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn gemini_trace_diagnostics_enabled() -> bool {
@@ -1059,26 +1076,24 @@ pub(crate) fn log_candidate_pool(
     strategy: &str,
     rotation_source: &str,
     strategy_applied: bool,
-    candidates: &[String],
+    candidate_count: usize,
+    sampled_candidates: &[String],
 ) {
-    let candidates = if candidates.is_empty() {
-        "-".to_string()
-    } else {
-        candidates
-            .iter()
-            .map(|value| sanitize_text(value))
-            .collect::<Vec<_>>()
-            .join(",")
-    };
+    let sampled_count = sampled_candidates.len();
+    let sampled_candidates = format_candidate_pool_samples(sampled_candidates);
+    let truncated_count = candidate_count.saturating_sub(sampled_count);
     let line = format!(
-        "ts={} event=CANDIDATE_POOL trace_id={} key_id={} strategy={} rotation_source={} strategy_applied={} candidates={}",
+        "ts={} event=CANDIDATE_POOL trace_id={} key_id={} strategy={} rotation_source={} strategy_applied={} candidate_count={} sample_limit={} truncated_count={} sampled_candidates={}",
         current_trace_ts(),
         sanitize_text(trace_id),
         sanitize_text(key_id),
         sanitize_text(strategy),
         sanitize_text(rotation_source),
         if strategy_applied { "true" } else { "false" },
-        candidates,
+        candidate_count,
+        CANDIDATE_POOL_TRACE_SAMPLE_LIMIT,
+        truncated_count,
+        sampled_candidates,
     );
     buffer_trace_line(trace_id, line);
 }
@@ -1424,9 +1439,9 @@ pub(crate) fn log_failed_request(params: FailedRequestLog<'_>) {
 #[cfg(test)]
 mod tests {
     use super::{
-        clear_trace_error, gateway_trace_stdout_enabled, has_error_text, log_failed_request,
-        mark_trace_has_error, sanitize_text, should_flush_success_trace, trace_has_error,
-        trace_queue_capacity,
+        candidate_pool_trace_sample, clear_trace_error, format_candidate_pool_samples,
+        gateway_trace_stdout_enabled, has_error_text, log_failed_request, mark_trace_has_error,
+        sanitize_text, should_flush_success_trace, trace_has_error, trace_queue_capacity,
     };
 
     /// 函数 `has_error_text_ignores_empty_and_dash`
@@ -1468,6 +1483,21 @@ mod tests {
         assert!(trace_has_error(trace_id));
         clear_trace_error(trace_id);
         assert!(!trace_has_error(trace_id));
+    }
+
+    #[test]
+    fn candidate_pool_sample_uses_fingerprint_without_account_id() {
+        let account_id = "acc_sensitive_full_id";
+        let sample = candidate_pool_trace_sample(account_id, 42);
+
+        assert!(sample.contains("account_fp="));
+        assert!(sample.contains("#sort=42"));
+        assert!(!sample.contains(account_id));
+    }
+
+    #[test]
+    fn candidate_pool_samples_use_dash_when_empty() {
+        assert_eq!(format_candidate_pool_samples(&[]), "-");
     }
 
     /// 函数 `request_record_ignores_success_without_error`
