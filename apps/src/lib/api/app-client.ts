@@ -7,6 +7,7 @@ import {
   AppRole,
   AppPermission,
   AppUser,
+  AppUserListResult,
   AppWallet,
   CodexLatestVersionInfo,
   ModelGroup,
@@ -155,9 +156,25 @@ function readAccountManagerStatus(value: unknown): AccountManagerStatus {
     passwordConfigured: asBoolean(source.passwordConfigured),
     appUsersConfigured: asBoolean(source.appUsersConfigured),
     appUserCount: asNumber(source.appUserCount),
+    memberUserCount: asNumber(source.memberUserCount),
     activeAdminCount: asNumber(source.activeAdminCount),
     distributionEnabled: asBoolean(source.distributionEnabled),
     billingModeLock: readBillingModeLock(source.billingModeLock),
+  };
+}
+
+function readAppUserListResult(value: unknown): AppUserListResult {
+  const source = asRecord(value);
+  const items = Array.isArray(source.items)
+    ? source.items.map(readAppUser)
+    : Array.isArray(value)
+      ? value.map(readAppUser)
+      : [];
+  return {
+    items,
+    total: asNumber(source.total, items.length),
+    page: asNumber(source.page, 1),
+    pageSize: asNumber(source.pageSize ?? source.page_size, items.length || 20),
   };
 }
 
@@ -245,6 +262,16 @@ export const appClient = {
       hasIds ? { ids } : {},
     );
     return Array.isArray(result) ? result.map(readAppUser) : [];
+  },
+  async listAppUserPage(params?: {
+    page?: number;
+    pageSize?: number;
+  }): Promise<AppUserListResult> {
+    const result = await invoke<unknown>("service_account_manager_users_list", {
+      page: Math.max(1, Number(params?.page) || 1),
+      pageSize: Math.min(200, Math.max(1, Number(params?.pageSize) || 20)),
+    });
+    return readAppUserListResult(result);
   },
   async createAppUser(payload: {
     username: string;

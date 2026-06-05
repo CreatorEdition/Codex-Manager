@@ -79,7 +79,12 @@ import { estimateChartYAxisWidth } from "@/lib/dashboard/format";
 import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { formatCompactNumber } from "@/lib/utils/usage";
-import type { AccountManagerStatus, AppUser, MemberDashboardSummary } from "@/types";
+import type {
+  AccountManagerStatus,
+  AppUser,
+  AppUserListResult,
+  MemberDashboardSummary,
+} from "@/types";
 
 const ACCOUNT_MANAGER_QUERY_KEYS = {
   status: ["account-manager", "status"] as const,
@@ -460,6 +465,9 @@ export default function AccountManagerPage() {
   const [editUserId, setEditUserId] = useState<string | null>(null);
   const [usageUserId, setUsageUserId] = useState<string | null>(null);
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
+  const [userPage, setUserPage] = useState(1);
+  const [userPageSize, setUserPageSize] = useState("20");
+  const userPageSizeNumber = Number(userPageSize) || 20;
   const [createDraft, setCreateDraft] = useState({
     username: "",
     displayName: "",
@@ -483,9 +491,13 @@ export default function AccountManagerPage() {
     queryFn: () => appClient.getAccountManagerStatus(),
     enabled: shouldQuery,
   });
-  const usersQuery = useQuery<AppUser[]>({
-    queryKey: ACCOUNT_MANAGER_QUERY_KEYS.users,
-    queryFn: () => appClient.listAppUsers(),
+  const usersQuery = useQuery<AppUserListResult>({
+    queryKey: [...ACCOUNT_MANAGER_QUERY_KEYS.users, userPage, userPageSizeNumber],
+    queryFn: () =>
+      appClient.listAppUserPage({
+        page: userPage,
+        pageSize: userPageSizeNumber,
+      }),
     enabled: shouldQuery,
   });
   const usageDetailQuery = useQuery<MemberDashboardSummary>({
@@ -503,16 +515,27 @@ export default function AccountManagerPage() {
       !isPageActive,
   );
 
-  const users = usersQuery.data ?? [];
+  const status = statusQuery.data;
+  const users = usersQuery.data?.items ?? [];
+  const totalUsers = usersQuery.data?.total ?? status?.appUserCount ?? users.length;
+  const currentUserPage = usersQuery.data?.page ?? userPage;
+  const currentUserPageSize = usersQuery.data?.pageSize ?? userPageSizeNumber;
+  const userTotalPages = Math.max(
+    1,
+    Math.ceil(totalUsers / Math.max(1, currentUserPageSize)),
+  );
+  const userRangeStart =
+    totalUsers <= 0
+      ? 0
+      : (Math.max(1, currentUserPage) - 1) * Math.max(1, currentUserPageSize) + 1;
+  const userRangeEnd =
+    totalUsers <= 0
+      ? 0
+      : Math.min(totalUsers, userRangeStart + Math.max(1, currentUserPageSize) - 1);
   const usersById = useMemo(
     () => new Map(users.map((user) => [user.id, user])),
     [users],
   );
-  const walletUsers = useMemo(
-    () => users.filter((user) => userCanOwnWallet(user)),
-    [users],
-  );
-  const status = statusQuery.data;
   const topUpUser = topUpUserId ? usersById.get(topUpUserId) ?? null : null;
   const editUser = editUserId ? usersById.get(editUserId) ?? null : null;
   const usageUser = usageUserId ? usersById.get(usageUserId) ?? null : null;
@@ -750,7 +773,7 @@ export default function AccountManagerPage() {
         />
         <StatCard
           title={t("可分发成员")}
-          value={String(walletUsers.length)}
+          value={String(status?.memberUserCount ?? 0)}
           detail={t("不包含管理员账号")}
           icon={UserPlus}
         />
@@ -875,6 +898,57 @@ export default function AccountManagerPage() {
               )}
             </TableBody>
           </Table>
+          <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+            <div>
+              {t("显示 {start}-{end} / {total}", {
+                start: userRangeStart,
+                end: userRangeEnd,
+                total: totalUsers,
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={userPageSize}
+                onValueChange={(value) => {
+                  setUserPageSize(String(value || "20"));
+                  setUserPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[92px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="10">10 / 页</SelectItem>
+                    <SelectItem value="20">20 / 页</SelectItem>
+                    <SelectItem value="50">50 / 页</SelectItem>
+                    <SelectItem value="100">100 / 页</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentUserPage <= 1 || usersQuery.isFetching}
+                onClick={() => setUserPage((page) => Math.max(1, page - 1))}
+              >
+                {t("上一页")}
+              </Button>
+              <span>
+                {currentUserPage} / {userTotalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentUserPage >= userTotalPages || usersQuery.isFetching}
+                onClick={() =>
+                  setUserPage((page) => Math.min(userTotalPages, page + 1))
+                }
+              >
+                {t("下一页")}
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

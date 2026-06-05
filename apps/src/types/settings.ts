@@ -100,6 +100,7 @@ export interface AccountManagerStatus {
   passwordConfigured: boolean;
   appUsersConfigured: boolean;
   appUserCount: number;
+  memberUserCount: number;
   activeAdminCount: number;
   distributionEnabled: boolean;
   billingModeLock: BillingModeLock;
@@ -127,6 +128,13 @@ export interface AppUser {
   updatedAt: number;
   lastLoginAt?: number | null;
   wallet?: AppWallet | null;
+}
+
+export interface AppUserListResult {
+  items: AppUser[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface ApiKeyOwner {

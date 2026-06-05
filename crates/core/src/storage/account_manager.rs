@@ -160,6 +160,18 @@ impl Storage {
         rows.collect()
     }
 
+    pub fn list_app_users_paginated(&self, offset: i64, limit: i64) -> Result<Vec<AppUser>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, username, display_name, password_hash, role, status,
+                    created_at, updated_at, last_login_at
+             FROM app_users
+             ORDER BY created_at ASC, username ASC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map((limit.max(1), offset.max(0)), map_app_user)?;
+        rows.collect()
+    }
+
     pub fn list_app_users_by_ids(&self, ids: &[String]) -> Result<Vec<AppUser>> {
         if ids.is_empty() {
             return Ok(Vec::new());

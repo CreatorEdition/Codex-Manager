@@ -4118,6 +4118,43 @@ fn rpc_account_manager_lists_support_lookup_filters() {
         .collect::<Vec<_>>();
     user_ids.sort();
     assert_eq!(user_ids, vec!["user-0".to_string(), "user-1".to_string()]);
+
+    let paged_server =
+        codexmanager_service::start_one_shot_server().expect("start user page server");
+    let paged_req = JsonRpcRequest {
+        id: 94.into(),
+        method: "accountManager/users/list".to_string(),
+        params: Some(serde_json::json!({
+            "page": 2,
+            "pageSize": 2
+        })),
+        trace: None,
+    };
+    let paged_json = serde_json::to_string(&paged_req).expect("serialize user page");
+    let paged_v = post_rpc(&paged_server.addr, &paged_json);
+    assert_eq!(paged_v["result"]["total"], 3);
+    assert_eq!(paged_v["result"]["page"], 2);
+    assert_eq!(paged_v["result"]["pageSize"], 2);
+    let page_user_ids = paged_v["result"]["items"]
+        .as_array()
+        .expect("paged user list")
+        .iter()
+        .map(|item| item["id"].as_str().expect("paged user id").to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(page_user_ids, vec!["user-2".to_string()]);
+
+    let status_server =
+        codexmanager_service::start_one_shot_server().expect("start account manager status server");
+    let status_req = JsonRpcRequest {
+        id: 95.into(),
+        method: "accountManager/status".to_string(),
+        params: None,
+        trace: None,
+    };
+    let status_json = serde_json::to_string(&status_req).expect("serialize status");
+    let status_v = post_rpc(&status_server.addr, &status_json);
+    assert_eq!(status_v["result"]["appUserCount"], 3);
+    assert_eq!(status_v["result"]["memberUserCount"], 3);
 }
 
 #[test]

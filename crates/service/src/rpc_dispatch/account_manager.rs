@@ -47,6 +47,25 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
         "accountManager/users/list" => {
             if let Some(ids) = string_array_param(req, "ids") {
                 super::value_or_error(crate::lookup_app_users(ids))
+            } else if req
+                .params
+                .as_ref()
+                .map(|params| params.get("page").is_some() || params.get("pageSize").is_some())
+                .unwrap_or(false)
+            {
+                let input = req
+                    .params
+                    .clone()
+                    .map(serde_json::from_value::<crate::AppUserListInput>)
+                    .transpose()
+                    .map(|input: Option<crate::AppUserListInput>| {
+                        input.unwrap_or(crate::AppUserListInput {
+                            page: 1,
+                            page_size: 20,
+                        })
+                    })
+                    .map_err(|err| format!("invalid app user list params: {err}"));
+                super::value_or_error(input.and_then(crate::list_app_users_paginated))
             } else {
                 super::value_or_error(crate::list_app_users())
             }

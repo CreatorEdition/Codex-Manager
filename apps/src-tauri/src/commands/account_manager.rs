@@ -42,8 +42,19 @@ pub async fn service_account_manager_password_change(
 pub async fn service_account_manager_users_list(
     addr: Option<String>,
     ids: Option<Vec<String>>,
+    page: Option<i64>,
+    page_size: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    let params = ids.map(|ids| serde_json::json!({ "ids": ids }));
+    let params = if let Some(ids) = ids {
+        Some(serde_json::json!({ "ids": ids }))
+    } else if page.is_some() || page_size.is_some() {
+        Some(serde_json::json!({
+            "page": page,
+            "pageSize": page_size,
+        }))
+    } else {
+        None
+    };
     rpc_call_in_background("accountManager/users/list", addr, params).await
 }
 

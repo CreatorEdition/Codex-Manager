@@ -21,6 +21,8 @@ pub const WEB_AUTH_MODE_ACCOUNTS: &str = "accounts";
 const SESSION_TTL_SECONDS: i64 = 60 * 60 * 24 * 14;
 const CREDIT_MICROS_PER_USD: f64 = 1_000_000.0;
 const MAX_ACCOUNT_MANAGER_LOOKUP_IDS: usize = 500;
+const DEFAULT_APP_USER_PAGE_SIZE: i64 = 20;
+const MAX_APP_USER_PAGE_SIZE: i64 = 200;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +36,24 @@ pub struct AppUserPublicResult {
     pub updated_at: i64,
     pub last_login_at: Option<i64>,
     pub wallet: Option<AppWalletResult>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUserListInput {
+    #[serde(default = "default_app_user_page")]
+    pub page: i64,
+    #[serde(default = "default_app_user_page_size")]
+    pub page_size: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUserListResult {
+    pub items: Vec<AppUserPublicResult>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -252,6 +272,9 @@ pub fn app_auth_status_value() -> Result<Value, String> {
     let user_count = storage
         .app_user_count()
         .map_err(|err| format!("read app users failed: {err}"))?;
+    let member_user_count = storage
+        .member_app_user_count()
+        .map_err(|err| format!("read app members failed: {err}"))?;
     let active_admin_count = storage
         .active_admin_count()
         .map_err(|err| format!("read app admins failed: {err}"))?;
@@ -266,6 +289,7 @@ pub fn app_auth_status_value() -> Result<Value, String> {
         "passwordConfigured": super::web_access::web_access_password_configured(),
         "appUsersConfigured": active_admin_count > 0,
         "appUserCount": user_count,
+        "memberUserCount": member_user_count,
         "activeAdminCount": active_admin_count,
         "distributionEnabled": distribution_enabled(),
         "billingModeLock": billing_mode_lock,
@@ -431,6 +455,39 @@ pub fn list_app_users() -> Result<Vec<AppUserPublicResult>, String> {
             Ok(public_user(user, wallet))
         })
         .collect()
+}
+
+pub fn list_app_users_paginated(input: AppUserListInput) -> Result<AppUserListResult, String> {
+    crate::initialize_storage_if_needed()?;
+    let storage = open_storage_or_error()?;
+    let total = storage
+        .app_user_count()
+        .map_err(|err| format!("count app users failed: {err}"))?;
+    let page_size = input.page_size.clamp(1, MAX_APP_USER_PAGE_SIZE);
+    let page = clamp_page(input.page, total, page_size);
+    let offset = page.saturating_sub(1).saturating_mul(page_size);
+    let users = storage
+        .list_app_users_paginated(offset, page_size)
+        .map_err(|err| format!("list app users failed: {err}"))?;
+    let items = users
+        .into_iter()
+        .map(|user| {
+            let wallet = if app_user_can_own_wallet(&user) {
+                storage
+                    .find_wallet_by_owner("user", &user.id)
+                    .map_err(|err| format!("read app wallet failed: {err}"))?
+            } else {
+                None
+            };
+            Ok(public_user(user, wallet))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(AppUserListResult {
+        items,
+        total,
+        page,
+        page_size,
+    })
 }
 
 pub fn lookup_app_users(ids: Vec<String>) -> Result<Vec<AppUserPublicResult>, String> {
@@ -1381,6 +1438,23 @@ fn wallet_result(wallet: AppWallet) -> AppWalletResult {
         created_at: wallet.created_at,
         updated_at: wallet.updated_at,
     }
+}
+
+fn default_app_user_page() -> i64 {
+    1
+}
+
+fn default_app_user_page_size() -> i64 {
+    DEFAULT_APP_USER_PAGE_SIZE
+}
+
+fn clamp_page(page: i64, total: i64, page_size: i64) -> i64 {
+    let total_pages = if total <= 0 {
+        1
+    } else {
+        ((total + page_size.max(1) - 1) / page_size.max(1)).max(1)
+    };
+    page.max(1).min(total_pages)
 }
 
 fn api_key_owner_result(owner: ApiKeyOwner) -> ApiKeyOwnerResult {
