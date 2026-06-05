@@ -352,6 +352,7 @@ export function createWebCommandMap(
     service_quota_api_key_usage: { rpcMethod: "quota/apiKeyUsage" },
     service_quota_source_list: { rpcMethod: "quota/sourceList" },
     service_quota_model_pools: { rpcMethod: "quota/modelPools" },
+    service_quota_model_pool_sources: { rpcMethod: "quota/modelPoolSources" },
     service_quota_system_pool: { rpcMethod: "quota/systemPool" },
     service_quota_capacity_config: { rpcMethod: "quota/capacityConfig" },
     service_quota_billing_rules: { rpcMethod: "quota/billingRules" },

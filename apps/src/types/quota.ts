@@ -190,6 +190,13 @@ export interface QuotaModelPoolsResult {
   accountOverrides: AccountQuotaCapacityOverride[];
 }
 
+export interface QuotaModelPoolSourcesResult {
+  items: QuotaPoolSourceBreakdown[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface QuotaSystemPoolResult {
   referenceModel: string;
   provider: string | null;

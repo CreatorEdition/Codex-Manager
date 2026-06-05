@@ -688,6 +688,15 @@ pub struct QuotaModelPoolsResult {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct QuotaModelPoolSourcesResult {
+    pub items: Vec<QuotaPoolSourceBreakdown>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuotaSystemPoolResult {
     pub reference_model: String,
     pub provider: Option<String>,

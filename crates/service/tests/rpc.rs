@@ -2829,6 +2829,164 @@ fn rpc_quota_model_pools_supports_lightweight_source_filters() {
 }
 
 #[test]
+fn rpc_quota_model_pool_sources_filters_and_pages_sources() {
+    let ctx = RpcTestContext::new("rpc-quota-model-pool-sources");
+    let mut storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    for idx in 0..3 {
+        storage
+            .insert_aggregate_api(&AggregateApi {
+                id: format!("source-aggregate-{idx}"),
+                provider_type: "codex".to_string(),
+                supplier_name: Some(format!("Source Aggregate {idx}")),
+                sort: idx as i64,
+                url: format!("https://source-aggregate-{idx}.example.invalid/v1"),
+                auth_type: "apikey".to_string(),
+                auth_params_json: None,
+                action: None,
+                model_override: None,
+                status: if idx == 2 { "disabled" } else { "active" }.to_string(),
+                created_at: now + idx as i64,
+                updated_at: now + idx as i64,
+                last_test_at: None,
+                last_test_status: None,
+                last_test_error: None,
+                balance_query_enabled: true,
+                balance_query_template: None,
+                balance_query_base_url: None,
+                balance_query_user_id: None,
+                balance_query_config_json: None,
+                last_balance_at: Some(now + idx as i64),
+                last_balance_status: Some("success".to_string()),
+                last_balance_error: None,
+                last_balance_json: Some(
+                    serde_json::json!({
+                        "remaining": 10.0 + idx as f64,
+                        "unit": "USD"
+                    })
+                    .to_string(),
+                ),
+            })
+            .expect("insert aggregate api source");
+        storage
+            .set_quota_source_model_assignments(
+                "aggregate_api",
+                format!("source-aggregate-{idx}").as_str(),
+                &[format!("gpt-source-{idx}")],
+            )
+            .expect("set aggregate source models");
+    }
+
+    let empty_server =
+        codexmanager_service::start_one_shot_server().expect("start empty source server");
+    let empty_req = JsonRpcRequest {
+        id: 820.into(),
+        method: "quota/modelPoolSources".to_string(),
+        params: Some(serde_json::json!({
+            "sourceKind": "aggregate_api",
+            "sourceIds": []
+        })),
+        trace: None,
+    };
+    let empty_json = serde_json::to_string(&empty_req).expect("serialize empty source request");
+    let empty_v = post_rpc(&empty_server.addr, &empty_json);
+    let empty_result = empty_v.get("result").expect("empty source result");
+    assert_eq!(
+        empty_result.get("total").and_then(|value| value.as_i64()),
+        Some(0)
+    );
+    assert!(
+        empty_result
+            .get("items")
+            .and_then(|value| value.as_array())
+            .is_some_and(|items| items.is_empty()),
+        "empty sourceIds should not fall back to full source list"
+    );
+
+    let filtered_server =
+        codexmanager_service::start_one_shot_server().expect("start filtered source server");
+    let filtered_req = JsonRpcRequest {
+        id: 821.into(),
+        method: "quota/modelPoolSources".to_string(),
+        params: Some(serde_json::json!({
+            "sourceKind": "aggregate_api",
+            "sourceIds": ["source-aggregate-1", "source-aggregate-0", "source-aggregate-1", ""],
+            "pageSize": 5000
+        })),
+        trace: None,
+    };
+    let filtered_json =
+        serde_json::to_string(&filtered_req).expect("serialize filtered source request");
+    let filtered_v = post_rpc(&filtered_server.addr, &filtered_json);
+    let filtered_result = filtered_v.get("result").expect("filtered source result");
+    let filtered_items = filtered_result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("filtered source items");
+    let filtered_ids = filtered_items
+        .iter()
+        .map(|item| {
+            item.get("sourceId")
+                .and_then(|value| value.as_str())
+                .expect("source id")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        filtered_ids,
+        vec![
+            "source-aggregate-0".to_string(),
+            "source-aggregate-1".to_string()
+        ]
+    );
+    assert_eq!(
+        filtered_result
+            .get("pageSize")
+            .and_then(|value| value.as_i64()),
+        Some(500),
+        "pageSize should be capped to protect the RPC payload"
+    );
+    assert!(filtered_items.iter().all(|item| {
+        item.get("models")
+            .and_then(|value| value.as_array())
+            .is_some_and(|models| !models.is_empty())
+    }));
+
+    let paged_server =
+        codexmanager_service::start_one_shot_server().expect("start paged source server");
+    let paged_req = JsonRpcRequest {
+        id: 822.into(),
+        method: "quota/modelPoolSources".to_string(),
+        params: Some(serde_json::json!({
+            "sourceKind": "aggregate_api",
+            "page": 2,
+            "pageSize": 1
+        })),
+        trace: None,
+    };
+    let paged_json = serde_json::to_string(&paged_req).expect("serialize paged source request");
+    let paged_v = post_rpc(&paged_server.addr, &paged_json);
+    let paged_result = paged_v.get("result").expect("paged source result");
+    assert_eq!(
+        paged_result.get("total").and_then(|value| value.as_i64()),
+        Some(2),
+        "disabled sources should not be counted in active source pagination"
+    );
+    let paged_items = paged_result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("paged source items");
+    assert_eq!(paged_items.len(), 1);
+    assert_eq!(
+        paged_items[0]
+            .get("sourceId")
+            .and_then(|value| value.as_str()),
+        Some("source-aggregate-1")
+    );
+}
+
+#[test]
 fn rpc_apikey_usage_stats_filters_requested_key_ids() {
     let ctx = RpcTestContext::new("rpc-apikey-usage-stats-filtered");
     let storage = Storage::open(ctx.db_path()).expect("open db");

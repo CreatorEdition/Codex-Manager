@@ -220,15 +220,25 @@ export default function AggregateApiPage() {
     retry: 1,
   });
 
-  const { data: quotaModelPools } = useQuery({
-    queryKey: ["quota", "model-pools", "aggregate-api-sources"],
+  const aggregateQuotaSourceIds = useMemo(
+    () =>
+      aggregateApis
+        .filter(
+          (api) => providerFilter === "all" || api.providerType === providerFilter,
+        )
+        .map((api) => api.id),
+    [aggregateApis, providerFilter],
+  );
+
+  const { data: quotaModelPoolSources } = useQuery({
+    queryKey: ["quota", "model-pool-sources", "aggregate-api", aggregateQuotaSourceIds],
     queryFn: () =>
-      quotaClient.modelPools({
-        includeConfig: false,
-        includeSources: true,
+      quotaClient.modelPoolSources({
         sourceKind: "aggregate_api",
+        sourceIds: aggregateQuotaSourceIds,
+        pageSize: Math.max(aggregateQuotaSourceIds.length, 1),
       }),
-    enabled: isQueryEnabled,
+    enabled: isQueryEnabled && aggregateQuotaSourceIds.length > 0,
     retry: 1,
   });
 
@@ -350,22 +360,20 @@ export default function AggregateApiPage() {
       string,
       { model: string | null; tokens: number | null; models: Set<string> }
     >();
-    for (const item of quotaModelPools?.items ?? []) {
-      for (const source of item.sources) {
-        if (source.sourceKind !== "aggregate_api") continue;
-        const current =
-          map.get(source.sourceId) ||
-          { model: null, tokens: null, models: new Set<string>() };
-        current.models.add(item.model);
-        if (current.tokens == null && source.remainingTokens != null) {
-          current.tokens = source.remainingTokens;
-          current.model = item.model;
-        }
-        map.set(source.sourceId, current);
+    for (const source of quotaModelPoolSources?.items ?? []) {
+      if (source.sourceKind !== "aggregate_api") continue;
+      const current =
+        map.get(source.sourceId) ||
+        { model: null, tokens: null, models: new Set<string>() };
+      source.models.forEach((model) => current.models.add(model));
+      if (current.tokens == null && source.remainingTokens != null) {
+        current.tokens = source.remainingTokens;
+        current.model = source.models[0] || null;
       }
+      map.set(source.sourceId, current);
     }
     return map;
-  }, [quotaModelPools]);
+  }, [quotaModelPoolSources]);
 
   /**
    * 函数 `renderTestStatus`

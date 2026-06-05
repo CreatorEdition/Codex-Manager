@@ -5,11 +5,12 @@ use codexmanager_core::rpc::types::{
     AccountQuotaCapacityOverrideResult, AccountQuotaCapacityTemplateResult, BillingRuleResult,
     QuotaAggregateApiOverviewResult, QuotaApiKeyModelUsageItem, QuotaApiKeyOverviewResult,
     QuotaApiKeyUsageItem, QuotaApiKeyUsageResult, QuotaBillingRulesResult,
-    QuotaCapacityConfigResult, QuotaModelPoolItem, QuotaModelPoolsResult, QuotaModelUsageItem,
-    QuotaModelUsageResult, QuotaOpenAiAccountOverviewResult, QuotaOverviewResult,
-    QuotaPoolSourceBreakdown, QuotaRefreshSourceResult, QuotaRefreshSourcesResult,
-    QuotaSourceListResult, QuotaSourceModelAssignmentResult, QuotaSourceSummary,
-    QuotaSystemPoolResult, QuotaTodayUsageResult,
+    QuotaCapacityConfigResult, QuotaModelPoolItem, QuotaModelPoolSourcesResult,
+    QuotaModelPoolsResult, QuotaModelUsageItem, QuotaModelUsageResult,
+    QuotaOpenAiAccountOverviewResult, QuotaOverviewResult, QuotaPoolSourceBreakdown,
+    QuotaRefreshSourceResult, QuotaRefreshSourcesResult, QuotaSourceListResult,
+    QuotaSourceModelAssignmentResult, QuotaSourceSummary, QuotaSystemPoolResult,
+    QuotaTodayUsageResult,
 };
 use codexmanager_core::storage::{
     Account, AccountQuotaCapacityOverride, AccountQuotaCapacityTemplate, AccountSubscription,
@@ -52,6 +53,9 @@ pub(crate) struct QuotaModelPoolsInput {
     pub(crate) source_kind: Option<String>,
 }
 
+const DEFAULT_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 100;
+const MAX_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 500;
+
 impl Default for QuotaModelPoolsInput {
     fn default() -> Self {
         Self {
@@ -59,6 +63,38 @@ impl Default for QuotaModelPoolsInput {
             include_config: true,
             source_kind: None,
         }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct QuotaModelPoolSourcesInput {
+    pub(crate) source_kind: Option<String>,
+    pub(crate) source_ids: Option<Vec<String>>,
+    pub(crate) page: Option<i64>,
+    pub(crate) page_size: Option<i64>,
+}
+
+impl QuotaModelPoolSourcesInput {
+    fn normalized(self) -> Result<Self, String> {
+        let source_kind = self
+            .source_kind
+            .and_then(|value| normalize_optional_text(Some(value)))
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_else(|| "aggregate_api".to_string());
+        if !matches!(source_kind.as_str(), "aggregate_api" | "openai_account") {
+            return Err("模型池来源类型只能是 aggregate_api 或 openai_account".to_string());
+        }
+        let source_ids = self.source_ids.map(normalize_id_list);
+        Ok(Self {
+            source_kind: Some(source_kind),
+            source_ids,
+            page: self.page,
+            page_size: self.page_size,
+        })
+    }
+
+    fn source_kind_value(&self) -> &str {
+        self.source_kind.as_deref().unwrap_or("aggregate_api")
     }
 }
 
@@ -211,6 +247,37 @@ fn normalize_optional_text(value: Option<String>) -> Option<String> {
     value
         .map(|item| item.trim().to_string())
         .filter(|item| !item.is_empty())
+}
+
+fn normalize_id_list(values: Vec<String>) -> Vec<String> {
+    values
+        .into_iter()
+        .filter_map(|value| {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn normalized_page(value: Option<i64>) -> i64 {
+    value.unwrap_or(1).max(1)
+}
+
+fn normalized_model_pool_source_page_size(value: Option<i64>) -> i64 {
+    value
+        .unwrap_or(DEFAULT_MODEL_POOL_SOURCE_PAGE_SIZE)
+        .clamp(1, MAX_MODEL_POOL_SOURCE_PAGE_SIZE)
+}
+
+fn paginate_owned<T>(items: Vec<T>, page: i64, page_size: i64) -> Vec<T> {
+    let offset = page.saturating_sub(1).saturating_mul(page_size).max(0) as usize;
+    items
+        .into_iter()
+        .skip(offset)
+        .take(page_size.max(1) as usize)
+        .collect()
 }
 
 fn normalize_billing_status(value: Option<String>) -> Result<String, String> {
@@ -735,6 +802,305 @@ pub(crate) fn read_quota_model_pools(
         templates,
         account_overrides,
     })
+}
+
+pub(crate) fn read_quota_model_pool_sources(
+    input: QuotaModelPoolSourcesInput,
+) -> Result<QuotaModelPoolSourcesResult, String> {
+    let input = input.normalized()?;
+    let page = normalized_page(input.page);
+    let page_size = normalized_model_pool_source_page_size(input.page_size);
+    if matches!(input.source_ids.as_ref(), Some(ids) if ids.is_empty()) {
+        return Ok(QuotaModelPoolSourcesResult {
+            items: Vec::new(),
+            total: 0,
+            page,
+            page_size,
+        });
+    }
+
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let price_rules = model_pricing::load_enabled_price_rules(&storage)?;
+    let api_models = api_available_model_slugs(&storage, &price_rules)?;
+    match input.source_kind_value() {
+        "aggregate_api" => read_aggregate_model_pool_sources(
+            &storage,
+            &price_rules,
+            &api_models,
+            input.source_ids,
+            page,
+            page_size,
+        ),
+        "openai_account" => read_account_model_pool_sources(
+            &storage,
+            &api_models,
+            input.source_ids,
+            page,
+            page_size,
+        ),
+        _ => Err("模型池来源类型只能是 aggregate_api 或 openai_account".to_string()),
+    }
+}
+
+fn read_aggregate_model_pool_sources(
+    storage: &codexmanager_core::storage::Storage,
+    price_rules: &[ModelPriceRule],
+    api_models: &[String],
+    source_ids: Option<Vec<String>>,
+    page: i64,
+    page_size: i64,
+) -> Result<QuotaModelPoolSourcesResult, String> {
+    let requested_count = source_ids.as_ref().map(|ids| ids.len() as i64);
+    let aggregate_apis = if let Some(ids) = source_ids.as_ref() {
+        let paged_ids = paginate_owned(ids.clone(), page, page_size);
+        storage
+            .list_aggregate_apis_by_ids(&paged_ids)
+            .map_err(|err| format!("list aggregate APIs failed: {err}"))?
+    } else {
+        let offset = page.saturating_sub(1).saturating_mul(page_size).max(0);
+        storage
+            .list_aggregate_apis_active_paginated(offset, page_size)
+            .map_err(|err| format!("list aggregate APIs failed: {err}"))?
+    };
+    let aggregate_apis = aggregate_apis
+        .into_iter()
+        .filter(|api| api.status != "disabled")
+        .collect::<Vec<_>>();
+    let total = if let Some(count) = requested_count {
+        count
+    } else {
+        storage
+            .aggregate_api_active_count()
+            .map_err(|err| format!("count aggregate APIs failed: {err}"))?
+    };
+    let api_ids = aggregate_apis
+        .iter()
+        .map(|api| api.id.clone())
+        .collect::<Vec<_>>();
+    let assignments = assignment_map(
+        storage
+            .list_quota_source_model_assignments_for_source_ids("aggregate_api", &api_ids)
+            .map_err(|err| format!("list quota source assignments failed: {err}"))?,
+    );
+    let items = aggregate_apis
+        .into_iter()
+        .map(|api| aggregate_model_pool_source(api, price_rules, api_models, &assignments))
+        .collect();
+    Ok(QuotaModelPoolSourcesResult {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
+
+fn read_account_model_pool_sources(
+    storage: &codexmanager_core::storage::Storage,
+    api_models: &[String],
+    source_ids: Option<Vec<String>>,
+    page: i64,
+    page_size: i64,
+) -> Result<QuotaModelPoolSourcesResult, String> {
+    let requested_count = source_ids.as_ref().map(|ids| ids.len() as i64);
+    let accounts = if let Some(ids) = source_ids.as_ref() {
+        let paged_ids = paginate_owned(ids.clone(), page, page_size);
+        storage
+            .list_accounts_by_ids(&paged_ids)
+            .map_err(|err| format!("list accounts failed: {err}"))?
+    } else {
+        let offset = page.saturating_sub(1).saturating_mul(page_size).max(0);
+        storage
+            .list_accounts_active_available(None, None, Some((offset, page_size)))
+            .map_err(|err| format!("list accounts failed: {err}"))?
+    };
+    let accounts = accounts
+        .into_iter()
+        .filter(account_is_available)
+        .collect::<Vec<_>>();
+    let total = if let Some(count) = requested_count {
+        count
+    } else {
+        storage
+            .account_count_active_available(None, None)
+            .map_err(|err| format!("count accounts failed: {err}"))?
+    };
+    let account_ids = accounts
+        .iter()
+        .map(|account| account.id.clone())
+        .collect::<Vec<_>>();
+    let assignments = assignment_map(
+        storage
+            .list_quota_source_model_assignments_for_source_ids("openai_account", &account_ids)
+            .map_err(|err| format!("list quota source assignments failed: {err}"))?,
+    );
+    let usage_map = storage
+        .latest_usage_snapshots_by_account_ids(&account_ids)
+        .map_err(|err| format!("list usage snapshots failed: {err}"))?
+        .into_iter()
+        .map(|item| (item.account_id.clone(), item))
+        .collect::<HashMap<String, UsageSnapshotRecord>>();
+    let token_map = storage
+        .list_tokens_by_account_ids(&account_ids)
+        .map_err(|err| format!("list account tokens failed: {err}"))?
+        .into_iter()
+        .map(|item| (item.account_id.clone(), item))
+        .collect::<HashMap<String, Token>>();
+    let subscription_map = storage
+        .list_account_subscriptions_by_account_ids(&account_ids)
+        .map_err(|err| format!("list account subscriptions failed: {err}"))?
+        .into_iter()
+        .map(|item| (item.account_id.clone(), item))
+        .collect::<HashMap<String, AccountSubscription>>();
+    let template_map = storage
+        .list_account_quota_capacity_templates()
+        .map_err(|err| format!("list account quota capacity templates failed: {err}"))?
+        .into_iter()
+        .map(|item| (item.plan_type.to_ascii_lowercase(), item))
+        .collect::<HashMap<String, AccountQuotaCapacityTemplate>>();
+    let override_map = storage
+        .list_account_quota_capacity_overrides_by_account_ids(&account_ids)
+        .map_err(|err| format!("list account quota capacity overrides failed: {err}"))?
+        .into_iter()
+        .map(|item| (item.account_id.clone(), item))
+        .collect::<HashMap<String, AccountQuotaCapacityOverride>>();
+    let items = accounts
+        .into_iter()
+        .map(|account| {
+            account_model_pool_source(
+                account,
+                api_models,
+                &assignments,
+                &usage_map,
+                &token_map,
+                &subscription_map,
+                &template_map,
+                &override_map,
+            )
+        })
+        .collect();
+    Ok(QuotaModelPoolSourcesResult {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
+
+fn aggregate_model_pool_source(
+    api: AggregateApi,
+    price_rules: &[ModelPriceRule],
+    api_models: &[String],
+    assignments: &HashMap<(String, String), Vec<String>>,
+) -> QuotaPoolSourceBreakdown {
+    let balance = parse_balance_snapshot(&api);
+    let models = source_models("aggregate_api", &api.id, assignments, api_models);
+    let balance_unit = balance
+        .unit
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("USD")
+        .to_string();
+    let status = match api.last_balance_status.as_deref() {
+        Some("success") => "ok",
+        Some("error" | "failed") => "error",
+        _ if api.balance_query_enabled => "unknown",
+        _ => "warning",
+    };
+    let remaining_tokens = if is_usd_unit(balance_unit.as_str()) {
+        balance.remaining.and_then(|remaining| {
+            models.iter().find_map(|model| {
+                model_pricing::estimate_remaining_tokens_from_usd_with_rules(
+                    price_rules,
+                    model,
+                    remaining,
+                )
+            })
+        })
+    } else {
+        None
+    };
+    let price_status = match (balance.remaining, is_usd_unit(balance_unit.as_str())) {
+        (None, _) => "missing_balance",
+        (Some(_), false) => "unsupported_unit",
+        (Some(_), true) if remaining_tokens.is_none() => "missing",
+        _ => "ok",
+    };
+    QuotaPoolSourceBreakdown {
+        source_kind: "aggregate_api".to_string(),
+        source_id: api.id.clone(),
+        name: api_display_name(&api),
+        status: status.to_string(),
+        remaining_tokens,
+        raw_remaining: balance.remaining,
+        raw_unit: Some(balance_unit),
+        models,
+        captured_at: api.last_balance_at,
+        price_status: price_status.to_string(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn account_model_pool_source(
+    account: Account,
+    api_models: &[String],
+    assignments: &HashMap<(String, String), Vec<String>>,
+    usage_map: &HashMap<String, UsageSnapshotRecord>,
+    token_map: &HashMap<String, Token>,
+    subscription_map: &HashMap<String, AccountSubscription>,
+    template_map: &HashMap<String, AccountQuotaCapacityTemplate>,
+    override_map: &HashMap<String, AccountQuotaCapacityOverride>,
+) -> QuotaPoolSourceBreakdown {
+    let account_id = account.id.clone();
+    let usage = usage_map.get(account_id.as_str());
+    let plan_type = resolve_account_plan_type(&account_id, token_map, usage_map, subscription_map);
+    let capacity = resolve_account_capacity(
+        &account_id,
+        plan_type.as_deref(),
+        template_map,
+        override_map,
+    );
+    let primary_remaining = capacity.as_ref().and_then(|capacity| {
+        estimate_window_remaining_tokens(
+            capacity.primary_window_tokens,
+            usage.and_then(|item| item.used_percent),
+        )
+    });
+    let secondary_remaining = capacity.as_ref().and_then(|capacity| {
+        estimate_window_remaining_tokens(
+            capacity.secondary_window_tokens,
+            usage.and_then(|item| item.secondary_used_percent),
+        )
+    });
+    let estimated_remaining = [primary_remaining, secondary_remaining]
+        .into_iter()
+        .flatten()
+        .max();
+    let price_status = if capacity.is_none() {
+        "unconfigured"
+    } else if usage.is_none() {
+        "unknown_usage"
+    } else if estimated_remaining.is_none() {
+        "missing_window"
+    } else {
+        "ok"
+    };
+    QuotaPoolSourceBreakdown {
+        source_kind: "openai_account".to_string(),
+        source_id: account.id.clone(),
+        name: account.label,
+        status: if price_status == "ok" {
+            "ok".to_string()
+        } else {
+            price_status.to_string()
+        },
+        remaining_tokens: estimated_remaining,
+        raw_remaining: usage.and_then(|item| remaining_percent(item.used_percent)),
+        raw_unit: Some("percent".to_string()),
+        models: source_models("openai_account", &account.id, assignments, api_models),
+        captured_at: usage.map(|item| item.captured_at),
+        price_status: price_status.to_string(),
+    }
 }
 
 pub(crate) fn read_quota_system_pool(

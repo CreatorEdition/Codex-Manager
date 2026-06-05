@@ -51,6 +51,7 @@ macro_rules! invoke_handler {
             crate::commands::quota::service_quota_api_key_usage,
             crate::commands::quota::service_quota_source_list,
             crate::commands::quota::service_quota_model_pools,
+            crate::commands::quota::service_quota_model_pool_sources,
             crate::commands::quota::service_quota_system_pool,
             crate::commands::quota::service_quota_capacity_config,
             crate::commands::quota::service_quota_billing_rules,

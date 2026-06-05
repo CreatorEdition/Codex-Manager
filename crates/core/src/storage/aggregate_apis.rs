@@ -153,6 +153,36 @@ impl Storage {
         Ok(out)
     }
 
+    /// 统计启用中的聚合 API，用于按需来源分页。
+    pub fn aggregate_api_active_count(&self) -> Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(1) FROM aggregate_apis WHERE status != 'disabled'",
+            [],
+            |row| row.get(0),
+        )
+    }
+
+    /// 分页读取启用中的聚合 API，用于来源明细按页装饰。
+    pub fn list_aggregate_apis_active_paginated(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<AggregateApi>> {
+        let sql = format!(
+            "{AGGREGATE_API_SELECT_SQL}
+             WHERE status != 'disabled'
+             ORDER BY sort ASC, updated_at DESC, id ASC
+             LIMIT ?1 OFFSET ?2"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query((limit.max(1), offset.max(0)))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_aggregate_api_row(row)?);
+        }
+        Ok(out)
+    }
+
     /// 函数 `find_aggregate_api_by_id`
     ///
     /// 作者: gaohongshun
