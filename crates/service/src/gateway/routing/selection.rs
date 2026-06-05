@@ -19,6 +19,7 @@ static QUOTA_GUARD_ALLOW_ALL_LOW_FALLBACK: AtomicBool =
     AtomicBool::new(DEFAULT_QUOTA_GUARD_ALLOW_ALL_LOW_FALLBACK);
 static CURRENT_DB_PATH: OnceLock<RwLock<String>> = OnceLock::new();
 const DEFAULT_CANDIDATE_CACHE_TTL_MS: u64 = 500;
+const USAGE_SNAPSHOT_CANDIDATE_BATCH_SIZE: usize = 500;
 const CANDIDATE_CACHE_TTL_ENV: &str = "CODEXMANAGER_CANDIDATE_CACHE_TTL_MS";
 // OpenAI 在 used_percent 未到 100 时就会触发 usage limit（常见于 ChatGPT Plus OAuth
 // 账号的 5 小时窗口）。将快要耗尽的账号移出正常候选，必要时按兜底开关使用低额度账号。
@@ -166,7 +167,7 @@ fn apply_quota_guard(
     if !config.enabled || !config.has_threshold() {
         return;
     }
-    let snapshots = load_usage_snapshots(storage);
+    let snapshots = load_usage_snapshots_for_candidates(storage, candidates);
     if snapshots.is_empty() {
         return;
     }
@@ -189,13 +190,34 @@ fn apply_quota_guard(
     }
 }
 
-fn load_usage_snapshots(storage: &Storage) -> HashMap<String, UsageSnapshotRecord> {
-    storage
-        .latest_usage_snapshots_by_account()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|snap| (snap.account_id.clone(), snap))
-        .collect()
+fn load_usage_snapshots_for_candidates(
+    storage: &Storage,
+    candidates: &[(Account, Token)],
+) -> HashMap<String, UsageSnapshotRecord> {
+    let mut out = HashMap::with_capacity(candidates.len());
+    if candidates.is_empty() {
+        return out;
+    }
+
+    let account_ids = candidates
+        .iter()
+        .map(|(account, _)| account.id.clone())
+        .collect::<Vec<_>>();
+    for chunk in account_ids.chunks(USAGE_SNAPSHOT_CANDIDATE_BATCH_SIZE) {
+        match storage.latest_usage_snapshots_by_account_ids(chunk) {
+            Ok(snapshots) => {
+                for snap in snapshots {
+                    out.insert(snap.account_id.clone(), snap);
+                }
+            }
+            Err(err) => {
+                log::warn!("gateway quota guard usage snapshot lookup failed: {err}");
+                out.clear();
+                return out;
+            }
+        }
+    }
+    out
 }
 
 fn is_low_quota_account(

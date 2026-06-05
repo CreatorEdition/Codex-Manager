@@ -1,7 +1,8 @@
 use super::{
     clear_candidate_cache_for_tests, collect_gateway_candidates,
-    collect_gateway_candidates_with_low_quota_mode, LowQuotaCandidateMode, CANDIDATE_CACHE_TTL_ENV,
-    LOW_QUOTA_THRESHOLD_ENV, QUOTA_GUARD_ALLOW_ALL_LOW_FALLBACK_ENV,
+    collect_gateway_candidates_with_low_quota_mode, load_usage_snapshots_for_candidates,
+    LowQuotaCandidateMode, CANDIDATE_CACHE_TTL_ENV, LOW_QUOTA_THRESHOLD_ENV,
+    QUOTA_GUARD_ALLOW_ALL_LOW_FALLBACK_ENV,
 };
 use crate::account_status::mark_account_unavailable_for_gateway_error;
 use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
@@ -179,6 +180,70 @@ fn candidates_follow_account_sort_order() {
         std::env::remove_var("CODEXMANAGER_DB_PATH");
     }
     super::reload_from_env();
+}
+
+/// 配额保护只应读取当前候选账号的用量快照，避免网关请求在缓存失效时扫描无关账号快照。
+#[test]
+fn quota_guard_usage_lookup_scopes_to_candidate_accounts() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let now = now_ts();
+
+    for (account_id, used_percent) in [
+        ("candidate-a", 10.0),
+        ("candidate-b", 20.0),
+        ("unrelated-low-quota", 99.0),
+    ] {
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: account_id.to_string(),
+                used_percent: Some(used_percent),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: None,
+                secondary_window_minutes: None,
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now,
+            })
+            .expect("insert snapshot");
+    }
+
+    let candidates = ["candidate-a", "candidate-b"]
+        .into_iter()
+        .enumerate()
+        .map(|(sort, id)| {
+            (
+                Account {
+                    id: id.to_string(),
+                    label: id.to_string(),
+                    issuer: "issuer".to_string(),
+                    chatgpt_account_id: None,
+                    workspace_id: None,
+                    group_name: None,
+                    sort: sort as i64,
+                    status: "active".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                },
+                Token {
+                    account_id: id.to_string(),
+                    id_token: "id".to_string(),
+                    access_token: "access".to_string(),
+                    refresh_token: "refresh".to_string(),
+                    api_key_access_token: None,
+                    last_refresh: now,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let snapshots = load_usage_snapshots_for_candidates(&storage, &candidates);
+
+    assert_eq!(snapshots.len(), 2);
+    assert!(snapshots.contains_key("candidate-a"));
+    assert!(snapshots.contains_key("candidate-b"));
+    assert!(!snapshots.contains_key("unrelated-low-quota"));
 }
 
 /// 函数 `gateway_error_status_change_invalidates_candidate_snapshot_cache`

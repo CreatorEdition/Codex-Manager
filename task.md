@@ -49,6 +49,8 @@
 - 用量轮询候选按批次读取：后台 `refresh_usage_for_polling_batch` 不再每轮全量加载账号、Token 和全部账号状态事件，改由 storage 层按游标分页读取本轮候选。
 - Token refresh 后台任务限载：到期 Token 查询不再对全部账号状态事件做窗口排序，刷新前只按本轮 due token 批量读取账号元数据。
 - 用量列表裸调用限载：`account/usage/list` 无 `accountIds` 时默认只返回最近 100 条最新账号用量，并支持 `limit` 上限 500，避免旧调用搬运全量 usage snapshots。
+- 用量聚合 SQL 下推：`account/usage/aggregate` 不再全量读取账号和最新 usage 快照后本地聚合，改由 SQLite 返回一行统计结果，并保留 free plan / 长窗口 / secondary 归桶语义。
+- 网关候选配额保护限载：候选缓存失效时，quota guard 只按当前候选账号 ID 分批读取最新 usage 快照，不再为每次网关候选重建扫描全部账号用量。
 
 ### ⚠️ 待处理
 
@@ -56,5 +58,6 @@
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
 - `dashboard/adminUsageSummary` 已完成首页 TopN 限载；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并将 TopN/分页进一步下推到 SQL 聚合层。
-- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选和用量列表裸调用已限载，后续还需继续审计用量刷新失败退避策略、usage aggregate 和网关候选 usage snapshot 查询路径。
+- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate 和网关候选配额保护已限载/下推，后续还需继续审计用量刷新失败退避策略。
 - 首页模型池卡片在 summary 模式下容量数字会显示未知；后续如要展示容量，应通过独立轻量汇总或分页来源接口懒加载，不能回退到裸 RPC 全量扫描。
+- `log_no_candidates()` 仍会在无候选诊断分支全量读取账号、Token 和 usage 快照；该分支只应在异常时触发，但后续应改成限量摘要，避免故障场景放大 CPU 与日志写入。
