@@ -3195,6 +3195,20 @@ fn rpc_quota_model_pools_defaults_to_summary_without_sources_or_config() {
             .is_some_and(|sources| sources.is_empty())),
         "default model pools should not return source details"
     );
+    assert!(
+        items.iter().all(|item| item
+            .get("sourceCount")
+            .and_then(|value| value.as_i64())
+            .unwrap_or_default()
+            == 0),
+        "default model pools should not accumulate source counts"
+    );
+    assert!(
+        items.iter().all(|item| item
+            .get("totalRemainingTokens")
+            .is_none_or(|value| value.is_null())),
+        "default model pools should not compute source capacities"
+    );
     assert_eq!(
         result
             .get("templates")
@@ -3234,6 +3248,14 @@ fn rpc_quota_model_pools_defaults_to_summary_without_sources_or_config() {
             .and_then(|value| value.as_array())
             .is_some_and(|sources| !sources.is_empty())),
         "explicit full model pools should return source details"
+    );
+    assert!(
+        full_items.iter().any(|item| item
+            .get("sourceCount")
+            .and_then(|value| value.as_i64())
+            .unwrap_or_default()
+            > 0),
+        "explicit full model pools should accumulate source counts"
     );
     assert!(
         full_result

@@ -113,10 +113,17 @@ impl QuotaModelPoolsInput {
     }
 
     fn should_accumulate_source_kind(&self, source_kind: &str) -> bool {
+        if !self.should_accumulate_sources() {
+            return false;
+        }
         self.source_kind
             .as_deref()
             .map(|filter| filter == source_kind)
             .unwrap_or(true)
+    }
+
+    fn should_accumulate_sources(&self) -> bool {
+        self.include_sources || self.source_kind.is_some()
     }
 
     fn should_return_source_kind(&self, source_kind: &str) -> bool {
