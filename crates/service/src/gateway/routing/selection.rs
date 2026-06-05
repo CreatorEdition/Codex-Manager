@@ -20,6 +20,7 @@ static QUOTA_GUARD_ALLOW_ALL_LOW_FALLBACK: AtomicBool =
 static CURRENT_DB_PATH: OnceLock<RwLock<String>> = OnceLock::new();
 const DEFAULT_CANDIDATE_CACHE_TTL_MS: u64 = 500;
 const USAGE_SNAPSHOT_CANDIDATE_BATCH_SIZE: usize = 500;
+const NO_CANDIDATE_LOG_SAMPLE_LIMIT: i64 = 12;
 const CANDIDATE_CACHE_TTL_ENV: &str = "CODEXMANAGER_CANDIDATE_CACHE_TTL_MS";
 // OpenAI 在 used_percent 未到 100 时就会触发 usage limit（常见于 ChatGPT Plus OAuth
 // 账号的 5 小时窗口）。将快要耗尽的账号移出正常候选，必要时按兜底开关使用低额度账号。
@@ -435,46 +436,90 @@ fn current_db_path() -> String {
     crate::lock_utils::read_recover(current_db_path_cell(), "current_db_path").clone()
 }
 
-/// 函数 `log_no_candidates`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - storage: 参数 storage
-///
-/// # 返回
-/// 无
-fn log_no_candidates(storage: &Storage) {
-    let accounts = storage.list_accounts().unwrap_or_default();
-    let tokens = storage.list_tokens().unwrap_or_default();
-    let snaps = storage
-        .latest_usage_snapshots_by_account()
+struct NoCandidateDiagnostic {
+    account_total: i64,
+    token_total: i64,
+    usage_snapshot_total: i64,
+    sample_limit: i64,
+    samples: Vec<NoCandidateAccountSample>,
+}
+
+struct NoCandidateAccountSample {
+    account: Account,
+    has_token: bool,
+    usage: Option<UsageSnapshotRecord>,
+}
+
+fn build_no_candidate_diagnostic(storage: &Storage, sample_limit: i64) -> NoCandidateDiagnostic {
+    let sample_limit = sample_limit.max(0);
+    let account_total = storage.account_count().unwrap_or_default();
+    let token_total = storage.token_count().unwrap_or_default();
+    let usage_snapshot_total = storage.usage_snapshot_count().unwrap_or_default();
+    let accounts = storage
+        .list_accounts_paginated(None, None, 0, sample_limit)
         .unwrap_or_default();
-    let token_map = tokens
+    let account_ids = accounts
+        .iter()
+        .map(|account| account.id.clone())
+        .collect::<Vec<_>>();
+    let token_map = storage
+        .list_tokens_by_account_ids(&account_ids)
+        .unwrap_or_default()
         .into_iter()
         .map(|token| (token.account_id.clone(), token))
-        .collect::<std::collections::HashMap<_, _>>();
-    let snap_map = snaps
+        .collect::<HashMap<_, _>>();
+    let usage_map = storage
+        .latest_usage_snapshots_by_account_ids(&account_ids)
+        .unwrap_or_default()
         .into_iter()
         .map(|snap| (snap.account_id.clone(), snap))
-        .collect::<std::collections::HashMap<_, _>>();
+        .collect::<HashMap<_, _>>();
+    let samples = accounts
+        .into_iter()
+        .map(|account| {
+            let has_token = token_map.contains_key(&account.id);
+            let usage = usage_map.get(&account.id).cloned();
+            NoCandidateAccountSample {
+                account,
+                has_token,
+                usage,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    NoCandidateDiagnostic {
+        account_total,
+        token_total,
+        usage_snapshot_total,
+        sample_limit,
+        samples,
+    }
+}
+
+/// 记录无候选诊断摘要。故障场景下禁止展开全库账号，避免放大 CPU 与日志写入。
+fn log_no_candidates(storage: &Storage) {
+    let diagnostic = build_no_candidate_diagnostic(storage, NO_CANDIDATE_LOG_SAMPLE_LIMIT);
     let db_path = current_db_path();
+    let truncated = diagnostic
+        .account_total
+        .saturating_sub(diagnostic.samples.len() as i64);
     log::warn!(
-        "gateway no candidates: db_path={}, accounts={}, tokens={}, snapshots={}",
+        "gateway no candidates: db_path={}, accounts_total={}, tokens_total={}, usage_snapshots_total={}, sample_limit={}, sampled_accounts={}, truncated_accounts={}",
         db_path,
-        accounts.len(),
-        token_map.len(),
-        snap_map.len()
+        diagnostic.account_total,
+        diagnostic.token_total,
+        diagnostic.usage_snapshot_total,
+        diagnostic.sample_limit,
+        diagnostic.samples.len(),
+        truncated
     );
-    for account in accounts {
-        let usage = snap_map.get(&account.id);
+    for sample in diagnostic.samples {
+        let usage = sample.usage.as_ref();
         log::warn!(
             "gateway account: id={}, status={}, has_token={}, primary=({:?}/{:?}) secondary=({:?}/{:?})",
-            account.id,
-            account.status,
-            token_map.contains_key(&account.id),
+            sample.account.id,
+            sample.account.status,
+            sample.has_token,
             usage.and_then(|u| u.used_percent),
             usage.and_then(|u| u.window_minutes),
             usage.and_then(|u| u.secondary_used_percent),

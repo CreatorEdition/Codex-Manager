@@ -126,6 +126,12 @@ impl Storage {
         )
     }
 
+    /// 统计全部用量快照行数，用于诊断摘要，避免调用方读取全表明细。
+    pub fn usage_snapshot_count(&self) -> Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(1) FROM usage_snapshots", [], |row| row.get(0))
+    }
+
     /// 函数 `latest_usage_snapshot`
     ///
     /// 作者: gaohongshun
@@ -658,6 +664,30 @@ mod tests {
                 .expect("zero limit")
                 .len(),
             0
+        );
+    }
+
+    #[test]
+    fn usage_snapshot_count_returns_total_rows() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-a", now, 10.0))
+            .expect("insert acc-a usage");
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-a", now + 10, 20.0))
+            .expect("insert acc-a second usage");
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-b", now + 20, 30.0))
+            .expect("insert acc-b usage");
+
+        assert_eq!(
+            storage
+                .usage_snapshot_count()
+                .expect("count usage snapshots"),
+            3
         );
     }
 

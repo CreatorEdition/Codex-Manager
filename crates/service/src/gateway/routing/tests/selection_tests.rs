@@ -246,6 +246,73 @@ fn quota_guard_usage_lookup_scopes_to_candidate_accounts() {
     assert!(!snapshots.contains_key("unrelated-low-quota"));
 }
 
+#[test]
+fn no_candidate_diagnostic_samples_accounts_without_full_detail_load() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let now = now_ts();
+
+    for index in 0..20 {
+        let account_id = format!("diag-{index:02}");
+        storage
+            .insert_account(&Account {
+                id: account_id.clone(),
+                label: account_id.clone(),
+                issuer: "issuer".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort: index,
+                status: "inactive".to_string(),
+                created_at: now,
+                updated_at: now + index,
+            })
+            .expect("insert diagnostic account");
+        storage
+            .insert_token(&Token {
+                account_id: account_id.clone(),
+                id_token: "id".to_string(),
+                access_token: "access".to_string(),
+                refresh_token: "refresh".to_string(),
+                api_key_access_token: None,
+                last_refresh: now,
+            })
+            .expect("insert diagnostic token");
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id,
+                used_percent: Some(index as f64),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: Some(index as f64 + 1.0),
+                secondary_window_minutes: Some(10080),
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now + index,
+            })
+            .expect("insert diagnostic usage");
+    }
+
+    let diagnostic = super::build_no_candidate_diagnostic(&storage, 3);
+
+    assert_eq!(diagnostic.account_total, 20);
+    assert_eq!(diagnostic.token_total, 20);
+    assert_eq!(diagnostic.usage_snapshot_total, 20);
+    assert_eq!(diagnostic.sample_limit, 3);
+    assert_eq!(diagnostic.samples.len(), 3);
+    let sample_ids = diagnostic
+        .samples
+        .iter()
+        .map(|sample| sample.account.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(sample_ids, vec!["diag-00", "diag-01", "diag-02"]);
+    assert!(diagnostic.samples.iter().all(|sample| sample.has_token));
+    assert!(diagnostic
+        .samples
+        .iter()
+        .all(|sample| sample.usage.is_some()));
+}
+
 /// 函数 `gateway_error_status_change_invalidates_candidate_snapshot_cache`
 ///
 /// 作者: gaohongshun
