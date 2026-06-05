@@ -399,6 +399,13 @@ pub(crate) const ENV_OVERRIDE_CATALOG: &[EnvOverrideCatalogItem] = &[
         "14",
     ),
     EnvOverrideCatalogItem::new(
+        "CODEXMANAGER_EVENTS_RETENTION_DAYS",
+        "事件记录保留天数",
+        ENV_OVERRIDE_SCOPE_SERVICE,
+        ENV_OVERRIDE_APPLY_MODE_RUNTIME,
+        "14",
+    ),
+    EnvOverrideCatalogItem::new(
         "CODEXMANAGER_USAGE_BASE_URL",
         "用量接口基础地址",
         ENV_OVERRIDE_SCOPE_SERVICE,

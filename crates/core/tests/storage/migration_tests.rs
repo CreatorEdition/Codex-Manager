@@ -304,6 +304,24 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 064 migration");
     assert_eq!(applied_064, 1);
+    let applied_066: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '066_events_retention_indexes'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 066 migration");
+    assert_eq!(applied_066, 1);
+    let applied_067: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '067_observability_retention_compaction'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 067 migration");
+    assert_eq!(applied_067, 1);
 
     assert!(!storage
         .has_column("accounts", "note")

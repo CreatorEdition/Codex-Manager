@@ -192,8 +192,12 @@ impl Storage {
             touched = touched.saturating_add(self.rollup_request_token_stats_before(cutoff)?);
         }
         touched = touched.saturating_add(self.prune_request_logs_by_retention(now)?);
+        touched = touched.saturating_add(self.prune_events_by_retention(now)?);
+        touched = touched.saturating_add(self.prune_usage_snapshots_all_accounts(
+            super::usage::usage_snapshots_retain_per_account(),
+        )?);
         if touched > 0 {
-            let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+            let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
         }
         Ok(())
     }

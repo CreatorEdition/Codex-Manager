@@ -3,6 +3,16 @@ use std::collections::HashMap;
 
 use super::{Event, Storage};
 
+const DEFAULT_EVENTS_RETENTION_DAYS: i64 = 14;
+const EVENTS_RETENTION_DAYS_ENV: &str = "CODEXMANAGER_EVENTS_RETENTION_DAYS";
+
+pub(super) fn events_retention_days() -> i64 {
+    std::env::var(EVENTS_RETENTION_DAYS_ENV)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .unwrap_or(DEFAULT_EVENTS_RETENTION_DAYS)
+}
+
 impl Storage {
     /// 函数 `insert_event`
     ///
@@ -43,6 +53,20 @@ impl Storage {
     pub fn event_count(&self) -> Result<i64> {
         self.conn
             .query_row("SELECT COUNT(1) FROM events", [], |row| row.get(0))
+    }
+
+    pub fn prune_events_by_retention(&self, now: i64) -> Result<usize> {
+        let days = events_retention_days();
+        if days <= 0 {
+            return Ok(0);
+        }
+        let cutoff = now.saturating_sub(days.saturating_mul(86_400));
+        self.conn.execute(
+            "DELETE FROM events
+             WHERE created_at < ?1
+               AND type <> 'account_status_update'",
+            [cutoff],
+        )
     }
 
     /// 函数 `latest_account_status_reasons`

@@ -58,3 +58,47 @@ fn latest_account_status_reasons_returns_latest_reason_per_account() {
     );
     assert!(!reasons.contains_key("missing"));
 }
+
+#[test]
+fn prune_events_by_retention_removes_old_events() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-old".to_string()),
+            event_type: "usage_refresh_failed".to_string(),
+            message: "old failure".to_string(),
+            created_at: 1,
+        })
+        .expect("insert old event");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-recent".to_string()),
+            event_type: "usage_refresh_failed".to_string(),
+            message: "recent failure".to_string(),
+            created_at: 1_300_000,
+        })
+        .expect("insert recent event");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-status".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=workspace_deactivated".to_string(),
+            created_at: 1,
+        })
+        .expect("insert old status event");
+
+    let removed = storage
+        .prune_events_by_retention(1_300_000)
+        .expect("prune events");
+
+    assert_eq!(removed, 1);
+    assert_eq!(storage.event_count().expect("event count"), 2);
+    let reasons = storage
+        .latest_account_status_reasons(&["acc-status".to_string()])
+        .expect("load status reason");
+    assert_eq!(
+        reasons.get("acc-status").map(String::as_str),
+        Some("workspace_deactivated")
+    );
+}

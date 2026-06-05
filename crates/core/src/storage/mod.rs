@@ -1025,6 +1025,13 @@ impl Storage {
             "065_api_key_list_indexes",
             include_str!("../../migrations/065_api_key_list_indexes.sql"),
         )?;
+        self.apply_sql_migration(
+            "066_events_retention_indexes",
+            include_str!("../../migrations/066_events_retention_indexes.sql"),
+        )?;
+        self.apply_compat_migration("067_observability_retention_compaction", |s| {
+            s.compact_observability_storage_for_existing_databases()
+        })?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_supplier_model_tables()?;
@@ -1061,6 +1068,7 @@ impl Storage {
             touched = touched.saturating_add(self.rollup_request_token_stats_before(cutoff)?);
         }
         touched = touched.saturating_add(self.prune_request_logs_by_retention(now)?);
+        touched = touched.saturating_add(self.prune_events_by_retention(now)?);
         touched = touched.saturating_add(
             self.prune_usage_snapshots_all_accounts(usage::usage_snapshots_retain_per_account())?,
         );
