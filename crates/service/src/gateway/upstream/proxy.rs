@@ -152,7 +152,6 @@ fn model_route_error(
     let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(());
     };
-    bootstrap_model_routes_for_plan(storage, execution_plan);
     let model_exists = storage
         .list_model_catalog_models("default")
         .map_err(|err| (500, format!("model_catalog_read_failed: {err}")))?
@@ -209,24 +208,6 @@ fn direct_upstream_model_matches_route(
         }
     }
     Ok(false)
-}
-
-fn bootstrap_model_routes_for_plan(
-    storage: &codexmanager_core::storage::Storage,
-    execution_plan: super::executor::GatewayUpstreamExecutionPlan,
-) {
-    match execution_plan.route_kind {
-        GatewayUpstreamRouteKind::AccountRotation => {
-            let _ = crate::apikey_models::bootstrap_account_pool_model_routes(storage, false);
-        }
-        GatewayUpstreamRouteKind::AggregateApi => {
-            let _ = crate::apikey_models::bootstrap_aggregate_api_model_routes(storage);
-        }
-        GatewayUpstreamRouteKind::HybridAccountFirst => {
-            let _ = crate::apikey_models::bootstrap_account_pool_model_routes(storage, false);
-            let _ = crate::apikey_models::bootstrap_aggregate_api_model_routes(storage);
-        }
-    }
 }
 
 fn source_mapping_matches_route(
@@ -1197,9 +1178,10 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_route_model_validation_bootstraps_aggregate_source() {
+    fn aggregate_route_model_validation_does_not_bootstrap_aggregate_source() {
         let storage = Storage::open_in_memory().expect("open storage");
         storage.init().expect("init storage");
+        seed_platform_catalog(&storage, "vendor-route");
         insert_test_aggregate_api(&storage, "agg-route");
         storage
             .upsert_discovered_model_source_models(
@@ -1216,14 +1198,15 @@ mod tests {
             Some("vendor-route"),
             execution_plan(GatewayUpstreamRouteKind::AggregateApi),
         )
-        .expect("aggregate route should bootstrap source mapping");
+        .expect("aggregate route should accept existing source model");
 
         let mappings = storage
             .list_enabled_model_source_mappings_for_platform("vendor-route")
             .expect("list mappings");
-        assert_eq!(mappings.len(), 1);
-        assert_eq!(mappings[0].source_kind, "aggregate_api");
-        assert_eq!(mappings[0].source_id, "agg-route");
+        assert!(
+            mappings.is_empty(),
+            "gateway request path must not create model route mappings"
+        );
     }
 
     #[test]
@@ -1264,6 +1247,7 @@ mod tests {
     fn hybrid_model_validation_accepts_aggregate_mapping() {
         let storage = Storage::open_in_memory().expect("open storage");
         storage.init().expect("init storage");
+        seed_platform_catalog(&storage, "vendor-hybrid");
         insert_test_aggregate_api(&storage, "agg-hybrid");
         storage
             .upsert_discovered_model_source_models(
@@ -1287,6 +1271,7 @@ mod tests {
     fn account_route_model_validation_accepts_direct_upstream_source_model() {
         let storage = Storage::open_in_memory().expect("open storage");
         storage.init().expect("init storage");
+        seed_platform_catalog(&storage, "gpt-5.4-mini");
         let now = now_ts();
         storage
             .insert_account(&Account {
