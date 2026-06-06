@@ -1,4 +1,8 @@
-use super::estimate_cost_usd;
+use super::{
+    estimate_cost_usd, should_skip_request_log, write_request_log, RequestLogTraceContext,
+    RequestLogUsage,
+};
+use codexmanager_core::storage::Storage;
 
 /// 函数 `assert_close`
 ///
@@ -345,4 +349,123 @@ fn estimate_cost_switches_to_long_context_rates_at_270k_boundary() {
         Some(10_000),
     );
     assert_close(gpt54_pro_actual, 18.9);
+}
+
+#[test]
+fn skips_success_model_list_request_logs_by_default() {
+    let _guard = crate::test_env_guard();
+    std::env::remove_var("CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS");
+
+    assert!(should_skip_request_log(
+        "/v1/models?client_version=0.136.0",
+        "GET",
+        true,
+        None,
+        false
+    ));
+}
+
+#[test]
+fn write_request_log_skips_success_model_list_insert_by_default() {
+    let _guard = crate::test_env_guard();
+    std::env::remove_var("CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS");
+    let storage = Storage::open_in_memory().expect("open storage");
+    storage.init().expect("init storage");
+
+    write_request_log(
+        &storage,
+        RequestLogTraceContext {
+            trace_id: Some("trc_models_failed"),
+            original_path: Some("/v1/models"),
+            adapted_path: Some("/v1/models"),
+            request_type: Some("http"),
+            ..Default::default()
+        },
+        Some("key-1"),
+        None,
+        "/v1/models",
+        "GET",
+        None,
+        None,
+        None,
+        Some(503),
+        RequestLogUsage::default(),
+        Some("models refresh failed"),
+        Some(12),
+    );
+    let baseline_count = storage
+        .count_request_logs(None, None, None, None)
+        .expect("count baseline logs");
+    assert_eq!(baseline_count, 1);
+
+    write_request_log(
+        &storage,
+        RequestLogTraceContext {
+            trace_id: Some("trc_models_success"),
+            original_path: Some("/v1/models?client_version=0.136.0"),
+            adapted_path: Some("/v1/models?client_version=0.136.0"),
+            request_type: Some("http"),
+            ..Default::default()
+        },
+        Some("key-1"),
+        None,
+        "/v1/models?client_version=0.136.0",
+        "GET",
+        None,
+        None,
+        None,
+        Some(200),
+        RequestLogUsage::default(),
+        None,
+        Some(12),
+    );
+
+    let count = storage
+        .count_request_logs(None, None, None, None)
+        .expect("count logs");
+    assert_eq!(count, baseline_count);
+}
+
+#[test]
+fn keeps_failed_or_non_model_list_request_logs() {
+    let _guard = crate::test_env_guard();
+    std::env::remove_var("CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS");
+
+    assert!(!should_skip_request_log(
+        "/v1/models",
+        "GET",
+        false,
+        Some("models refresh failed"),
+        false
+    ));
+    assert!(!should_skip_request_log(
+        "/v1/responses",
+        "POST",
+        true,
+        None,
+        true
+    ));
+    assert!(!should_skip_request_log(
+        "/v1/models",
+        "POST",
+        true,
+        None,
+        false
+    ));
+}
+
+#[test]
+fn model_list_request_log_skip_can_be_disabled() {
+    let _guard = crate::test_env_guard();
+    std::env::set_var("CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS", "0");
+
+    assert!(!should_skip_request_log(
+        "/v1/models",
+        "GET",
+        true,
+        None,
+        false
+    ));
+
+    std::env::remove_var("CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS");
 }

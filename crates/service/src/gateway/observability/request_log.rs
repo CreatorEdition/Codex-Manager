@@ -1,5 +1,8 @@
 use codexmanager_core::storage::{now_ts, RequestLog, RequestTokenStat, Storage};
 
+const ENV_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS: &str =
+    "CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS";
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct RequestLogUsage {
     pub input_tokens: Option<i64>,
@@ -238,6 +241,57 @@ fn is_inference_path(path: &str) -> bool {
         || path.starts_with("/v1/messages")
 }
 
+fn env_flag_disabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "0" | "false" | "off" | "no")
+        })
+        .unwrap_or(false)
+}
+
+fn is_model_list_path(path: &str) -> bool {
+    let normalized = path.split('#').next().unwrap_or(path);
+    normalized == "/v1/models" || normalized.starts_with("/v1/models?")
+}
+
+fn has_positive_usage(
+    input_tokens: Option<i64>,
+    cached_input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    total_tokens: Option<i64>,
+    reasoning_output_tokens: Option<i64>,
+    estimated_cost_usd: f64,
+) -> bool {
+    input_tokens.unwrap_or(0) > 0
+        || cached_input_tokens.unwrap_or(0) > 0
+        || output_tokens.unwrap_or(0) > 0
+        || total_tokens.unwrap_or(0) > 0
+        || reasoning_output_tokens.unwrap_or(0) > 0
+        || estimated_cost_usd > 0.0
+}
+
+fn should_skip_request_log(
+    request_path: &str,
+    method: &str,
+    success: bool,
+    error: Option<&str>,
+    has_usage: bool,
+) -> bool {
+    if env_flag_disabled(ENV_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS) {
+        return false;
+    }
+    success
+        && error
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+        && !has_usage
+        && method.eq_ignore_ascii_case("GET")
+        && is_model_list_path(request_path)
+}
+
 fn normalize_log_text(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -436,6 +490,14 @@ pub(crate) fn write_request_log_with_attempts(
     let success = status_code
         .map(|status| (200..300).contains(&status))
         .unwrap_or(false);
+    let has_usage = has_positive_usage(
+        input_tokens,
+        cached_input_tokens,
+        output_tokens,
+        total_tokens,
+        reasoning_output_tokens,
+        estimated_cost_usd,
+    );
     let input_zero_or_missing = input_tokens.unwrap_or(0) == 0;
     let cached_zero_or_missing = cached_input_tokens.unwrap_or(0) == 0;
     let output_zero_or_missing = output_tokens.unwrap_or(0) == 0;
@@ -457,6 +519,9 @@ pub(crate) fn write_request_log_with_attempts(
             key_id.unwrap_or("-"),
             model.unwrap_or("-"),
         );
+    }
+    if should_skip_request_log(request_path, method, success, error, has_usage) {
+        return;
     }
     // 记录请求最终结果（而非内部重试明细），保证 UI 一次请求只展示一条记录。
     let (request_log_id, token_stat_error) = match storage.insert_request_log_with_token_stat(
