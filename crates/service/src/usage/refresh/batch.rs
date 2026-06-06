@@ -1,5 +1,5 @@
 use crate::account_status::is_account_refresh_blocked_status_reason;
-use codexmanager_core::storage::{Account, AggregateApi, Storage, Token};
+use codexmanager_core::storage::{Account, Storage, Token};
 use crossbeam_channel::unbounded;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
@@ -13,6 +13,16 @@ use super::{
     DEFAULT_USAGE_POLL_CYCLE_BUDGET_SECS, ENV_USAGE_POLL_BATCH_LIMIT,
     ENV_USAGE_POLL_CYCLE_BUDGET_SECS, USAGE_POLL_CURSOR, USAGE_REFRESH_WORKERS,
 };
+
+const DEFAULT_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT: usize = 20;
+const DEFAULT_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS: i64 = 3_600;
+const DEFAULT_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS: i64 = 21_600;
+const ENV_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT: &str =
+    "CODEXMANAGER_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT";
+const ENV_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS: &str =
+    "CODEXMANAGER_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS";
+const ENV_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS: &str =
+    "CODEXMANAGER_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS";
 
 /// 函数 `refresh_usage_for_all_accounts`
 ///
@@ -163,11 +173,20 @@ pub(crate) fn refresh_usage_and_aggregate_balances_for_polling_cycle() -> Result
 
 fn refresh_aggregate_api_balances_for_polling_cycle() -> Result<(), String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
-    let api_ids = build_aggregate_api_balance_refresh_ids(
-        storage
-            .list_aggregate_apis()
-            .map_err(|err| format!("list aggregate APIs failed: {err}"))?,
-    );
+    let now = codexmanager_core::storage::now_ts();
+    let success_cutoff_ts = now.saturating_sub(aggregate_api_balance_poll_success_interval_secs());
+    let failure_cutoff_ts = now.saturating_sub(aggregate_api_balance_poll_failure_cooldown_secs());
+    let batch_limit = aggregate_api_balance_poll_batch_limit();
+    let api_ids = storage
+        .list_aggregate_apis_balance_polling_due(
+            success_cutoff_ts,
+            failure_cutoff_ts,
+            batch_limit as i64,
+        )
+        .map_err(|err| format!("list aggregate API balance polling due sources failed: {err}"))?
+        .into_iter()
+        .map(|api| api.id)
+        .collect::<Vec<_>>();
     drop(storage);
 
     if api_ids.is_empty() {
@@ -205,20 +224,40 @@ fn refresh_aggregate_api_balances_for_polling_cycle() -> Result<(), String> {
     }
 
     log::info!(
-        "aggregate api balance polling completed: total={} success={} failed={}",
+        "aggregate api balance polling completed: total={} success={} failed={} batch_limit={} success_interval_secs={} failure_cooldown_secs={}",
         total,
         success_count,
-        failed_count
+        failed_count,
+        batch_limit,
+        aggregate_api_balance_poll_success_interval_secs(),
+        aggregate_api_balance_poll_failure_cooldown_secs()
     );
 
     Ok(())
 }
 
-fn build_aggregate_api_balance_refresh_ids(apis: Vec<AggregateApi>) -> Vec<String> {
-    apis.into_iter()
-        .filter(|api| api.balance_query_enabled && api.status.trim().eq_ignore_ascii_case("active"))
-        .map(|api| api.id)
-        .collect()
+fn aggregate_api_balance_poll_batch_limit() -> usize {
+    env_usize_or(
+        ENV_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT,
+        DEFAULT_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT,
+    )
+    .clamp(1, 1_000)
+}
+
+fn aggregate_api_balance_poll_success_interval_secs() -> i64 {
+    env_i64_or(
+        ENV_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS,
+        DEFAULT_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS,
+    )
+    .max(60)
+}
+
+fn aggregate_api_balance_poll_failure_cooldown_secs() -> i64 {
+    env_i64_or(
+        ENV_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS,
+        DEFAULT_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS,
+    )
+    .max(60)
 }
 
 #[derive(Clone)]
@@ -442,10 +481,7 @@ fn usage_poll_batch_limit(total: usize) -> usize {
     if total == 0 {
         return 0;
     }
-    let configured = std::env::var(ENV_USAGE_POLL_BATCH_LIMIT)
-        .ok()
-        .and_then(|raw| raw.trim().parse::<usize>().ok())
-        .unwrap_or(DEFAULT_USAGE_POLL_BATCH_LIMIT);
+    let configured = env_usize_or(ENV_USAGE_POLL_BATCH_LIMIT, DEFAULT_USAGE_POLL_BATCH_LIMIT);
     if configured == 0 {
         total
     } else {
@@ -465,15 +501,36 @@ fn usage_poll_batch_limit(total: usize) -> usize {
 /// # 返回
 /// 返回函数执行结果
 fn usage_poll_cycle_budget() -> Option<Duration> {
-    let configured = std::env::var(ENV_USAGE_POLL_CYCLE_BUDGET_SECS)
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .unwrap_or(DEFAULT_USAGE_POLL_CYCLE_BUDGET_SECS);
+    let configured = env_u64_or(
+        ENV_USAGE_POLL_CYCLE_BUDGET_SECS,
+        DEFAULT_USAGE_POLL_CYCLE_BUDGET_SECS,
+    );
     if configured == 0 {
         None
     } else {
         Some(Duration::from_secs(configured.max(1)))
     }
+}
+
+fn env_usize_or(name: &str, default_value: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .unwrap_or(default_value)
+}
+
+fn env_u64_or(name: &str, default_value: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .unwrap_or(default_value)
+}
+
+fn env_i64_or(name: &str, default_value: i64) -> i64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .unwrap_or(default_value)
 }
 
 /// 函数 `usage_poll_batch_indices`
@@ -545,10 +602,13 @@ fn next_usage_poll_cursor(total: usize, cursor: usize, processed: usize) -> usiz
 #[cfg(test)]
 mod tests {
     use super::{
-        build_aggregate_api_balance_refresh_ids, build_usage_refresh_tasks,
-        usage_refresh_failure_cooldown_cutoff_ts,
+        aggregate_api_balance_poll_batch_limit, aggregate_api_balance_poll_failure_cooldown_secs,
+        aggregate_api_balance_poll_success_interval_secs, build_usage_refresh_tasks,
+        usage_refresh_failure_cooldown_cutoff_ts, ENV_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT,
+        ENV_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS,
+        ENV_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS,
     };
-    use codexmanager_core::storage::{now_ts, Account, AggregateApi, Token};
+    use codexmanager_core::storage::{now_ts, Account, Token};
     use std::collections::HashSet;
 
     /// 函数 `account`
@@ -598,35 +658,6 @@ mod tests {
             refresh_token: "refresh-token".to_string(),
             api_key_access_token: None,
             last_refresh: now_ts(),
-        }
-    }
-
-    fn aggregate_api(id: &str, status: &str, balance_query_enabled: bool) -> AggregateApi {
-        AggregateApi {
-            id: id.to_string(),
-            provider_type: "codex".to_string(),
-            supplier_name: Some(id.to_string()),
-            sort: 0,
-            url: "https://api.example.com/v1".to_string(),
-            auth_type: "apikey".to_string(),
-            auth_params_json: None,
-            action: None,
-            model_override: None,
-            status: status.to_string(),
-            created_at: now_ts(),
-            updated_at: now_ts(),
-            last_test_at: None,
-            last_test_status: None,
-            last_test_error: None,
-            balance_query_enabled,
-            balance_query_template: Some("generic".to_string()),
-            balance_query_base_url: None,
-            balance_query_user_id: None,
-            balance_query_config_json: None,
-            last_balance_at: None,
-            last_balance_status: None,
-            last_balance_error: None,
-            last_balance_json: None,
         }
     }
 
@@ -711,14 +742,40 @@ mod tests {
     }
 
     #[test]
-    fn build_aggregate_api_balance_refresh_ids_skips_disabled_sources() {
-        let ids = build_aggregate_api_balance_refresh_ids(vec![
-            aggregate_api("ag-active", "active", true),
-            aggregate_api("ag-disabled", "disabled", true),
-            aggregate_api("ag-no-balance", "active", false),
-            aggregate_api("ag-active-spaced", " ACTIVE ", true),
-        ]);
+    fn aggregate_api_balance_poll_config_uses_safe_bounds() {
+        let _guard = crate::test_env_guard();
+        let previous_batch = std::env::var(ENV_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT).ok();
+        let previous_success =
+            std::env::var(ENV_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS).ok();
+        let previous_failure =
+            std::env::var(ENV_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS).ok();
 
-        assert_eq!(ids, vec!["ag-active", "ag-active-spaced"]);
+        std::env::set_var(ENV_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT, "5000");
+        std::env::set_var(ENV_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS, "1");
+        std::env::set_var(ENV_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS, "2");
+
+        assert_eq!(aggregate_api_balance_poll_batch_limit(), 1_000);
+        assert_eq!(aggregate_api_balance_poll_success_interval_secs(), 60);
+        assert_eq!(aggregate_api_balance_poll_failure_cooldown_secs(), 60);
+        std::env::set_var(ENV_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT, "0");
+        assert_eq!(aggregate_api_balance_poll_batch_limit(), 1);
+
+        restore_env(ENV_AGGREGATE_API_BALANCE_POLL_BATCH_LIMIT, previous_batch);
+        restore_env(
+            ENV_AGGREGATE_API_BALANCE_POLL_SUCCESS_INTERVAL_SECS,
+            previous_success,
+        );
+        restore_env(
+            ENV_AGGREGATE_API_BALANCE_POLL_FAILURE_COOLDOWN_SECS,
+            previous_failure,
+        );
+    }
+
+    fn restore_env(name: &str, previous: Option<String>) {
+        if let Some(value) = previous {
+            std::env::set_var(name, value);
+        } else {
+            std::env::remove_var(name);
+        }
     }
 }

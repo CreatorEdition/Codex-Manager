@@ -2001,6 +2001,100 @@ fn request_token_stats_rollups_use_owner_and_actual_source_precedence() {
 }
 
 #[test]
+fn aggregate_api_balance_polling_due_filters_and_limits_sources() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+    let now = 1_700_000_000;
+
+    let insert_api = |id: &str,
+                      status: &str,
+                      enabled: bool,
+                      last_balance_at: Option<i64>,
+                      last_balance_status: Option<&str>,
+                      sort: i64| {
+        storage
+            .insert_aggregate_api(&AggregateApi {
+                id: id.to_string(),
+                provider_type: "codex".to_string(),
+                supplier_name: Some(id.to_string()),
+                sort,
+                url: format!("https://{id}.example/v1"),
+                auth_type: "apikey".to_string(),
+                auth_params_json: None,
+                action: None,
+                model_override: None,
+                status: status.to_string(),
+                created_at: now,
+                updated_at: now.saturating_add(sort),
+                last_test_at: None,
+                last_test_status: None,
+                last_test_error: None,
+                balance_query_enabled: enabled,
+                balance_query_template: Some("generic".to_string()),
+                balance_query_base_url: None,
+                balance_query_user_id: None,
+                balance_query_config_json: None,
+                last_balance_at,
+                last_balance_status: last_balance_status.map(str::to_string),
+                last_balance_error: None,
+                last_balance_json: None,
+            })
+            .expect("insert aggregate api");
+    };
+
+    insert_api("ag-never", "active", true, None, None, 10);
+    insert_api(
+        "ag-success-due",
+        "active",
+        true,
+        Some(now - 4_000),
+        Some("success"),
+        20,
+    );
+    insert_api(
+        "ag-success-fresh",
+        "active",
+        true,
+        Some(now - 100),
+        Some("success"),
+        30,
+    );
+    insert_api(
+        "ag-failed-cool",
+        "active",
+        true,
+        Some(now - 1_000),
+        Some("failed"),
+        40,
+    );
+    insert_api(
+        "ag-failed-due",
+        "active",
+        true,
+        Some(now - 8_000),
+        Some("failed"),
+        50,
+    );
+    insert_api("ag-disabled", "disabled", true, None, None, 60);
+    insert_api("ag-no-balance", "active", false, None, None, 70);
+
+    let due = storage
+        .list_aggregate_apis_balance_polling_due(now - 3_600, now - 7_200, 10)
+        .expect("list due aggregate apis");
+    let ids = due.iter().map(|api| api.id.as_str()).collect::<Vec<_>>();
+    assert_eq!(ids, vec!["ag-never", "ag-failed-due", "ag-success-due"]);
+
+    let limited = storage
+        .list_aggregate_apis_balance_polling_due(now - 3_600, now - 7_200, 2)
+        .expect("list limited due aggregate apis");
+    let limited_ids = limited
+        .iter()
+        .map(|api| api.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(limited_ids, vec!["ag-never", "ag-failed-due"]);
+}
+
+#[test]
 fn delete_app_user_removes_model_group_assignments() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage.init().expect("init schema");

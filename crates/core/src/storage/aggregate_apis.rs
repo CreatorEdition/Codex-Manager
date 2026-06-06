@@ -194,6 +194,42 @@ impl Storage {
         Ok(out)
     }
 
+    pub fn list_aggregate_apis_balance_polling_due(
+        &self,
+        success_cutoff_ts: i64,
+        failure_cutoff_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<AggregateApi>> {
+        if limit <= 0 {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "{AGGREGATE_API_SELECT_SQL}
+             WHERE balance_query_enabled = 1
+               AND LOWER(TRIM(status)) = 'active'
+               AND (
+                    last_balance_at IS NULL
+                    OR (
+                        LOWER(TRIM(COALESCE(last_balance_status, ''))) = 'failed'
+                        AND last_balance_at <= ?2
+                    )
+                    OR (
+                        LOWER(TRIM(COALESCE(last_balance_status, ''))) <> 'failed'
+                        AND last_balance_at <= ?1
+                    )
+               )
+             ORDER BY COALESCE(last_balance_at, 0) ASC, sort ASC, updated_at DESC, id ASC
+             LIMIT ?3"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query((success_cutoff_ts, failure_cutoff_ts, limit.max(1)))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_aggregate_api_row(row)?);
+        }
+        Ok(out)
+    }
+
     /// 统计启用中的聚合 API，用于按需来源分页。
     pub fn aggregate_api_active_count(&self) -> Result<i64> {
         self.conn.query_row(
@@ -656,6 +692,11 @@ impl Storage {
         )?;
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_aggregate_apis_created_at ON aggregate_apis(created_at DESC)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_aggregate_apis_balance_due
+             ON aggregate_apis(balance_query_enabled, status, last_balance_status, last_balance_at, id)",
             [],
         )?;
         self.ensure_column("aggregate_apis", "provider_type", "TEXT")?;
