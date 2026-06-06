@@ -64,13 +64,14 @@
 - 启动迁移轻量化：观测数据兼容迁移只确保表结构并记录迁移版本，不再在应用启动路径执行历史 request logs/events/usage snapshots 清理和 `VACUUM`，避免旧库升级时 CPU/磁盘/WAL 峰值集中爆发。
 - 观测维护分批清理：后台维护每轮默认最多处理 5000 行 token stats、request logs、events 或 usage snapshots；token stats 未滚完时暂不删 request logs，避免旧库首次清理时 CPU/WAL 峰值和统计丢失风险。
 - 日志页轮询降载：请求日志列表自动刷新从 5 秒降到 30 秒且不在后台刷新，摘要查询不再定时轮询；Web RPC 对 `requestlog/list` / `requestlog/summary` 使用 30 秒超时且不重试，避免大库下慢查询被重复放大。
+- 管理员用量排行 SQL 下推：`dashboard/adminUsageSummary` 默认 TopN 用户、OpenAI 账号和聚合 API 排行改由 storage SQL 同时聚合今日/区间用量并 `LIMIT` 返回，避免默认首页路径把全量分组结果搬到 Rust 层排序。
 
 ### ⚠️ 待处理
 
 - `cargo test --workspace` 尚未全量执行，后续安全/CI 阶段再跑完整工作区测试。
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
-- `dashboard/adminUsageSummary` 已完成首页 TopN 限载；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并将 TopN/分页进一步下推到 SQL 聚合层。
-- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate、网关候选配额保护、网关候选基础查询、用量快照维护剪枝、用量刷新失败事件降噪、失败账号轮询冷却、按 Key token_stats 聚合、空 token_stats 写入跳过、观测维护后台化、成功模型列表日志降载、启动迁移轻量化、观测维护分批清理和日志页轮询降载已限载/下推/移出请求线程/减少写入，后续仍需继续审计 request_logs 留存策略与 WAL 收缩效果。
+- `dashboard/adminUsageSummary` 已完成默认 TopN SQL 下推；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并考虑把排行聚合进一步迁移到日级 rollup，减少每次首页打开扫描请求日志窗口。
+- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate、网关候选配额保护、网关候选基础查询、用量快照维护剪枝、用量刷新失败事件降噪、失败账号轮询冷却、按 Key token_stats 聚合、空 token_stats 写入跳过、观测维护后台化、成功模型列表日志降载、启动迁移轻量化、观测维护分批清理、日志页轮询降载和管理员用量排行 SQL 下推已限载/下推/移出请求线程/减少写入，后续仍需继续审计 request_logs 留存策略与 WAL 收缩效果。
 - Web RPC 仍需继续按方法梳理超时/重试配置，特别是批量导入、手动全量刷新和长耗时维护类操作；不得通过恢复全量裸调用来规避超时。
 - 首页模型池卡片在 summary 模式下容量数字会显示未知；后续如要展示容量，应通过独立轻量汇总或分页来源接口懒加载，不能回退到裸 RPC 全量扫描。

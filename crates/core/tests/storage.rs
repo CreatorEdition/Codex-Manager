@@ -1913,6 +1913,19 @@ fn request_token_stats_rollups_use_owner_and_actual_source_precedence() {
         .summarize_request_token_stats_for_user_between("ledger-user", base, base + 86_400)
         .expect("direct user rollup");
     assert_eq!(ledger_direct.total_tokens, 100);
+    let ranked_users = storage
+        .summarize_request_token_stats_user_ranking_between(
+            base + 86_400,
+            base + 2 * 86_400,
+            base,
+            base + 2 * 86_400,
+            1,
+        )
+        .expect("ranked user rollup");
+    assert_eq!(ranked_users.len(), 1);
+    assert_eq!(ranked_users[0].user_id, "ledger-user");
+    assert_eq!(ranked_users[0].today_usage.total_tokens, 0);
+    assert_eq!(ranked_users[0].range_usage.total_tokens, 100);
 
     let openai_sources = storage
         .summarize_request_token_stats_by_source_between("openai_account", base, base + 2 * 86_400)
@@ -1935,6 +1948,20 @@ fn request_token_stats_rollups_use_owner_and_actual_source_precedence() {
             .total_tokens,
         70
     );
+    let ranked_openai_sources = storage
+        .summarize_request_token_stats_source_ranking_between(
+            "openai_account",
+            base + 86_400,
+            base + 2 * 86_400,
+            base,
+            base + 2 * 86_400,
+            1,
+        )
+        .expect("ranked openai source rollup");
+    assert_eq!(ranked_openai_sources.len(), 1);
+    assert_eq!(ranked_openai_sources[0].source_id, "acc-actual");
+    assert_eq!(ranked_openai_sources[0].today_usage.total_tokens, 0);
+    assert_eq!(ranked_openai_sources[0].range_usage.total_tokens, 100);
 
     let aggregate_sources = storage
         .summarize_request_token_stats_by_source_between("aggregate_api", base, base + 2 * 86_400)
@@ -1957,6 +1984,20 @@ fn request_token_stats_rollups_use_owner_and_actual_source_precedence() {
             .total_tokens,
         40
     );
+    let ranked_aggregate_sources = storage
+        .summarize_request_token_stats_source_ranking_between(
+            "aggregate_api",
+            base + 86_400,
+            base + 2 * 86_400,
+            base,
+            base + 2 * 86_400,
+            1,
+        )
+        .expect("ranked aggregate source rollup");
+    assert_eq!(ranked_aggregate_sources.len(), 1);
+    assert_eq!(ranked_aggregate_sources[0].source_id, "agg-legacy");
+    assert_eq!(ranked_aggregate_sources[0].today_usage.total_tokens, 40);
+    assert_eq!(ranked_aggregate_sources[0].range_usage.total_tokens, 40);
 }
 
 #[test]

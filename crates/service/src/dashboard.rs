@@ -9,7 +9,8 @@ use codexmanager_core::rpc::types::{
     MemberDashboardUsageToday, MemberDashboardWalletResult, ModelInfo, RequestLogListParams,
 };
 use codexmanager_core::storage::{
-    DailyTokenUsageRollup, SourceTokenUsageRollup, TokenUsageRollup, UserTokenUsageRollup,
+    DailyTokenUsageRollup, SourceTokenUsageRanking, SourceTokenUsageRollup, TokenUsageRollup,
+    UserTokenUsageRanking, UserTokenUsageRollup,
 };
 use serde_json::json;
 
@@ -64,52 +65,30 @@ pub(crate) fn read_admin_usage_summary(
             .summarize_request_token_stats_daily(range_start, range_end, DAY_SECONDS)
             .map_err(|err| format!("summarize daily usage failed: {err}"))?,
     );
-    let users = build_dashboard_user_summaries(
+    let users = read_dashboard_user_summaries(
         &storage,
-        storage
-            .summarize_request_token_stats_by_user_between(today_start, today_end)
-            .map_err(|err| format!("summarize today user usage failed: {err}"))?,
-        storage
-            .summarize_request_token_stats_by_user_between(range_start, range_end)
-            .map_err(|err| format!("summarize range user usage failed: {err}"))?,
+        today_start,
+        today_end,
+        range_start,
+        range_end,
         ranking_limit,
     )?;
-    let openai_accounts = build_dashboard_source_summaries(
+    let openai_accounts = read_dashboard_source_summaries(
         &storage,
         "openai_account",
-        storage
-            .summarize_request_token_stats_by_source_between(
-                "openai_account",
-                today_start,
-                today_end,
-            )
-            .map_err(|err| format!("summarize today account usage failed: {err}"))?,
-        storage
-            .summarize_request_token_stats_by_source_between(
-                "openai_account",
-                range_start,
-                range_end,
-            )
-            .map_err(|err| format!("summarize range account usage failed: {err}"))?,
+        today_start,
+        today_end,
+        range_start,
+        range_end,
         ranking_limit,
     )?;
-    let aggregate_apis = build_dashboard_source_summaries(
+    let aggregate_apis = read_dashboard_source_summaries(
         &storage,
         "aggregate_api",
-        storage
-            .summarize_request_token_stats_by_source_between(
-                "aggregate_api",
-                today_start,
-                today_end,
-            )
-            .map_err(|err| format!("summarize today aggregate API usage failed: {err}"))?,
-        storage
-            .summarize_request_token_stats_by_source_between(
-                "aggregate_api",
-                range_start,
-                range_end,
-            )
-            .map_err(|err| format!("summarize range aggregate API usage failed: {err}"))?,
+        today_start,
+        today_end,
+        range_start,
+        range_end,
         ranking_limit,
     )?;
 
@@ -236,6 +215,78 @@ fn fill_daily_usage(
     result
 }
 
+fn read_dashboard_user_summaries(
+    storage: &codexmanager_core::storage::Storage,
+    today_start: i64,
+    today_end: i64,
+    range_start: i64,
+    range_end: i64,
+    ranking_limit: Option<usize>,
+) -> Result<Vec<DashboardUserUsageSummary>, String> {
+    if let Some(limit) = ranking_limit {
+        return build_dashboard_user_summaries_from_rankings(
+            storage,
+            storage
+                .summarize_request_token_stats_user_ranking_between(
+                    today_start,
+                    today_end,
+                    range_start,
+                    range_end,
+                    limit,
+                )
+                .map_err(|err| format!("summarize ranked user usage failed: {err}"))?,
+        );
+    }
+    build_dashboard_user_summaries(
+        storage,
+        storage
+            .summarize_request_token_stats_by_user_between(today_start, today_end)
+            .map_err(|err| format!("summarize today user usage failed: {err}"))?,
+        storage
+            .summarize_request_token_stats_by_user_between(range_start, range_end)
+            .map_err(|err| format!("summarize range user usage failed: {err}"))?,
+        None,
+    )
+}
+
+fn read_dashboard_source_summaries(
+    storage: &codexmanager_core::storage::Storage,
+    source_kind: &str,
+    today_start: i64,
+    today_end: i64,
+    range_start: i64,
+    range_end: i64,
+    ranking_limit: Option<usize>,
+) -> Result<Vec<DashboardSourceUsageSummary>, String> {
+    if let Some(limit) = ranking_limit {
+        return build_dashboard_source_summaries_from_rankings(
+            storage,
+            source_kind,
+            storage
+                .summarize_request_token_stats_source_ranking_between(
+                    source_kind,
+                    today_start,
+                    today_end,
+                    range_start,
+                    range_end,
+                    limit,
+                )
+                .map_err(|err| format!("summarize ranked {source_kind} usage failed: {err}"))?,
+        );
+    }
+    build_dashboard_source_summaries(
+        storage,
+        source_kind,
+        storage
+            .summarize_request_token_stats_by_source_between(source_kind, today_start, today_end)
+            .map_err(|err| format!("summarize today {source_kind} usage failed: {err}"))?,
+        storage
+            .summarize_request_token_stats_by_source_between(source_kind, range_start, range_end)
+            .map_err(|err| format!("summarize range {source_kind} usage failed: {err}"))?,
+        None,
+    )
+}
+
 fn build_dashboard_user_summaries(
     storage: &codexmanager_core::storage::Storage,
     today_items: Vec<UserTokenUsageRollup>,
@@ -322,6 +373,44 @@ fn build_dashboard_user_summaries(
         results.truncate(limit);
     }
     Ok(results)
+}
+
+fn build_dashboard_user_summaries_from_rankings(
+    storage: &codexmanager_core::storage::Storage,
+    ranking_items: Vec<UserTokenUsageRanking>,
+) -> Result<Vec<DashboardUserUsageSummary>, String> {
+    let user_ids = ranking_items
+        .iter()
+        .map(|item| item.user_id.clone())
+        .collect::<Vec<_>>();
+    let users = storage
+        .list_app_users_by_ids(&user_ids)
+        .map_err(|err| format!("list app users failed: {err}"))?;
+    let wallets = wallets_for_user_ids(storage, &user_ids)?;
+    let user_map = users
+        .into_iter()
+        .map(|user| (user.id.clone(), user))
+        .collect::<HashMap<_, _>>();
+
+    Ok(ranking_items
+        .into_iter()
+        .map(|item| {
+            let user = user_map.get(item.user_id.as_str());
+            let wallet_available = wallets
+                .get(item.user_id.as_str())
+                .map(|wallet| wallet.balance_credit_micros - wallet.frozen_credit_micros);
+            DashboardUserUsageSummary {
+                user_id: item.user_id,
+                username: user.map(|value| value.username.clone()),
+                display_name: user.and_then(|value| value.display_name.clone()),
+                role: user.map(|value| value.role.clone()),
+                status: user.map(|value| value.status.clone()),
+                wallet_available_credit_micros: wallet_available,
+                today_usage: dashboard_usage(&item.today_usage),
+                range_usage: dashboard_usage(&item.range_usage),
+            }
+        })
+        .collect())
 }
 
 fn wallets_for_user_ids(
@@ -469,6 +558,40 @@ fn build_dashboard_source_summaries(
         results.truncate(limit);
     }
     Ok(results)
+}
+
+fn build_dashboard_source_summaries_from_rankings(
+    storage: &codexmanager_core::storage::Storage,
+    source_kind: &str,
+    ranking_items: Vec<SourceTokenUsageRanking>,
+) -> Result<Vec<DashboardSourceUsageSummary>, String> {
+    let source_ids = ranking_items
+        .iter()
+        .map(|item| item.source_id.clone())
+        .collect::<Vec<_>>();
+    let metadata = match source_kind {
+        "openai_account" => account_source_metadata(storage, Some(source_ids.as_slice()))?,
+        "aggregate_api" => aggregate_source_metadata(storage, Some(source_ids.as_slice()))?,
+        _ => HashMap::new(),
+    };
+    Ok(ranking_items
+        .into_iter()
+        .map(|item| {
+            let meta = metadata
+                .get(item.source_id.as_str())
+                .cloned()
+                .unwrap_or_default();
+            DashboardSourceUsageSummary {
+                source_kind: item.source_kind,
+                source_id: item.source_id,
+                name: meta.name,
+                status: meta.status,
+                provider: meta.provider,
+                today_usage: dashboard_usage(&item.today_usage),
+                range_usage: dashboard_usage(&item.range_usage),
+            }
+        })
+        .collect())
 }
 
 pub(crate) fn read_member_dashboard_summary(

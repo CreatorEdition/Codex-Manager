@@ -4,7 +4,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use super::{
     now_ts, sqlite_placeholders, sqlite_text_params, ApiKeyModelTokenUsageSummary,
     ApiKeyTokenUsageSummary, DailyTokenUsageRollup, RequestLogTodaySummary, RequestTokenStat,
-    SourceTokenUsageRollup, Storage, TokenUsageRollup, TokenUsageSummary, UserTokenUsageRollup,
+    SourceTokenUsageRanking, SourceTokenUsageRollup, Storage, TokenUsageRollup, TokenUsageSummary,
+    UserTokenUsageRanking, UserTokenUsageRollup,
 };
 
 const DEFAULT_REQUEST_TOKEN_STATS_RETAIN_DAYS: i64 = 14;
@@ -110,6 +111,30 @@ fn token_usage_rollup_from_row(row: &Row<'_>, offset: usize) -> Result<TokenUsag
         success_count: row.get::<_, i64>(offset + 7)?.max(0),
         error_count: row.get::<_, i64>(offset + 8)?.max(0),
     })
+}
+
+fn dual_usage_ranking_select_sql(entity_alias: &str, entity_column: &str) -> String {
+    format!(
+        "{entity_alias}.{entity_column},
+         IFNULL(today.input_tokens, 0) AS today_input_tokens,
+         IFNULL(today.cached_input_tokens, 0) AS today_cached_input_tokens,
+         IFNULL(today.output_tokens, 0) AS today_output_tokens,
+         IFNULL(today.reasoning_output_tokens, 0) AS today_reasoning_output_tokens,
+         IFNULL(today.total_tokens, 0) AS today_total_tokens,
+         IFNULL(today.estimated_cost_usd, 0.0) AS today_estimated_cost_usd,
+         IFNULL(today.request_count, 0) AS today_request_count,
+         IFNULL(today.success_count, 0) AS today_success_count,
+         IFNULL(today.error_count, 0) AS today_error_count,
+         IFNULL(range_usage.input_tokens, 0) AS range_input_tokens,
+         IFNULL(range_usage.cached_input_tokens, 0) AS range_cached_input_tokens,
+         IFNULL(range_usage.output_tokens, 0) AS range_output_tokens,
+         IFNULL(range_usage.reasoning_output_tokens, 0) AS range_reasoning_output_tokens,
+         IFNULL(range_usage.total_tokens, 0) AS range_total_tokens,
+         IFNULL(range_usage.estimated_cost_usd, 0.0) AS range_estimated_cost_usd,
+         IFNULL(range_usage.request_count, 0) AS range_request_count,
+         IFNULL(range_usage.success_count, 0) AS range_success_count,
+         IFNULL(range_usage.error_count, 0) AS range_error_count"
+    )
 }
 
 fn source_id_expr(source_kind: &str) -> Option<&'static str> {
@@ -789,6 +814,75 @@ impl Storage {
         Ok(items)
     }
 
+    pub fn summarize_request_token_stats_user_ranking_between(
+        &self,
+        today_start_ts: i64,
+        today_end_ts: i64,
+        range_start_ts: i64,
+        range_end_ts: i64,
+        limit: usize,
+    ) -> Result<Vec<UserTokenUsageRanking>> {
+        if limit == 0 || today_end_ts <= today_start_ts || range_end_ts <= range_start_ts {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "WITH today AS (
+                SELECT
+                    {USER_OWNER_EXPR} AS user_id,
+                    {TOKEN_ROLLUP_COLUMNS}
+                 FROM request_logs r
+                 LEFT JOIN request_token_stats t ON t.request_log_id = r.id
+                 {USER_OWNER_JOINS}
+                 WHERE r.created_at >= ?1 AND r.created_at < ?2
+                   AND {USER_OWNER_EXPR} IS NOT NULL
+                 GROUP BY user_id
+             ),
+             range_usage AS (
+                SELECT
+                    {USER_OWNER_EXPR} AS user_id,
+                    {TOKEN_ROLLUP_COLUMNS}
+                 FROM request_logs r
+                 LEFT JOIN request_token_stats t ON t.request_log_id = r.id
+                 {USER_OWNER_JOINS}
+                 WHERE r.created_at >= ?3 AND r.created_at < ?4
+                   AND {USER_OWNER_EXPR} IS NOT NULL
+                 GROUP BY user_id
+             ),
+             ranked_ids AS (
+                SELECT user_id FROM today
+                UNION
+                SELECT user_id FROM range_usage
+             )
+             SELECT
+                {select_columns}
+             FROM ranked_ids ranked
+             LEFT JOIN today ON today.user_id = ranked.user_id
+             LEFT JOIN range_usage ON range_usage.user_id = ranked.user_id
+             ORDER BY IFNULL(today.total_tokens, 0) DESC,
+                      IFNULL(range_usage.total_tokens, 0) DESC,
+                      ranked.user_id ASC
+             LIMIT ?5",
+            select_columns = dual_usage_ranking_select_sql("ranked", "user_id"),
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params![
+            today_start_ts,
+            today_end_ts,
+            range_start_ts,
+            range_end_ts,
+            limit as i64
+        ])?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(UserTokenUsageRanking {
+                user_id: row.get(0)?,
+                today_usage: token_usage_rollup_from_row(row, 1)?,
+                range_usage: token_usage_rollup_from_row(row, 10)?,
+            });
+        }
+        Ok(items)
+    }
+
     pub fn summarize_request_token_stats_for_user_between(
         &self,
         user_id: &str,
@@ -881,6 +975,78 @@ impl Storage {
                 source_kind: source_kind.to_string(),
                 source_id: row.get(0)?,
                 usage: token_usage_rollup_from_row(row, 1)?,
+            });
+        }
+        Ok(items)
+    }
+
+    pub fn summarize_request_token_stats_source_ranking_between(
+        &self,
+        source_kind: &str,
+        today_start_ts: i64,
+        today_end_ts: i64,
+        range_start_ts: i64,
+        range_end_ts: i64,
+        limit: usize,
+    ) -> Result<Vec<SourceTokenUsageRanking>> {
+        if limit == 0 || today_end_ts <= today_start_ts || range_end_ts <= range_start_ts {
+            return Ok(Vec::new());
+        }
+        let Some(source_id_expr) = source_id_expr(source_kind) else {
+            return Ok(Vec::new());
+        };
+        let sql = format!(
+            "WITH today AS (
+                SELECT
+                    {source_id_expr} AS source_id,
+                    {TOKEN_ROLLUP_COLUMNS}
+                 FROM request_logs r
+                 LEFT JOIN request_token_stats t ON t.request_log_id = r.id
+                 WHERE r.created_at >= ?1 AND r.created_at < ?2
+                   AND {source_id_expr} IS NOT NULL
+                 GROUP BY source_id
+             ),
+             range_usage AS (
+                SELECT
+                    {source_id_expr} AS source_id,
+                    {TOKEN_ROLLUP_COLUMNS}
+                 FROM request_logs r
+                 LEFT JOIN request_token_stats t ON t.request_log_id = r.id
+                 WHERE r.created_at >= ?3 AND r.created_at < ?4
+                   AND {source_id_expr} IS NOT NULL
+                 GROUP BY source_id
+             ),
+             ranked_ids AS (
+                SELECT source_id FROM today
+                UNION
+                SELECT source_id FROM range_usage
+             )
+             SELECT
+                {select_columns}
+             FROM ranked_ids ranked
+             LEFT JOIN today ON today.source_id = ranked.source_id
+             LEFT JOIN range_usage ON range_usage.source_id = ranked.source_id
+             ORDER BY IFNULL(today.total_tokens, 0) DESC,
+                      IFNULL(range_usage.total_tokens, 0) DESC,
+                      ranked.source_id ASC
+             LIMIT ?5",
+            select_columns = dual_usage_ranking_select_sql("ranked", "source_id"),
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params![
+            today_start_ts,
+            today_end_ts,
+            range_start_ts,
+            range_end_ts,
+            limit as i64
+        ])?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(SourceTokenUsageRanking {
+                source_kind: source_kind.to_string(),
+                source_id: row.get(0)?,
+                today_usage: token_usage_rollup_from_row(row, 1)?,
+                range_usage: token_usage_rollup_from_row(row, 10)?,
             });
         }
         Ok(items)

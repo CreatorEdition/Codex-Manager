@@ -318,6 +318,21 @@ pub struct SourceTokenUsageRollup {
     pub usage: TokenUsageRollup,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct UserTokenUsageRanking {
+    pub user_id: String,
+    pub today_usage: TokenUsageRollup,
+    pub range_usage: TokenUsageRollup,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SourceTokenUsageRanking {
+    pub source_kind: String,
+    pub source_id: String,
+    pub today_usage: TokenUsageRollup,
+    pub range_usage: TokenUsageRollup,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppUser {
     pub id: String,
