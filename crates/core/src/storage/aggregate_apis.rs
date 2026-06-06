@@ -799,6 +799,8 @@ impl Storage {
         &self,
         supplier_key: Option<&str>,
         provider_type: Option<&str>,
+        offset: i64,
+        limit: i64,
     ) -> Result<Vec<AggregateApiSupplierModel>> {
         let supplier_key = supplier_key
             .map(normalize_supplier_model_text)
@@ -806,29 +808,73 @@ impl Storage {
         let provider_type = provider_type
             .map(normalize_supplier_model_text)
             .filter(|value| !value.is_empty());
-        let mut stmt = self.conn.prepare(
+        let mut clauses = Vec::new();
+        let mut params = Vec::new();
+        if let Some(value) = supplier_key {
+            clauses.push("supplier_key = ?");
+            params.push(rusqlite::types::Value::Text(value));
+        }
+        if let Some(value) = provider_type {
+            clauses.push("provider_type = ?");
+            params.push(rusqlite::types::Value::Text(value));
+        }
+        params.push(rusqlite::types::Value::Integer(limit.max(1)));
+        params.push(rusqlite::types::Value::Integer(offset.max(0)));
+        let where_clause = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", clauses.join(" AND "))
+        };
+        let sql = format!(
             "SELECT supplier_key, provider_type, upstream_model, display_name,
                     status, created_at, updated_at
-             FROM aggregate_api_supplier_models
-             ORDER BY supplier_key ASC, provider_type ASC, upstream_model ASC",
+             FROM aggregate_api_supplier_models{where_clause}
+             ORDER BY supplier_key ASC, provider_type ASC, upstream_model ASC
+             LIMIT ? OFFSET ?"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            rusqlite::params_from_iter(params.iter()),
+            map_aggregate_api_supplier_model_row,
         )?;
-        let rows = stmt.query_map([], map_aggregate_api_supplier_model_row)?;
         let mut items = Vec::new();
         for row in rows {
-            let item = row?;
-            if let Some(value) = supplier_key.as_deref() {
-                if item.supplier_key != value {
-                    continue;
-                }
-            }
-            if let Some(value) = provider_type.as_deref() {
-                if item.provider_type != value {
-                    continue;
-                }
-            }
-            items.push(item);
+            items.push(row?);
         }
         Ok(items)
+    }
+
+    pub fn aggregate_api_supplier_model_count(
+        &self,
+        supplier_key: Option<&str>,
+        provider_type: Option<&str>,
+    ) -> Result<i64> {
+        let supplier_key = supplier_key
+            .map(normalize_supplier_model_text)
+            .filter(|value| !value.is_empty());
+        let provider_type = provider_type
+            .map(normalize_supplier_model_text)
+            .filter(|value| !value.is_empty());
+        let mut clauses = Vec::new();
+        let mut params = Vec::new();
+        if let Some(value) = supplier_key {
+            clauses.push("supplier_key = ?");
+            params.push(rusqlite::types::Value::Text(value));
+        }
+        if let Some(value) = provider_type {
+            clauses.push("provider_type = ?");
+            params.push(rusqlite::types::Value::Text(value));
+        }
+        let where_clause = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", clauses.join(" AND "))
+        };
+        let sql = format!("SELECT COUNT(1) FROM aggregate_api_supplier_models{where_clause}");
+        self.conn
+            .query_row(&sql, rusqlite::params_from_iter(params.iter()), |row| {
+                row.get(0)
+            })
     }
 
     pub fn upsert_aggregate_api_supplier_model(
@@ -1001,7 +1047,7 @@ mod supplier_model_tests {
             .upsert_aggregate_api_supplier_model(&model)
             .expect("upsert model");
         let items = storage
-            .list_aggregate_api_supplier_models(Some("test-supplier"), Some("codex"))
+            .list_aggregate_api_supplier_models(Some("test-supplier"), Some("codex"), 0, 100)
             .expect("list models");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].upstream_model, "provider-model");
@@ -1013,7 +1059,7 @@ mod supplier_model_tests {
             .upsert_aggregate_api_supplier_model(&disabled)
             .expect("update model");
         let items = storage
-            .list_aggregate_api_supplier_models(Some("test-supplier"), Some("codex"))
+            .list_aggregate_api_supplier_models(Some("test-supplier"), Some("codex"), 0, 100)
             .expect("list updated models");
         assert_eq!(items[0].status, "disabled");
 
@@ -1021,8 +1067,56 @@ mod supplier_model_tests {
             .delete_aggregate_api_supplier_model("test-supplier", "codex", "provider-model")
             .expect("delete model");
         let items = storage
-            .list_aggregate_api_supplier_models(Some("test-supplier"), Some("codex"))
+            .list_aggregate_api_supplier_models(Some("test-supplier"), Some("codex"), 0, 100)
             .expect("list deleted models");
         assert!(items.is_empty());
+    }
+
+    #[test]
+    fn supplier_model_list_filters_in_sql_and_paginates() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage
+            .ensure_aggregate_api_supplier_model_tables()
+            .expect("ensure tables");
+        let now = now_ts();
+        for index in 0..5 {
+            storage
+                .upsert_aggregate_api_supplier_model(&AggregateApiSupplierModel {
+                    supplier_key: "target".to_string(),
+                    provider_type: "codex".to_string(),
+                    upstream_model: format!("target-{index}"),
+                    display_name: None,
+                    status: "available".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .expect("insert target");
+        }
+        for index in 0..20 {
+            storage
+                .upsert_aggregate_api_supplier_model(&AggregateApiSupplierModel {
+                    supplier_key: "other".to_string(),
+                    provider_type: "codex".to_string(),
+                    upstream_model: format!("other-{index}"),
+                    display_name: None,
+                    status: "available".to_string(),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .expect("insert other");
+        }
+
+        assert_eq!(
+            storage
+                .aggregate_api_supplier_model_count(Some("target"), Some("codex"))
+                .expect("count target"),
+            5
+        );
+        let page = storage
+            .list_aggregate_api_supplier_models(Some("target"), Some("codex"), 2, 2)
+            .expect("list target page");
+        assert_eq!(page.len(), 2);
+        assert!(page.iter().all(|item| item.supplier_key == "target"));
+        assert_eq!(page[0].upstream_model, "target-2");
     }
 }

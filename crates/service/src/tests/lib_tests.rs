@@ -1,6 +1,8 @@
 use super::*;
 use codexmanager_core::rpc::types::{JsonRpcMessage, JsonRpcResponse};
-use codexmanager_core::storage::{ModelGroupModel, RequestLog, RequestTokenStat};
+use codexmanager_core::storage::{
+    AggregateApiSupplierModel, ModelGroupModel, RequestLog, RequestTokenStat,
+};
 
 /// 函数 `response_result`
 ///
@@ -459,6 +461,70 @@ fn account_manager_users_list_bare_call_defaults_to_page() {
     assert!(lookup.result.as_array().is_some());
     assert_eq!(lookup.result.as_array().unwrap().len(), 1);
     assert_eq!(lookup.result[0]["id"], member_ids[0]);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
+fn supplier_models_list_bare_call_defaults_to_first_page() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-supplier-models-page");
+    let storage = storage_helpers::open_storage().expect("open storage");
+    let now = codexmanager_core::storage::now_ts();
+    for index in 0..125 {
+        storage
+            .upsert_aggregate_api_supplier_model(&AggregateApiSupplierModel {
+                supplier_key: "target-supplier".to_string(),
+                provider_type: "codex".to_string(),
+                upstream_model: format!("target-model-{index:03}"),
+                display_name: None,
+                status: "available".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert target supplier model");
+    }
+    for index in 0..25 {
+        storage
+            .upsert_aggregate_api_supplier_model(&AggregateApiSupplierModel {
+                supplier_key: "other-supplier".to_string(),
+                provider_type: "codex".to_string(),
+                upstream_model: format!("other-model-{index:03}"),
+                display_name: None,
+                status: "available".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert other supplier model");
+    }
+
+    let bare = response_result(handle_request(rpc_request(
+        "aggregateApi/supplierModels/list",
+        serde_json::json!({}),
+    )));
+    assert_eq!(bare.result["items"].as_array().unwrap().len(), 100);
+    assert_eq!(bare.result["total"], 150);
+    assert_eq!(bare.result["page"], 1);
+    assert_eq!(bare.result["pageSize"], 100);
+
+    let scoped = response_result(handle_request(rpc_request(
+        "aggregateApi/supplierModels/list",
+        serde_json::json!({
+            "supplierKey": "target-supplier",
+            "providerType": "codex",
+            "page": 2,
+            "pageSize": 100
+        }),
+    )));
+    assert_eq!(scoped.result["items"].as_array().unwrap().len(), 25);
+    assert_eq!(scoped.result["total"], 125);
+    assert!(scoped.result["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| {
+            item["supplierKey"] == "target-supplier" && item["providerType"] == "codex"
+        }));
 
     let _ = std::fs::remove_file(db_path);
 }

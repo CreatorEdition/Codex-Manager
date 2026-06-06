@@ -252,10 +252,14 @@ pub async fn service_aggregate_api_supplier_models_list(
     addr: Option<String>,
     supplier_key: Option<String>,
     provider_type: Option<String>,
+    page: Option<i64>,
+    page_size: Option<i64>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
         "supplierKey": supplier_key,
         "providerType": provider_type,
+        "page": page,
+        "pageSize": page_size,
     });
     rpc_call_in_background("aggregateApi/supplierModels/list", addr, Some(params)).await
 }

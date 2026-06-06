@@ -1,7 +1,7 @@
 use codexmanager_core::rpc::types::{
     AggregateApiListParams, AggregateApiSupplierModelDeleteParams,
-    AggregateApiSupplierModelImportParams, AggregateApiSupplierModelListResult,
-    AggregateApiSupplierModelUpsertParams, JsonRpcRequest, JsonRpcResponse,
+    AggregateApiSupplierModelImportParams, AggregateApiSupplierModelUpsertParams, JsonRpcRequest,
+    JsonRpcResponse,
 };
 
 use crate::{
@@ -187,10 +187,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/supplierModels/list" => {
             let supplier_key = super::string_param(req, "supplierKey");
             let provider_type = super::string_param(req, "providerType");
-            super::value_or_error(
-                list_aggregate_api_supplier_models(supplier_key, provider_type)
-                    .map(|items| AggregateApiSupplierModelListResult { items }),
-            )
+            super::value_or_error(list_aggregate_api_supplier_models(
+                supplier_key,
+                provider_type,
+                super::i64_param(req, "page"),
+                super::i64_param(req, "pageSize"),
+            ))
         }
         "aggregateApi/supplierModels/save" => {
             let params = req

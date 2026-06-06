@@ -3,7 +3,8 @@ use codexmanager_core::rpc::types::{
     AggregateApiListParams, AggregateApiListResult, AggregateApiSecretResult, AggregateApiSummary,
     AggregateApiSupplierModelDeleteParams, AggregateApiSupplierModelEntry,
     AggregateApiSupplierModelImportParams, AggregateApiSupplierModelImportResult,
-    AggregateApiSupplierModelUpsertParams, AggregateApiTestResult, ManagedModelSourceModelEntry,
+    AggregateApiSupplierModelListResult, AggregateApiSupplierModelUpsertParams,
+    AggregateApiTestResult, ManagedModelSourceModelEntry,
 };
 use codexmanager_core::storage::{
     now_ts, AggregateApi, AggregateApiSupplierModel, ModelSourceModel,
@@ -33,6 +34,8 @@ const CLAUDE_DEFAULT_PROBE_MODEL: &str = "claude-haiku-4-5-20251001";
 const ALIBABA_CODING_PLAN_PROBE_MODEL: &str = "qwen3.5-plus";
 const MAX_DISCOVERED_MODEL_IDS: usize = 512;
 const MAX_AGGREGATE_API_LOOKUP_IDS: usize = 500;
+const DEFAULT_SUPPLIER_MODEL_PAGE_SIZE: i64 = 100;
+const MAX_SUPPLIER_MODEL_PAGE_SIZE: i64 = 500;
 const AGGREGATE_API_MODEL_SOURCE_KIND: &str = "aggregate_api";
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2480,17 +2483,37 @@ fn normalize_lookup_ids(ids: Vec<String>) -> Vec<String> {
 pub(crate) fn list_aggregate_api_supplier_models(
     supplier_key: Option<String>,
     provider_type: Option<String>,
-) -> Result<Vec<AggregateApiSupplierModelEntry>, String> {
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> Result<AggregateApiSupplierModelListResult, String> {
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let supplier_key = supplier_key.and_then(|value| normalize_optional_text(Some(value)));
     let provider_type = provider_type
         .map(|value| normalize_provider_type(Some(value)))
         .transpose()?
         .and_then(|value| normalize_optional_text(Some(value)));
+    let page_size = page_size
+        .unwrap_or(DEFAULT_SUPPLIER_MODEL_PAGE_SIZE)
+        .clamp(1, MAX_SUPPLIER_MODEL_PAGE_SIZE);
+    let total = storage
+        .aggregate_api_supplier_model_count(supplier_key.as_deref(), provider_type.as_deref())
+        .map_err(|err| format!("count supplier models failed: {err}"))?;
+    let page = clamp_page(page.unwrap_or(1).max(1), total, page_size);
+    let offset = page.saturating_sub(1).saturating_mul(page_size);
     storage
-        .list_aggregate_api_supplier_models(supplier_key.as_deref(), provider_type.as_deref())
+        .list_aggregate_api_supplier_models(
+            supplier_key.as_deref(),
+            provider_type.as_deref(),
+            offset,
+            page_size,
+        )
         .map_err(|err| format!("list supplier models failed: {err}"))
-        .map(|items| items.into_iter().map(supplier_model_entry).collect())
+        .map(|items| AggregateApiSupplierModelListResult {
+            items: items.into_iter().map(supplier_model_entry).collect(),
+            total,
+            page,
+            page_size,
+        })
 }
 
 pub(crate) fn save_aggregate_api_supplier_model(
@@ -2556,6 +2579,8 @@ pub(crate) fn import_aggregate_api_supplier_models(
         .list_aggregate_api_supplier_models(
             Some(supplier_key.as_str()),
             Some(provider_type.as_str()),
+            0,
+            i64::MAX,
         )
         .map_err(|err| format!("list supplier models failed: {err}"))?;
     let mut imported = Vec::new();

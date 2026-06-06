@@ -785,12 +785,16 @@ export const accountClient = {
   async listAggregateApiSupplierModels(params?: {
     supplierKey?: string | null;
     providerType?: string | null;
+    page?: number | null;
+    pageSize?: number | null;
   }): Promise<AggregateApiSupplierModel[]> {
     const result = await invoke<unknown>(
       "service_aggregate_api_supplier_models_list",
       withAddr({
         supplierKey: params?.supplierKey || null,
         providerType: params?.providerType || null,
+        page: params?.page ?? null,
+        pageSize: params?.pageSize ?? null,
       })
     );
     return normalizeAggregateApiSupplierModelList(result);

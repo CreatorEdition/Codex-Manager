@@ -982,6 +982,9 @@ pub struct AggregateApiSupplierModelEntry {
 pub struct AggregateApiSupplierModelListResult {
     #[serde(default)]
     pub items: Vec<AggregateApiSupplierModelEntry>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

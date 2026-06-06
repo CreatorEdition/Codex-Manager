@@ -76,6 +76,7 @@
 - 配额来源列表默认分页：`quota/sourceList` 支持 `sourceKind/sourceIds/page/pageSize`，裸调用默认只返回第一页 100 条并只装饰当前页来源，避免旧 RPC 一次性读取全部 API Key、聚合 API、账号和最新用量。
 - API Key 配额用量默认分页：`quota/apiKeyUsage` 支持 `keyIds/page/pageSize/includeModels`，裸调用默认只返回第一页 100 条且不计算模型明细，避免全量 Key、quota limit、token stats 与 key+model 聚合。
 - 账号体系用户列表裸调用默认分页：`accountManager/users/list` 无 `ids/page/pageSize` 时默认返回第一页分页结果，前端旧 `listAppUsers()` 兼容读取 `items`，避免旧入口一次性读取全部用户和钱包。
+- 聚合 API 供应商模型列表 SQL 下推：`aggregateApi/supplierModels/list` 支持 `page/pageSize`，并把 `supplierKey/providerType` 过滤下推到 SQLite，避免先全表读取后在 Rust 层过滤。
 
 ### ⚠️ 待处理
 
