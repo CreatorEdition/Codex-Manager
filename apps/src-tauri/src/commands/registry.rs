@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 macro_rules! invoke_handler {
     () => {
         tauri::generate_handler![
@@ -60,6 +61,30 @@ macro_rules! invoke_handler {
             crate::commands::quota::service_quota_source_models_set,
             crate::commands::quota::service_quota_capacity_template_update,
             crate::commands::quota::service_quota_account_capacity_override_update,
+=======
+<<<<<<< HEAD
+pub(crate) use invoke_handler;
+macro_rules! invoke_handler {
+    () => {
+        tauri::generate_handler![
+            // service
+            crate::commands::service::service_start,
+            crate::commands::service::service_stop,
+            crate::commands::service::service_initialize,
+            crate::commands::service::service_rpc_token,
+            crate::commands::service::service_sync_codex_models_cache,
+            crate::commands::codex_profile::service_codex_profile_get,
+            crate::commands::codex_profile::service_codex_profile_set_config,
+            crate::commands::codex_profile::service_codex_profile_list_candidates,
+            crate::commands::codex_profile::service_codex_profile_apply_direct_account,
+            crate::commands::codex_profile::service_codex_profile_apply_gateway,
+            crate::commands::codex_profile::service_codex_profile_restore,
+            crate::commands::codex_profile::service_codex_profile_repair_history,
+            crate::commands::codex_profile::service_codex_profile_prune_history_backups,
+            crate::commands::startup::service_startup_snapshot,
+            crate::commands::dashboard::service_dashboard_admin_usage_summary,
+            crate::commands::dashboard::service_dashboard_member_summary,
+>>>>>>> 82970aaa (feat: add Codex CLI platform mode switching)
             crate::commands::quota::service_quota_refresh_sources,
             // request log
             crate::commands::requestlog::service_requestlog_list,

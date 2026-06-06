@@ -5,7 +5,6 @@ export type InvokeParams = Record<string, unknown>;
 export type WebCommandDescriptor = {
   rpcMethod?: string;
   mapParams?: (params?: InvokeParams) => InvokeParams;
-  requestOptions?: RequestOptions;
   direct?: (params?: InvokeParams, options?: RequestOptions) => Promise<unknown>;
 };
 
@@ -231,16 +230,28 @@ export function createWebCommandMap(
       mapParams: (params) => asRecord(asRecord(params)?.patch) ?? {},
     },
     service_initialize: { rpcMethod: "initialize" },
-    service_startup_snapshot: {
-      rpcMethod: "startup/snapshot",
-      requestOptions: {
-        timeoutMs: 30000,
-        retries: 0,
-        timeoutMessage: "RPC startup/snapshot 超时：启动快照查询超过 30 秒",
-      },
+    service_startup_snapshot: { rpcMethod: "startup/snapshot" },
+    service_codex_profile_get: { rpcMethod: "codexProfile/get" },
+    service_codex_profile_set_config: {
+      rpcMethod: "codexProfile/setConfig",
+    },
+    service_codex_profile_list_candidates: {
+      rpcMethod: "codexProfile/listCandidates",
+    },
+    service_codex_profile_apply_direct_account: {
+      rpcMethod: "codexProfile/applyDirectAccount",
+    },
+    service_codex_profile_apply_gateway: {
+      rpcMethod: "codexProfile/applyGateway",
+    },
+    service_codex_profile_restore: { rpcMethod: "codexProfile/restore" },
+    service_codex_profile_repair_history: {
+      rpcMethod: "codexProfile/repairHistory",
+    },
+    service_codex_profile_prune_history_backups: {
+      rpcMethod: "codexProfile/pruneHistoryBackups",
     },
     service_account_list: { rpcMethod: "account/list" },
-    service_account_lookup: { rpcMethod: "account/lookup" },
     service_account_delete: { rpcMethod: "account/delete" },
     service_account_delete_many: { rpcMethod: "account/deleteMany" },
     service_account_delete_by_statuses: {
@@ -337,7 +348,6 @@ export function createWebCommandMap(
         return {
           startTs: source.start_ts ?? source.startTs,
           endTs: source.end_ts ?? source.endTs,
-          rankingLimit: source.ranking_limit ?? source.rankingLimit,
         };
       },
     },
@@ -360,15 +370,7 @@ export function createWebCommandMap(
     service_quota_model_usage: { rpcMethod: "quota/modelUsage" },
     service_quota_api_key_usage: { rpcMethod: "quota/apiKeyUsage" },
     service_quota_source_list: { rpcMethod: "quota/sourceList" },
-    service_quota_model_pools: {
-      rpcMethod: "quota/modelPools",
-      requestOptions: {
-        timeoutMs: 30000,
-        retries: 0,
-        timeoutMessage: "RPC quota/modelPools 超时：模型池查询超过 30 秒",
-      },
-    },
-    service_quota_model_pool_sources: { rpcMethod: "quota/modelPoolSources" },
+    service_quota_model_pools: { rpcMethod: "quota/modelPools" },
     service_quota_system_pool: { rpcMethod: "quota/systemPool" },
     service_quota_capacity_config: { rpcMethod: "quota/capacityConfig" },
     service_quota_billing_rules: { rpcMethod: "quota/billingRules" },
@@ -466,23 +468,9 @@ export function createWebCommandMap(
           : Array.isArray(params?.source_ids)
             ? params.source_ids
             : [],
-        refreshAll: params?.refreshAll === true,
       }),
     },
-    service_aggregate_api_list: {
-      rpcMethod: "aggregateApi/list",
-      mapParams: (params) => {
-        const source = asRecord(params) ?? {};
-        return {
-          page: source.page,
-          pageSize: source.pageSize ?? source.page_size,
-          query: source.query,
-          providerType: source.providerType ?? source.provider_type,
-          statusFilter: source.statusFilter ?? source.status_filter,
-        };
-      },
-    },
-    service_aggregate_api_lookup: { rpcMethod: "aggregateApi/lookup" },
+    service_aggregate_api_list: { rpcMethod: "aggregateApi/list" },
     service_aggregate_api_create: { rpcMethod: "aggregateApi/create" },
     service_aggregate_api_update: { rpcMethod: "aggregateApi/update" },
     service_aggregate_api_delete: { rpcMethod: "aggregateApi/delete" },
@@ -535,7 +523,6 @@ export function createWebCommandMap(
       rpcMethod: "account/chatgptAuthTokens/refreshAll",
     },
     service_apikey_list: { rpcMethod: "apikey/list" },
-    service_apikey_lookup: { rpcMethod: "apikey/lookup" },
     service_apikey_create: { rpcMethod: "apikey/create" },
     service_apikey_usage_stats: { rpcMethod: "apikey/usageStats" },
     service_apikey_delete: {
@@ -561,9 +548,6 @@ export function createWebCommandMap(
       mapParams: (params) => asRecord(asRecord(params)?.payload) ?? {},
     },
     service_model_catalog_delete: { rpcMethod: "apikey/modelCatalogDelete" },
-    service_model_catalog_prune_stale_remote: {
-      rpcMethod: "apikey/modelCatalogPruneStaleRemote",
-    },
     service_model_routing: { rpcMethod: "apikey/modelRouting" },
     service_model_source_sync: {
       rpcMethod: "apikey/modelSourceSync",
@@ -579,6 +563,17 @@ export function createWebCommandMap(
     },
     service_model_source_mapping_delete: {
       rpcMethod: "apikey/modelSourceMappingDelete",
+      mapParams: (params) => asRecord(asRecord(params)?.payload) ?? {},
+    },
+    service_model_price_rules_list: {
+      rpcMethod: "quota/modelPriceRules/list",
+    },
+    service_model_price_rule_read: {
+      rpcMethod: "quota/modelPriceRule/read",
+    },
+    service_model_price_rule_upsert: {
+      rpcMethod: "quota/modelPriceRule/upsert",
+      mapParams: (params) => asRecord(asRecord(params)?.payload) ?? {},
     },
     service_apikey_read_secret: {
       rpcMethod: "apikey/readSecret",
@@ -607,22 +602,8 @@ export function createWebCommandMap(
     service_gateway_codex_latest_version_get: {
       rpcMethod: "gateway/codexLatestVersion/get",
     },
-    service_requestlog_list: {
-      rpcMethod: "requestlog/list",
-      requestOptions: {
-        timeoutMs: 30000,
-        retries: 0,
-        timeoutMessage: "RPC requestlog/list 超时：请求日志查询超过 30 秒",
-      },
-    },
-    service_requestlog_summary: {
-      rpcMethod: "requestlog/summary",
-      requestOptions: {
-        timeoutMs: 30000,
-        retries: 0,
-        timeoutMessage: "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒",
-      },
-    },
+    service_requestlog_list: { rpcMethod: "requestlog/list" },
+    service_requestlog_summary: { rpcMethod: "requestlog/summary" },
     service_requestlog_clear: { rpcMethod: "requestlog/clear" },
     service_requestlog_today_summary: { rpcMethod: "requestlog/today_summary" },
     service_plugin_catalog_list: { rpcMethod: "plugin/catalog/list" },

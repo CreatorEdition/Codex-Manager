@@ -67,11 +67,46 @@ test("createWebCommandMap 为账号预热命令提供 Web RPC 映射", () => {
   const warmup = commandMap.service_account_warmup;
   assert.deepEqual(warmup, {
     rpcMethod: "account/warmup",
+<<<<<<< HEAD
   });
 });
 
 test("createWebCommandMap 为按状态清理账号提供 Web RPC 映射", () => {
   const cleanup = commandMap.service_account_delete_by_statuses;
+=======
+  });
+});
+
+test("createWebCommandMap 为 Codex profile 管理提供 Web RPC 映射", () => {
+  assert.deepEqual(commandMap.service_codex_profile_get, {
+    rpcMethod: "codexProfile/get",
+  });
+  assert.deepEqual(commandMap.service_codex_profile_set_config, {
+    rpcMethod: "codexProfile/setConfig",
+  });
+  assert.deepEqual(commandMap.service_codex_profile_list_candidates, {
+    rpcMethod: "codexProfile/listCandidates",
+  });
+  assert.deepEqual(commandMap.service_codex_profile_apply_direct_account, {
+    rpcMethod: "codexProfile/applyDirectAccount",
+  });
+  assert.deepEqual(commandMap.service_codex_profile_apply_gateway, {
+    rpcMethod: "codexProfile/applyGateway",
+  });
+  assert.deepEqual(commandMap.service_codex_profile_restore, {
+    rpcMethod: "codexProfile/restore",
+  });
+  assert.deepEqual(commandMap.service_codex_profile_repair_history, {
+    rpcMethod: "codexProfile/repairHistory",
+  });
+  assert.deepEqual(commandMap.service_codex_profile_prune_history_backups, {
+    rpcMethod: "codexProfile/pruneHistoryBackups",
+  });
+});
+
+test("createWebCommandMap 为按状态清理账号提供 Web RPC 映射", () => {
+  const cleanup = commandMap.service_account_delete_by_statuses;
+>>>>>>> 82970aaa (feat: add Codex CLI platform mode switching)
   assert.deepEqual(cleanup, {
     rpcMethod: "account/deleteByStatuses",
   });
