@@ -30,8 +30,24 @@ pub async fn service_quota_api_key_usage(
 }
 
 #[tauri::command]
-pub async fn service_quota_source_list(addr: Option<String>) -> Result<serde_json::Value, String> {
-    rpc_call_in_background("quota/sourceList", addr, None).await
+pub async fn service_quota_source_list(
+    addr: Option<String>,
+    source_kind: Option<String>,
+    source_ids: Option<Vec<String>>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "quota/sourceList",
+        addr,
+        Some(serde_json::json!({
+            "sourceKind": source_kind,
+            "sourceIds": source_ids,
+            "page": page,
+            "pageSize": page_size,
+        })),
+    )
+    .await
 }
 
 #[tauri::command]

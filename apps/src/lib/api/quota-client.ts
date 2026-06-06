@@ -13,6 +13,7 @@ import type {
   QuotaPoolSourceBreakdown,
   QuotaRefreshSourceResult,
   QuotaRefreshSourcesParams,
+  QuotaSourceListResult,
   QuotaSourceSummary,
   QuotaSystemPoolResult,
 } from "@/types/quota";
@@ -286,6 +287,17 @@ function normalizeModelPoolSources(payload: unknown): QuotaModelPoolSourcesResul
   };
 }
 
+function normalizeSourceList(payload: unknown): QuotaSourceListResult {
+  const source = asRecord(payload);
+  const items = readItems(payload).map(normalizeSourceSummary);
+  return {
+    items,
+    total: Math.max(0, toNullableNumber(source.total) ?? items.length),
+    page: Math.max(1, toNullableNumber(source.page) ?? 1),
+    pageSize: Math.max(1, toNullableNumber(source.pageSize ?? source.page_size) ?? 100),
+  };
+}
+
 function normalizeSystemPool(payload: unknown): QuotaSystemPoolResult {
   const source = asRecord(payload);
   return {
@@ -450,9 +462,23 @@ export const quotaClient = {
     const result = await invoke<unknown>("service_quota_api_key_usage", withAddr());
     return readItems(result).map(normalizeApiKeyUsageItem);
   },
-  async sourceList(): Promise<QuotaSourceSummary[]> {
-    const result = await invoke<unknown>("service_quota_source_list", withAddr());
-    return readItems(result).map(normalizeSourceSummary);
+  async sourceList(params?: {
+    sourceKind?: "all" | "api_key" | "aggregate_api" | "openai_account" | null;
+    sourceIds?: string[] | null;
+    page?: number | null;
+    pageSize?: number | null;
+  }): Promise<QuotaSourceListResult> {
+    return normalizeSourceList(
+      await invoke<unknown>(
+        "service_quota_source_list",
+        withAddr({
+          sourceKind: params?.sourceKind ?? null,
+          sourceIds: params?.sourceIds ?? null,
+          page: params?.page ?? null,
+          pageSize: params?.pageSize ?? null,
+        }),
+      ),
+    );
   },
   async modelPools(params?: {
     includeSources?: boolean;

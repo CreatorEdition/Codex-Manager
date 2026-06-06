@@ -56,6 +56,8 @@ pub(crate) struct QuotaModelPoolsInput {
 
 const DEFAULT_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 100;
 const MAX_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 500;
+const DEFAULT_QUOTA_SOURCE_LIST_PAGE_SIZE: i64 = 100;
+const MAX_QUOTA_SOURCE_LIST_PAGE_SIZE: i64 = 500;
 
 impl Default for QuotaModelPoolsInput {
     fn default() -> Self {
@@ -73,6 +75,46 @@ pub(crate) struct QuotaModelPoolSourcesInput {
     pub(crate) source_ids: Option<Vec<String>>,
     pub(crate) page: Option<i64>,
     pub(crate) page_size: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct QuotaSourceListInput {
+    pub(crate) source_kind: Option<String>,
+    pub(crate) source_ids: Option<Vec<String>>,
+    pub(crate) page: Option<i64>,
+    pub(crate) page_size: Option<i64>,
+}
+
+impl QuotaSourceListInput {
+    fn normalized(self) -> Result<Self, String> {
+        let source_kind = self
+            .source_kind
+            .and_then(|value| normalize_optional_text(Some(value)))
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_else(|| "all".to_string());
+        if !matches!(
+            source_kind.as_str(),
+            "all" | "api_key" | "aggregate_api" | "openai_account"
+        ) {
+            return Err(
+                "额度来源类型只能是 all、api_key、aggregate_api 或 openai_account".to_string(),
+            );
+        }
+        let source_ids = self.source_ids.map(normalize_id_list);
+        if source_kind == "all" && source_ids.is_some() {
+            return Err("指定 sourceIds 时必须同时指定具体 sourceKind".to_string());
+        }
+        Ok(Self {
+            source_kind: Some(source_kind),
+            source_ids,
+            page: self.page,
+            page_size: self.page_size,
+        })
+    }
+
+    fn source_kind_value(&self) -> &str {
+        self.source_kind.as_deref().unwrap_or("all")
+    }
 }
 
 impl QuotaModelPoolSourcesInput {
@@ -279,12 +321,26 @@ fn normalized_model_pool_source_page_size(value: Option<i64>) -> i64 {
         .clamp(1, MAX_MODEL_POOL_SOURCE_PAGE_SIZE)
 }
 
+fn normalized_quota_source_list_page_size(value: Option<i64>) -> i64 {
+    value
+        .unwrap_or(DEFAULT_QUOTA_SOURCE_LIST_PAGE_SIZE)
+        .clamp(1, MAX_QUOTA_SOURCE_LIST_PAGE_SIZE)
+}
+
 fn paginate_owned<T>(items: Vec<T>, page: i64, page_size: i64) -> Vec<T> {
     let offset = page.saturating_sub(1).saturating_mul(page_size).max(0) as usize;
     items
         .into_iter()
         .skip(offset)
         .take(page_size.max(1) as usize)
+        .collect()
+}
+
+fn paginate_owned_by_offset<T>(items: Vec<T>, offset: i64, limit: i64) -> Vec<T> {
+    items
+        .into_iter()
+        .skip(offset.max(0) as usize)
+        .take(limit.max(1) as usize)
         .collect()
 }
 
@@ -1779,114 +1835,350 @@ pub(crate) fn read_quota_api_key_usage() -> Result<QuotaApiKeyUsageResult, Strin
     })
 }
 
-pub(crate) fn read_quota_source_list() -> Result<QuotaSourceListResult, String> {
+pub(crate) fn read_quota_source_list(
+    input: QuotaSourceListInput,
+) -> Result<QuotaSourceListResult, String> {
+    let input = input.normalized()?;
+    let page = normalized_page(input.page);
+    let page_size = normalized_quota_source_list_page_size(input.page_size);
+    if matches!(input.source_ids.as_ref(), Some(ids) if ids.is_empty()) {
+        return Ok(QuotaSourceListResult {
+            items: Vec::new(),
+            total: 0,
+            page,
+            page_size,
+        });
+    }
+
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
-    let price_rules = model_pricing::load_enabled_price_rules(&storage)?;
-    let api_models = api_available_model_slugs(&storage, &price_rules)?;
-    let assignments = assignment_map(
-        storage
-            .list_quota_source_model_assignments()
-            .map_err(|err| format!("list quota source assignments failed: {err}"))?,
+    match input.source_kind_value() {
+        "api_key" => read_api_key_quota_sources(&storage, input.source_ids, page, page_size),
+        "aggregate_api" => {
+            read_aggregate_quota_sources(&storage, input.source_ids, page, page_size)
+        }
+        "openai_account" => read_account_quota_sources(&storage, input.source_ids, page, page_size),
+        "all" => read_all_quota_sources(&storage, input.source_ids, page, page_size),
+        _ => Err("额度来源类型只能是 all、api_key、aggregate_api 或 openai_account".to_string()),
+    }
+}
+
+fn read_all_quota_sources(
+    storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<Vec<String>>,
+    page: i64,
+    page_size: i64,
+) -> Result<QuotaSourceListResult, String> {
+    let api_key_total = quota_source_count(storage, "api_key", source_ids.as_ref())?;
+    let aggregate_total = quota_source_count(storage, "aggregate_api", source_ids.as_ref())?;
+    let account_total = quota_source_count(storage, "openai_account", source_ids.as_ref())?;
+    let total = api_key_total
+        .saturating_add(aggregate_total)
+        .saturating_add(account_total);
+    let ranges = quota_source_page_ranges(
+        page.saturating_sub(1).saturating_mul(page_size).max(0),
+        page_size,
+        &[api_key_total, aggregate_total, account_total],
     );
     let mut items = Vec::new();
+    if let Some((offset, limit)) = ranges[0] {
+        items.extend(read_api_key_quota_source_items(
+            storage,
+            source_ids.as_ref(),
+            offset,
+            limit,
+        )?);
+    }
+    if let Some((offset, limit)) = ranges[1] {
+        items.extend(read_aggregate_quota_source_items(
+            storage,
+            source_ids.as_ref(),
+            offset,
+            limit,
+        )?);
+    }
+    if let Some((offset, limit)) = ranges[2] {
+        items.extend(read_account_quota_source_items(
+            storage,
+            source_ids.as_ref(),
+            offset,
+            limit,
+        )?);
+    }
+    Ok(QuotaSourceListResult {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
 
-    let api_keys = storage
-        .list_api_keys()
-        .map_err(|err| format!("list api keys failed: {err}"))?;
+fn read_api_key_quota_sources(
+    storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<Vec<String>>,
+    page: i64,
+    page_size: i64,
+) -> Result<QuotaSourceListResult, String> {
+    let total = quota_source_count(storage, "api_key", source_ids.as_ref())?;
+    let offset = page.saturating_sub(1).saturating_mul(page_size).max(0);
+    let items = read_api_key_quota_source_items(storage, source_ids.as_ref(), offset, page_size)?;
+    Ok(QuotaSourceListResult {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
+
+fn read_aggregate_quota_sources(
+    storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<Vec<String>>,
+    page: i64,
+    page_size: i64,
+) -> Result<QuotaSourceListResult, String> {
+    let total = quota_source_count(storage, "aggregate_api", source_ids.as_ref())?;
+    let offset = page.saturating_sub(1).saturating_mul(page_size).max(0);
+    let items = read_aggregate_quota_source_items(storage, source_ids.as_ref(), offset, page_size)?;
+    Ok(QuotaSourceListResult {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
+
+fn read_account_quota_sources(
+    storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<Vec<String>>,
+    page: i64,
+    page_size: i64,
+) -> Result<QuotaSourceListResult, String> {
+    let total = quota_source_count(storage, "openai_account", source_ids.as_ref())?;
+    let offset = page.saturating_sub(1).saturating_mul(page_size).max(0);
+    let items = read_account_quota_source_items(storage, source_ids.as_ref(), offset, page_size)?;
+    Ok(QuotaSourceListResult {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
+
+fn quota_source_count(
+    storage: &codexmanager_core::storage::Storage,
+    source_kind: &str,
+    source_ids: Option<&Vec<String>>,
+) -> Result<i64, String> {
+    if let Some(ids) = source_ids {
+        return Ok(ids.len() as i64);
+    }
+    match source_kind {
+        "api_key" => storage
+            .api_key_count_filtered(None, None, None)
+            .map_err(|err| format!("count api keys failed: {err}")),
+        "aggregate_api" => storage
+            .aggregate_api_count_filtered(None, None, None)
+            .map_err(|err| format!("count aggregate APIs failed: {err}")),
+        "openai_account" => storage
+            .account_count()
+            .map_err(|err| format!("count accounts failed: {err}")),
+        _ => Ok(0),
+    }
+}
+
+fn quota_source_page_ranges(
+    mut offset: i64,
+    mut remaining: i64,
+    totals: &[i64],
+) -> Vec<Option<(i64, i64)>> {
+    totals
+        .iter()
+        .map(|total| {
+            if remaining <= 0 {
+                return None;
+            }
+            if offset >= *total {
+                offset = offset.saturating_sub(*total);
+                return None;
+            }
+            let local_offset = offset;
+            let take = remaining.min(total.saturating_sub(local_offset));
+            offset = 0;
+            remaining = remaining.saturating_sub(take);
+            (take > 0).then_some((local_offset, take))
+        })
+        .collect()
+}
+
+fn read_api_key_quota_source_items(
+    storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<&Vec<String>>,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<QuotaSourceSummary>, String> {
+    let api_keys = if let Some(ids) = source_ids {
+        storage
+            .list_api_keys_by_ids(&paginate_owned_by_offset(ids.clone(), offset, limit), None)
+            .map_err(|err| format!("list api keys failed: {err}"))?
+    } else {
+        storage
+            .list_api_keys_paginated(None, None, None, offset, limit)
+            .map_err(|err| format!("list api keys failed: {err}"))?
+    };
+    let key_ids = api_keys
+        .iter()
+        .map(|key| key.id.clone())
+        .collect::<Vec<_>>();
     let quota_limits = storage
-        .list_api_key_quota_limits()
+        .list_api_key_quota_limits_for_key_ids(&key_ids)
         .map_err(|err| format!("list api key quota limits failed: {err}"))?;
     let usage_by_key = storage
-        .summarize_request_token_stats_by_key()
+        .summarize_request_token_stats_by_key_ids(&key_ids)
         .map_err(|err| format!("summarize api key usage failed: {err}"))?;
     let usage_map = usage_by_key
         .iter()
         .map(|item| (item.key_id.as_str(), item))
         .collect::<HashMap<_, _>>();
-    for key in api_keys {
-        let used = usage_map
-            .get(key.id.as_str())
-            .map(|item| item.total_tokens.max(0))
-            .unwrap_or(0);
-        let limit = quota_limits.get(key.id.as_str()).copied();
-        items.push(QuotaSourceSummary {
-            id: key.id.clone(),
-            kind: "api_key".to_string(),
-            name: key_display_name(&key),
-            status: key.status,
-            metric_kind: "token_limit".to_string(),
-            remaining: limit.map(|value| value.saturating_sub(used) as f64),
-            total: limit.map(|value| value as f64),
-            used: Some(used as f64),
-            unit: Some("token".to_string()),
-            models: key.model_slug.into_iter().collect(),
-            provider: None,
-            captured_at: key.last_used_at,
-            error: None,
-        });
-    }
+    Ok(api_keys
+        .into_iter()
+        .map(|key| {
+            let used = usage_map
+                .get(key.id.as_str())
+                .map(|item| item.total_tokens.max(0))
+                .unwrap_or(0);
+            let limit = quota_limits.get(key.id.as_str()).copied();
+            QuotaSourceSummary {
+                id: key.id.clone(),
+                kind: "api_key".to_string(),
+                name: key_display_name(&key),
+                status: key.status,
+                metric_kind: "token_limit".to_string(),
+                remaining: limit.map(|value| value.saturating_sub(used) as f64),
+                total: limit.map(|value| value as f64),
+                used: Some(used as f64),
+                unit: Some("token".to_string()),
+                models: key.model_slug.into_iter().collect(),
+                provider: None,
+                captured_at: key.last_used_at,
+                error: None,
+            }
+        })
+        .collect())
+}
 
-    for api in storage
-        .list_aggregate_apis()
-        .map_err(|err| format!("list aggregate APIs failed: {err}"))?
-    {
-        let balance = parse_balance_snapshot(&api);
-        let status = match api.last_balance_status.as_deref() {
-            Some("success") => "ok",
-            Some("error" | "failed") => "error",
-            _ if api.balance_query_enabled => "unknown",
-            _ => "warning",
-        };
-        items.push(QuotaSourceSummary {
-            id: api.id.clone(),
-            kind: "aggregate_api".to_string(),
-            name: api_display_name(&api),
-            status: status.to_string(),
-            metric_kind: "money_balance".to_string(),
-            remaining: balance.remaining,
-            total: balance.total,
-            used: balance.used,
-            unit: Some(balance.unit.unwrap_or_else(|| "USD".to_string())),
-            models: source_models("aggregate_api", &api.id, &assignments, &api_models),
-            provider: Some(api.provider_type),
-            captured_at: api.last_balance_at,
-            error: api.last_balance_error,
-        });
-    }
+fn read_aggregate_quota_source_items(
+    storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<&Vec<String>>,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<QuotaSourceSummary>, String> {
+    let aggregate_apis = if let Some(ids) = source_ids {
+        storage
+            .list_aggregate_apis_by_ids(&paginate_owned_by_offset(ids.clone(), offset, limit))
+            .map_err(|err| format!("list aggregate APIs failed: {err}"))?
+    } else {
+        storage
+            .list_aggregate_apis_paginated(None, None, None, offset, limit)
+            .map_err(|err| format!("list aggregate APIs failed: {err}"))?
+    };
+    let api_ids = aggregate_apis
+        .iter()
+        .map(|api| api.id.clone())
+        .collect::<Vec<_>>();
+    let price_rules = model_pricing::load_enabled_price_rules(storage)?;
+    let api_models = api_available_model_slugs(storage, &price_rules)?;
+    let assignments = assignment_map(
+        storage
+            .list_quota_source_model_assignments_for_source_ids("aggregate_api", &api_ids)
+            .map_err(|err| format!("list quota source assignments failed: {err}"))?,
+    );
+    Ok(aggregate_apis
+        .into_iter()
+        .map(|api| {
+            let balance = parse_balance_snapshot(&api);
+            let status = match api.last_balance_status.as_deref() {
+                Some("success") => "ok",
+                Some("error" | "failed") => "error",
+                _ if api.balance_query_enabled => "unknown",
+                _ => "warning",
+            };
+            QuotaSourceSummary {
+                id: api.id.clone(),
+                kind: "aggregate_api".to_string(),
+                name: api_display_name(&api),
+                status: status.to_string(),
+                metric_kind: "money_balance".to_string(),
+                remaining: balance.remaining,
+                total: balance.total,
+                used: balance.used,
+                unit: Some(balance.unit.unwrap_or_else(|| "USD".to_string())),
+                models: source_models("aggregate_api", &api.id, &assignments, &api_models),
+                provider: Some(api.provider_type),
+                captured_at: api.last_balance_at,
+                error: api.last_balance_error,
+            }
+        })
+        .collect())
+}
 
-    for account in storage
-        .list_accounts()
-        .map_err(|err| format!("list accounts failed: {err}"))?
-    {
-        let usage = storage
-            .latest_usage_snapshot_for_account(&account.id)
-            .map_err(|err| format!("read account usage failed: {err}"))?;
-        let remaining = usage
-            .as_ref()
-            .and_then(|item| remaining_percent(item.used_percent));
-        let used = usage.as_ref().and_then(|item| item.used_percent);
-        items.push(QuotaSourceSummary {
-            id: account.id.clone(),
-            kind: "openai_account".to_string(),
-            name: account.label.clone(),
-            status: if account_is_available(&account) {
-                "ok".to_string()
-            } else {
-                account.status
-            },
-            metric_kind: "window_percent".to_string(),
-            remaining,
-            total: Some(100.0),
-            used,
-            unit: Some("percent".to_string()),
-            models: source_models("openai_account", &account.id, &assignments, &api_models),
-            provider: Some("openai".to_string()),
-            captured_at: usage.map(|item| item.captured_at),
-            error: None,
-        });
-    }
-
-    Ok(QuotaSourceListResult { items })
+fn read_account_quota_source_items(
+    storage: &codexmanager_core::storage::Storage,
+    source_ids: Option<&Vec<String>>,
+    offset: i64,
+    limit: i64,
+) -> Result<Vec<QuotaSourceSummary>, String> {
+    let accounts = if let Some(ids) = source_ids {
+        storage
+            .list_accounts_by_ids(&paginate_owned_by_offset(ids.clone(), offset, limit))
+            .map_err(|err| format!("list accounts failed: {err}"))?
+    } else {
+        storage
+            .list_accounts_paginated(None, None, offset, limit)
+            .map_err(|err| format!("list accounts failed: {err}"))?
+    };
+    let account_ids = accounts
+        .iter()
+        .map(|account| account.id.clone())
+        .collect::<Vec<_>>();
+    let price_rules = model_pricing::load_enabled_price_rules(storage)?;
+    let api_models = api_available_model_slugs(storage, &price_rules)?;
+    let assignments = assignment_map(
+        storage
+            .list_quota_source_model_assignments_for_source_ids("openai_account", &account_ids)
+            .map_err(|err| format!("list quota source assignments failed: {err}"))?,
+    );
+    let usage_map = storage
+        .latest_usage_snapshots_by_account_ids(&account_ids)
+        .map_err(|err| format!("read account usage failed: {err}"))?
+        .into_iter()
+        .map(|item| (item.account_id.clone(), item))
+        .collect::<HashMap<_, _>>();
+    Ok(accounts
+        .into_iter()
+        .map(|account| {
+            let usage = usage_map.get(account.id.as_str());
+            let remaining = usage.and_then(|item| remaining_percent(item.used_percent));
+            let used = usage.and_then(|item| item.used_percent);
+            QuotaSourceSummary {
+                id: account.id.clone(),
+                kind: "openai_account".to_string(),
+                name: account.label.clone(),
+                status: if account_is_available(&account) {
+                    "ok".to_string()
+                } else {
+                    account.status
+                },
+                metric_kind: "window_percent".to_string(),
+                remaining,
+                total: Some(100.0),
+                used,
+                unit: Some("percent".to_string()),
+                models: source_models("openai_account", &account.id, &assignments, &api_models),
+                provider: Some("openai".to_string()),
+                captured_at: usage.map(|item| item.captured_at),
+                error: None,
+            }
+        })
+        .collect())
 }
 
 pub(crate) fn refresh_quota_sources(

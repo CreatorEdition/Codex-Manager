@@ -73,6 +73,7 @@
 - Token refresh 失败退避与永久无效过滤：后台令牌刷新跳过最新状态为 `refresh_token_invalid:*` 的账号，普通失败会推迟 `next_refresh_at`，避免坏 token 每分钟反复进入轮询并写入状态/事件。
 - 账号状态事件历史剪枝：观测维护不再永久保留全部 `account_status_update` 流水，改为每账号保留最新状态事件并按批清理过期历史状态，降低 `events` 表和 WAL 长期膨胀。
 - 网关候选缓存默认延寿：`CODEXMANAGER_CANDIDATE_CACHE_TTL_MS` 默认从 500ms 提高到 5000ms，账号状态变化仍会主动失效缓存，降低高 RPS 下候选池重建和最新用量查询频率。
+- 配额来源列表默认分页：`quota/sourceList` 支持 `sourceKind/sourceIds/page/pageSize`，裸调用默认只返回第一页 100 条并只装饰当前页来源，避免旧 RPC 一次性读取全部 API Key、聚合 API、账号和最新用量。
 
 ### ⚠️ 待处理
 

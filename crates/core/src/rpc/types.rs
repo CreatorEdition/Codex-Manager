@@ -599,6 +599,9 @@ pub struct QuotaSourceSummary {
 #[serde(rename_all = "camelCase")]
 pub struct QuotaSourceListResult {
     pub items: Vec<QuotaSourceSummary>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

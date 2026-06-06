@@ -122,6 +122,13 @@ export interface QuotaSourceSummary {
   error: string | null;
 }
 
+export interface QuotaSourceListResult {
+  items: QuotaSourceSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface QuotaRefreshSourcesParams {
   kinds?: Array<"aggregate_api" | "openai_account">;
   sourceIds?: string[];
