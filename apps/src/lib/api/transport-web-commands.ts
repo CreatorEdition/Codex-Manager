@@ -560,9 +560,6 @@ export function createWebCommandMap(
       mapParams: (params) => asRecord(asRecord(params)?.payload) ?? {},
     },
     service_model_catalog_delete: { rpcMethod: "apikey/modelCatalogDelete" },
-    service_model_catalog_prune_stale_remote: {
-      rpcMethod: "apikey/modelCatalogPruneStaleRemote",
-    },
     service_model_routing: { rpcMethod: "apikey/modelRouting" },
     service_model_source_sync: {
       rpcMethod: "apikey/modelSourceSync",
@@ -578,17 +575,6 @@ export function createWebCommandMap(
     },
     service_model_source_mapping_delete: {
       rpcMethod: "apikey/modelSourceMappingDelete",
-      mapParams: (params) => asRecord(asRecord(params)?.payload) ?? {},
-    },
-    service_model_price_rules_list: {
-      rpcMethod: "quota/modelPriceRules/list",
-    },
-    service_model_price_rule_read: {
-      rpcMethod: "quota/modelPriceRule/read",
-    },
-    service_model_price_rule_upsert: {
-      rpcMethod: "quota/modelPriceRule/upsert",
-      mapParams: (params) => asRecord(asRecord(params)?.payload) ?? {},
     },
     service_apikey_read_secret: {
       rpcMethod: "apikey/readSecret",
@@ -617,8 +603,22 @@ export function createWebCommandMap(
     service_gateway_codex_latest_version_get: {
       rpcMethod: "gateway/codexLatestVersion/get",
     },
-    service_requestlog_list: { rpcMethod: "requestlog/list" },
-    service_requestlog_summary: { rpcMethod: "requestlog/summary" },
+    service_requestlog_list: {
+      rpcMethod: "requestlog/list",
+      requestOptions: {
+        timeoutMs: 30000,
+        retries: 0,
+        timeoutMessage: "RPC requestlog/list 超时：请求日志查询超过 30 秒",
+      },
+    },
+    service_requestlog_summary: {
+      rpcMethod: "requestlog/summary",
+      requestOptions: {
+        timeoutMs: 30000,
+        retries: 0,
+        timeoutMessage: "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒",
+      },
+    },
     service_requestlog_clear: { rpcMethod: "requestlog/clear" },
     service_requestlog_today_summary: { rpcMethod: "requestlog/today_summary" },
     service_plugin_catalog_list: { rpcMethod: "plugin/catalog/list" },

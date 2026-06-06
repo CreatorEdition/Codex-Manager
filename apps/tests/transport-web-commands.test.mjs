@@ -199,6 +199,18 @@ test("createWebCommandMap 为重 RPC 配置独立超时且不默认重试", () =
     retries: 0,
     timeoutMessage: "RPC quota/modelPools 超时：模型池查询超过 30 秒",
   });
+
+  assert.deepEqual(commandMap.service_requestlog_list.requestOptions, {
+    timeoutMs: 30000,
+    retries: 0,
+    timeoutMessage: "RPC requestlog/list 超时：请求日志查询超过 30 秒",
+  });
+
+  assert.deepEqual(commandMap.service_requestlog_summary.requestOptions, {
+    timeoutMs: 30000,
+    retries: 0,
+    timeoutMessage: "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒",
+  });
 });
 
 test("createWebCommandMap 为外部协议跳转提供当前窗口回退", async () => {

@@ -75,6 +75,7 @@ type StatusFilter = "all" | "2xx" | "4xx" | "5xx";
 type LogsTab = "requests";
 type TimeRangePreset = "all" | "30m" | "2h" | "24h" | "today" | "custom";
 type TranslateFn = (message: string, values?: Record<string, string | number>) => string;
+const REQUEST_LOG_LIST_REFETCH_INTERVAL_MS = 30_000;
 
 function padDateTimeSegment(value: number): string {
   return String(value).padStart(2, "0");
@@ -1438,7 +1439,8 @@ function LogsPageContent() {
         pageSize: pageSizeNumber,
       }),
     enabled: areLogQueriesEnabled && isPageActive,
-    refetchInterval: 5000,
+    refetchInterval: REQUEST_LOG_LIST_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
     retry: 1,
     placeholderData: (previousData): RequestLogListResult | undefined =>
       previousData ||
@@ -1462,7 +1464,7 @@ function LogsPageContent() {
         endTs,
       }),
     enabled: areLogQueriesEnabled && isPageActive,
-    refetchInterval: 5000,
+    staleTime: 30_000,
     retry: 1,
     placeholderData: (previousData) =>
       previousData ||
