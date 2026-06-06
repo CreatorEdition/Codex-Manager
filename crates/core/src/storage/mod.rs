@@ -263,6 +263,36 @@ pub struct ApiKeyTokenUsageSummary {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct ApiKeyQuotaOverviewSummary {
+    pub key_count: i64,
+    pub limited_key_count: i64,
+    pub total_limit_tokens: i64,
+    pub total_used_tokens: i64,
+    pub total_remaining_tokens: i64,
+    pub estimated_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AggregateApiQuotaOverviewSummary {
+    pub source_count: i64,
+    pub enabled_balance_query_count: i64,
+    pub ok_count: i64,
+    pub error_count: i64,
+    pub total_balance_usd: Option<f64>,
+    pub last_refreshed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AccountQuotaOverviewSummary {
+    pub account_count: i64,
+    pub available_count: i64,
+    pub low_quota_count: i64,
+    pub primary_remain_percent: Option<i64>,
+    pub secondary_remain_percent: Option<i64>,
+    pub last_refreshed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct TokenUsageSummary {
     pub model: String,
     pub input_tokens: i64,

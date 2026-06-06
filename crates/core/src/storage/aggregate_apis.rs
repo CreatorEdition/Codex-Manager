@@ -1,6 +1,8 @@
 use rusqlite::{params, params_from_iter, types::Value, Result, Row};
 
-use super::{now_ts, AggregateApi, AggregateApiSupplierModel, Storage};
+use super::{
+    now_ts, AggregateApi, AggregateApiQuotaOverviewSummary, AggregateApiSupplierModel, Storage,
+};
 
 const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     id,
@@ -121,6 +123,50 @@ impl Storage {
             out.push(map_aggregate_api_row(row)?);
         }
         Ok(out)
+    }
+
+    /// 汇总聚合 API 配额概览，避免上层读取全部来源后再解析余额 JSON。
+    pub fn quota_aggregate_api_overview_summary(&self) -> Result<AggregateApiQuotaOverviewSummary> {
+        self.conn.query_row(
+            "WITH balance_values AS (
+                SELECT
+                    CASE
+                        WHEN last_balance_json IS NOT NULL
+                             AND json_valid(last_balance_json)
+                             AND json_type(last_balance_json, '$.remaining') IN ('integer', 'real')
+                             AND json_extract(last_balance_json, '$.remaining') >= 0.0
+                        THEN json_extract(last_balance_json, '$.remaining')
+                        ELSE NULL
+                    END AS remaining_usd
+                FROM aggregate_apis
+             )
+             SELECT
+                COUNT(1) AS source_count,
+                IFNULL(SUM(CASE WHEN balance_query_enabled THEN 1 ELSE 0 END), 0) AS enabled_balance_query_count,
+                IFNULL(SUM(CASE WHEN last_balance_status = 'success' THEN 1 ELSE 0 END), 0) AS ok_count,
+                IFNULL(SUM(CASE WHEN last_balance_status IN ('error', 'failed') THEN 1 ELSE 0 END), 0) AS error_count,
+                IFNULL((SELECT COUNT(1) FROM balance_values WHERE remaining_usd IS NOT NULL), 0) AS balance_count,
+                (SELECT SUM(remaining_usd) FROM balance_values WHERE remaining_usd IS NOT NULL) AS total_balance_usd,
+                MAX(last_balance_at) AS last_refreshed_at
+             FROM aggregate_apis",
+            [],
+            |row| {
+                let balance_count = row.get::<_, i64>(4)?.max(0);
+                let total_balance_usd = if balance_count > 0 {
+                    Some(row.get::<_, Option<f64>>(5)?.unwrap_or(0.0).max(0.0))
+                } else {
+                    None
+                };
+                Ok(AggregateApiQuotaOverviewSummary {
+                    source_count: row.get::<_, i64>(0)?.max(0),
+                    enabled_balance_query_count: row.get::<_, i64>(1)?.max(0),
+                    ok_count: row.get::<_, i64>(2)?.max(0),
+                    error_count: row.get::<_, i64>(3)?.max(0),
+                    total_balance_usd,
+                    last_refreshed_at: row.get(6)?,
+                })
+            },
+        )
     }
 
     pub fn aggregate_api_count_filtered(
@@ -1020,6 +1066,93 @@ fn build_aggregate_api_filter_sql(
 
 fn normalize_supplier_model_text(value: &str) -> String {
     value.trim().to_string()
+}
+
+#[cfg(test)]
+mod overview_tests {
+    use super::*;
+
+    fn sample_aggregate_api(
+        id: &str,
+        balance_query_enabled: bool,
+        last_balance_status: Option<&str>,
+        last_balance_json: Option<&str>,
+        last_balance_at: Option<i64>,
+    ) -> AggregateApi {
+        let now = now_ts();
+        AggregateApi {
+            id: id.to_string(),
+            provider_type: "codex".to_string(),
+            supplier_name: Some(id.to_string()),
+            sort: 0,
+            url: format!("https://example.com/{id}"),
+            auth_type: "bearer".to_string(),
+            auth_params_json: None,
+            action: None,
+            model_override: None,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+            balance_query_enabled,
+            balance_query_template: None,
+            balance_query_base_url: None,
+            balance_query_user_id: None,
+            balance_query_config_json: None,
+            last_balance_at,
+            last_balance_status: last_balance_status.map(ToOwned::to_owned),
+            last_balance_error: None,
+            last_balance_json: last_balance_json.map(ToOwned::to_owned),
+        }
+    }
+
+    #[test]
+    fn quota_aggregate_api_overview_summary_parses_balance_and_status() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+
+        for api in [
+            sample_aggregate_api(
+                "agg-ok",
+                true,
+                Some("success"),
+                Some(r#"{"remaining":12.5}"#),
+                Some(100),
+            ),
+            sample_aggregate_api(
+                "agg-error",
+                false,
+                Some("error"),
+                Some(r#"{"remaining":3.5}"#),
+                Some(200),
+            ),
+            sample_aggregate_api(
+                "agg-failed",
+                true,
+                Some("failed"),
+                Some(r#"{"remaining":-1}"#),
+                Some(150),
+            ),
+            sample_aggregate_api("agg-unknown", false, None, Some("not-json"), None),
+        ] {
+            storage
+                .insert_aggregate_api(&api)
+                .expect("insert aggregate api");
+        }
+
+        let summary = storage
+            .quota_aggregate_api_overview_summary()
+            .expect("quota aggregate overview");
+
+        assert_eq!(summary.source_count, 4);
+        assert_eq!(summary.enabled_balance_query_count, 2);
+        assert_eq!(summary.ok_count, 1);
+        assert_eq!(summary.error_count, 2);
+        assert_eq!(summary.total_balance_usd, Some(16.0));
+        assert_eq!(summary.last_refreshed_at, Some(200));
+    }
 }
 
 #[cfg(test)]

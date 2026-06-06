@@ -274,24 +274,6 @@ fn average_percent(values: impl Iterator<Item = Option<f64>>) -> Option<i64> {
     (count > 0).then(|| (total / count as f64).round() as i64)
 }
 
-fn is_low_quota(usage: Option<&UsageSnapshotRecord>) -> bool {
-    let Some(usage) = usage else {
-        return false;
-    };
-    for remain in [
-        remaining_percent(usage.used_percent),
-        remaining_percent(usage.secondary_used_percent),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if remain > 0.0 && remain <= 20.0 {
-            return true;
-        }
-    }
-    false
-}
-
 fn account_is_available(account: &Account) -> bool {
     matches!(account.status.as_str(), "active" | "available")
 }
@@ -416,87 +398,15 @@ pub(crate) fn read_quota_overview() -> Result<QuotaOverviewResult, String> {
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let _price_rules = model_pricing::load_enabled_price_rules(&storage)?;
 
-    let api_keys = storage
-        .list_api_keys()
-        .map_err(|err| format!("list api keys failed: {err}"))?;
-    let quota_limits = storage
-        .list_api_key_quota_limits()
-        .map_err(|err| format!("list api key quota limits failed: {err}"))?;
-    let usage_by_key = storage
-        .summarize_request_token_stats_by_key()
-        .map_err(|err| format!("summarize api key usage failed: {err}"))?;
-    let usage_map = usage_by_key
-        .iter()
-        .map(|item| (item.key_id.as_str(), item))
-        .collect::<HashMap<_, _>>();
-
-    let mut total_limit_tokens = 0_i64;
-    let mut total_used_tokens = 0_i64;
-    let mut total_remaining_tokens = 0_i64;
-    let mut estimated_cost_usd = 0.0_f64;
-    for key in &api_keys {
-        let used = usage_map
-            .get(key.id.as_str())
-            .map(|item| item.total_tokens.max(0))
-            .unwrap_or(0);
-        total_used_tokens = total_used_tokens.saturating_add(used);
-        estimated_cost_usd += usage_map
-            .get(key.id.as_str())
-            .map(|item| item.estimated_cost_usd.max(0.0))
-            .unwrap_or(0.0);
-        if let Some(limit) = quota_limits
-            .get(key.id.as_str())
-            .copied()
-            .filter(|value| *value > 0)
-        {
-            total_limit_tokens = total_limit_tokens.saturating_add(limit);
-            total_remaining_tokens =
-                total_remaining_tokens.saturating_add(limit.saturating_sub(used));
-        }
-    }
-
-    let aggregate_apis = storage
-        .list_aggregate_apis()
-        .map_err(|err| format!("list aggregate APIs failed: {err}"))?;
-    let mut aggregate_ok_count = 0_i64;
-    let mut aggregate_error_count = 0_i64;
-    let mut total_balance_usd = 0.0_f64;
-    let mut has_balance = false;
-    let mut last_refreshed_at: Option<i64> = None;
-    for api in &aggregate_apis {
-        match api.last_balance_status.as_deref() {
-            Some("success") => aggregate_ok_count += 1,
-            Some("error" | "failed") => aggregate_error_count += 1,
-            _ => {}
-        }
-        if let Some(balance) = balance_usd(api) {
-            total_balance_usd += balance;
-            has_balance = true;
-        }
-        if let Some(ts) = api.last_balance_at {
-            last_refreshed_at = Some(last_refreshed_at.map_or(ts, |current| current.max(ts)));
-        }
-    }
-
-    let accounts = storage
-        .list_accounts()
-        .map_err(|err| format!("list accounts failed: {err}"))?;
-    let usage_items = storage
-        .latest_usage_snapshots_by_account()
-        .map_err(|err| format!("list usage snapshots failed: {err}"))?;
-    let usage_map = usage_items
-        .iter()
-        .map(|item| (item.account_id.as_str(), item))
-        .collect::<HashMap<_, _>>();
-    let last_usage_at = usage_items.iter().map(|item| item.captured_at).max();
-    let available_count = accounts
-        .iter()
-        .filter(|account| account_is_available(account))
-        .count() as i64;
-    let low_quota_count = accounts
-        .iter()
-        .filter(|account| is_low_quota(usage_map.get(account.id.as_str()).copied()))
-        .count() as i64;
+    let api_key_summary = storage
+        .quota_api_key_overview_summary()
+        .map_err(|err| format!("summarize api key overview failed: {err}"))?;
+    let aggregate_api_summary = storage
+        .quota_aggregate_api_overview_summary()
+        .map_err(|err| format!("summarize aggregate API overview failed: {err}"))?;
+    let openai_account_summary = storage
+        .quota_openai_account_overview_summary()
+        .map_err(|err| format!("summarize OpenAI account overview failed: {err}"))?;
 
     let (day_start, day_end) = local_day_bounds_ts()?;
     let today = storage
@@ -508,39 +418,30 @@ pub(crate) fn read_quota_overview() -> Result<QuotaOverviewResult, String> {
 
     Ok(QuotaOverviewResult {
         api_key: QuotaApiKeyOverviewResult {
-            key_count: api_keys.len() as i64,
-            limited_key_count: quota_limits.len() as i64,
-            total_limit_tokens: (total_limit_tokens > 0).then_some(total_limit_tokens),
-            total_used_tokens,
-            total_remaining_tokens: (total_limit_tokens > 0).then_some(total_remaining_tokens),
-            estimated_cost_usd: estimated_cost_usd.max(0.0),
+            key_count: api_key_summary.key_count,
+            limited_key_count: api_key_summary.limited_key_count,
+            total_limit_tokens: (api_key_summary.total_limit_tokens > 0)
+                .then_some(api_key_summary.total_limit_tokens),
+            total_used_tokens: api_key_summary.total_used_tokens,
+            total_remaining_tokens: (api_key_summary.total_limit_tokens > 0)
+                .then_some(api_key_summary.total_remaining_tokens),
+            estimated_cost_usd: api_key_summary.estimated_cost_usd,
         },
         aggregate_api: QuotaAggregateApiOverviewResult {
-            source_count: aggregate_apis.len() as i64,
-            enabled_balance_query_count: aggregate_apis
-                .iter()
-                .filter(|api| api.balance_query_enabled)
-                .count() as i64,
-            ok_count: aggregate_ok_count,
-            error_count: aggregate_error_count,
-            total_balance_usd: has_balance.then_some(total_balance_usd.max(0.0)),
-            last_refreshed_at,
+            source_count: aggregate_api_summary.source_count,
+            enabled_balance_query_count: aggregate_api_summary.enabled_balance_query_count,
+            ok_count: aggregate_api_summary.ok_count,
+            error_count: aggregate_api_summary.error_count,
+            total_balance_usd: aggregate_api_summary.total_balance_usd,
+            last_refreshed_at: aggregate_api_summary.last_refreshed_at,
         },
         openai_account: QuotaOpenAiAccountOverviewResult {
-            account_count: accounts.len() as i64,
-            available_count,
-            low_quota_count,
-            primary_remain_percent: average_percent(
-                usage_items
-                    .iter()
-                    .map(|item| remaining_percent(item.used_percent)),
-            ),
-            secondary_remain_percent: average_percent(
-                usage_items
-                    .iter()
-                    .map(|item| remaining_percent(item.secondary_used_percent)),
-            ),
-            last_refreshed_at: last_usage_at,
+            account_count: openai_account_summary.account_count,
+            available_count: openai_account_summary.available_count,
+            low_quota_count: openai_account_summary.low_quota_count,
+            primary_remain_percent: openai_account_summary.primary_remain_percent,
+            secondary_remain_percent: openai_account_summary.secondary_remain_percent,
+            last_refreshed_at: openai_account_summary.last_refreshed_at,
         },
         today_usage: QuotaTodayUsageResult {
             input_tokens: today_input,

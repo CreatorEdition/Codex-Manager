@@ -2,7 +2,10 @@ use rusqlite::{params_from_iter, Result, Row};
 
 use crate::rpc::types::UsageAggregateSummaryResult;
 
-use super::{sqlite_placeholders, sqlite_text_params, Storage, UsageSnapshotRecord};
+use super::{
+    sqlite_placeholders, sqlite_text_params, AccountQuotaOverviewSummary, Storage,
+    UsageSnapshotRecord,
+};
 
 const DEFAULT_USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT: usize = 1;
 const USAGE_SNAPSHOTS_RETAIN_PER_ACCOUNT_ENV: &str =
@@ -534,6 +537,72 @@ impl Storage {
         )
     }
 
+    /// 汇总 OpenAI 账号配额概览，避免上层读取全部账号和最新用量快照后再聚合。
+    pub fn quota_openai_account_overview_summary(&self) -> Result<AccountQuotaOverviewSummary> {
+        self.conn.query_row(
+            "WITH scoped AS (
+                SELECT
+                    a.id,
+                    a.status,
+                    lu.used_percent,
+                    lu.secondary_used_percent,
+                    lu.captured_at
+                FROM accounts a
+                LEFT JOIN usage_snapshots lu
+                  ON lu.id = (
+                    SELECT us.id
+                    FROM usage_snapshots us
+                    WHERE us.account_id = a.id
+                    ORDER BY us.captured_at DESC, us.id DESC
+                    LIMIT 1
+                  )
+             )
+             SELECT
+                COUNT(1) AS account_count,
+                IFNULL(SUM(CASE WHEN status IN ('active', 'available') THEN 1 ELSE 0 END), 0) AS available_count,
+                IFNULL(SUM(
+                    CASE
+                        WHEN (used_percent >= 80.0 AND used_percent < 100.0)
+                             OR (secondary_used_percent >= 80.0 AND secondary_used_percent < 100.0)
+                        THEN 1 ELSE 0
+                    END
+                ), 0) AS low_quota_count,
+                IFNULL(SUM(
+                    CASE
+                        WHEN used_percent IS NOT NULL
+                        THEN MAX(0.0, 100.0 - MIN(100.0, MAX(0.0, used_percent)))
+                        ELSE 0.0
+                    END
+                ), 0.0) AS primary_remaining_total,
+                IFNULL(SUM(CASE WHEN used_percent IS NOT NULL THEN 1 ELSE 0 END), 0) AS primary_known_count,
+                IFNULL(SUM(
+                    CASE
+                        WHEN secondary_used_percent IS NOT NULL
+                        THEN MAX(0.0, 100.0 - MIN(100.0, MAX(0.0, secondary_used_percent)))
+                        ELSE 0.0
+                    END
+                ), 0.0) AS secondary_remaining_total,
+                IFNULL(SUM(CASE WHEN secondary_used_percent IS NOT NULL THEN 1 ELSE 0 END), 0) AS secondary_known_count,
+                MAX(captured_at) AS last_refreshed_at
+             FROM scoped",
+            [],
+            |row| {
+                let primary_total = row.get::<_, f64>(3)?;
+                let primary_count = row.get::<_, i64>(4)?;
+                let secondary_total = row.get::<_, f64>(5)?;
+                let secondary_count = row.get::<_, i64>(6)?;
+                Ok(AccountQuotaOverviewSummary {
+                    account_count: row.get::<_, i64>(0)?.max(0),
+                    available_count: row.get::<_, i64>(1)?.max(0),
+                    low_quota_count: row.get::<_, i64>(2)?.max(0),
+                    primary_remain_percent: average_percent(primary_total, primary_count),
+                    secondary_remain_percent: average_percent(secondary_total, secondary_count),
+                    last_refreshed_at: row.get(7)?,
+                })
+            },
+        )
+    }
+
     /// 函数 `ensure_usage_secondary_columns`
     ///
     /// 作者: gaohongshun
@@ -900,5 +969,75 @@ mod tests {
         assert_eq!(result.secondary_known_count, 3);
         assert_eq!(result.secondary_unknown_count, 1);
         assert_eq!(result.secondary_remain_percent, Some(67));
+    }
+
+    #[test]
+    fn quota_openai_account_overview_summary_uses_latest_usage_per_account() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        for account in [
+            sample_account("acc-active", now),
+            Account {
+                id: "acc-disabled".to_string(),
+                label: "acc-disabled".to_string(),
+                issuer: "test".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort: 0,
+                status: "disabled".to_string(),
+                created_at: now,
+                updated_at: now,
+            },
+            sample_account("acc-low", now),
+        ] {
+            storage.insert_account(&account).expect("insert account");
+        }
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-active",
+                now,
+                Some(95.0),
+                Some(300),
+                Some(95.0),
+                Some(10080),
+                None,
+            ))
+            .expect("insert old active usage");
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-active",
+                now + 10,
+                Some(20.0),
+                Some(300),
+                Some(40.0),
+                Some(10080),
+                None,
+            ))
+            .expect("insert latest active usage");
+        storage
+            .insert_usage_snapshot(&usage_snapshot(
+                "acc-low",
+                now + 20,
+                Some(85.0),
+                Some(300),
+                None,
+                None,
+                None,
+            ))
+            .expect("insert low quota usage");
+
+        let summary = storage
+            .quota_openai_account_overview_summary()
+            .expect("quota openai account overview");
+
+        assert_eq!(summary.account_count, 3);
+        assert_eq!(summary.available_count, 2);
+        assert_eq!(summary.low_quota_count, 1);
+        assert_eq!(summary.primary_remain_percent, Some(48));
+        assert_eq!(summary.secondary_remain_percent, Some(60));
+        assert_eq!(summary.last_refreshed_at, Some(now + 20));
     }
 }

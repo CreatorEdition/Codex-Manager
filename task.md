@@ -77,6 +77,8 @@
 - API Key 配额用量默认分页：`quota/apiKeyUsage` 支持 `keyIds/page/pageSize/includeModels`，裸调用默认只返回第一页 100 条且不计算模型明细，避免全量 Key、quota limit、token stats 与 key+model 聚合。
 - 账号体系用户列表裸调用默认分页：`accountManager/users/list` 无 `ids/page/pageSize` 时默认返回第一页分页结果，前端旧 `listAppUsers()` 兼容读取 `items`，避免旧入口一次性读取全部用户和钱包。
 - 聚合 API 供应商模型列表 SQL 下推：`aggregateApi/supplierModels/list` 支持 `page/pageSize`，并把 `supplierKey/providerType` 过滤下推到 SQLite，避免先全表读取后在 Rust 层过滤。
+- 模型路由裸读取不再全局自举：`apikey/modelRouting` 无来源过滤时只读取已有路由数据，不再触发账号池和聚合 API 全局 source model bootstrap；来源级读取仍同步当前来源。
+- 配额概览 SQL 汇总：`quota/overview` 不再全量读取 API Key、聚合 API、账号和最新用量快照后在 Rust 层聚合，改由 storage 层返回 API Key / 聚合 API / OpenAI 账号概览汇总行，降低几千来源时的对象搬运和 CPU。
 
 ### ⚠️ 待处理
 
