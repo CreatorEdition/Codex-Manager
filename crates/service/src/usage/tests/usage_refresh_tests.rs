@@ -3,9 +3,10 @@ use super::{
     next_usage_poll_cursor, notify_usage_refresh_completed, reset_usage_poll_cursor_for_tests,
     resolve_token_refresh_issuer, run_token_refresh_task, set_usage_refresh_completed_handler,
     should_retry_usage_refresh_with_token, subscribe_usage_refresh_completed,
-    token_refresh_access_exp_cutoff, token_refresh_due_cutoff, token_refresh_schedule,
-    usage_poll_batch_indices,
+    token_refresh_access_exp_cutoff, token_refresh_due_cutoff, token_refresh_failure_cooldown_secs,
+    token_refresh_schedule, usage_poll_batch_indices,
 };
+use crate::usage_scheduler::DEFAULT_USAGE_POLL_INTERVAL_SECS;
 use codexmanager_core::storage::{now_ts, Account, Storage, Token};
 use std::collections::HashSet;
 use std::sync::mpsc;
@@ -312,6 +313,22 @@ fn due_cutoff_includes_next_poll_window_and_buffer() {
 #[test]
 fn access_exp_cutoff_includes_refresh_ahead_window() {
     assert_eq!(token_refresh_access_exp_cutoff(1_000, 3600), 4_600);
+}
+
+#[test]
+fn default_token_refresh_failure_cooldown_covers_usage_poll_interval() {
+    let _guard = crate::test_env_guard();
+    let previous = std::env::var("CODEXMANAGER_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS").ok();
+    std::env::remove_var("CODEXMANAGER_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS");
+
+    assert!(
+        token_refresh_failure_cooldown_secs() >= DEFAULT_USAGE_POLL_INTERVAL_SECS,
+        "默认 token refresh 失败冷却必须避免坏 token 每分钟反复进入轮询"
+    );
+
+    if let Some(previous) = previous {
+        std::env::set_var("CODEXMANAGER_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS", previous);
+    }
 }
 
 /// 函数 `due_cutoff_covers_boundary_when_poll_interval_matches_refresh_ahead`

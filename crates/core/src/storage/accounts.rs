@@ -1101,6 +1101,7 @@ fn usage_refresh_status_reason_clause() -> &'static str {
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=workspace_deactivated'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=deactivated_workspace'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_region_blocked'
+            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:%'
         )
     )"
 }
@@ -1383,8 +1384,10 @@ mod tests {
         empty_refresh.sort = 5;
         let mut blocked = sample_account("acc-blocked", "active", now);
         blocked.sort = 6;
+        let mut invalid_refresh = sample_account("acc-invalid-refresh", "active", now);
+        invalid_refresh.sort = 7;
         let mut restored = sample_account("acc-restored", "active", now);
-        restored.sort = 7;
+        restored.sort = 8;
 
         for account in [
             &active_a,
@@ -1393,13 +1396,20 @@ mod tests {
             &banned,
             &empty_refresh,
             &blocked,
+            &invalid_refresh,
             &restored,
         ] {
             storage.insert_account(account).expect("insert account");
         }
 
         for account in [
-            &active_a, &active_b, &disabled, &banned, &blocked, &restored,
+            &active_a,
+            &active_b,
+            &disabled,
+            &banned,
+            &blocked,
+            &invalid_refresh,
+            &restored,
         ] {
             storage
                 .insert_token(&sample_token(account.id.as_str(), now))
@@ -1420,6 +1430,15 @@ mod tests {
                 created_at: now + 10,
             })
             .expect("insert blocked status event");
+        storage
+            .insert_event(&Event {
+                account_id: Some(invalid_refresh.id.clone()),
+                event_type: "account_status_update".to_string(),
+                message: "status=unavailable reason=refresh_token_invalid:refresh_token_reused"
+                    .to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert invalid refresh status event");
         storage
             .insert_event(&Event {
                 account_id: Some(restored.id.clone()),

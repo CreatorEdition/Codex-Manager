@@ -78,11 +78,15 @@ impl Storage {
                 FROM tokens
                 WHERE TRIM(COALESCE(refresh_token, '')) <> ''
                   AND (
-                       next_refresh_at IS NULL
-                       OR next_refresh_at <= ?1
+                       next_refresh_at <= ?1
                        OR (
-                           access_token_exp IS NOT NULL
-                           AND access_token_exp <= ?2
+                            next_refresh_at IS NULL
+                            AND access_token_exp IS NOT NULL
+                            AND access_token_exp <= ?2
+                        )
+                       OR (
+                            next_refresh_at IS NULL
+                            AND access_token_exp IS NULL
                        )
                   )
              )
@@ -94,6 +98,7 @@ impl Storage {
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=workspace_deactivated'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=deactivated_workspace'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_region_blocked'
+                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:%'
                 )
              ORDER BY COALESCE(next_refresh_at, 0) ASC, account_id ASC
              LIMIT ?3",
@@ -132,6 +137,20 @@ impl Storage {
                  next_refresh_at = ?2
              WHERE account_id = ?3",
             (access_token_exp, next_refresh_at, account_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_token_next_refresh_at(
+        &self,
+        account_id: &str,
+        next_refresh_at: Option<i64>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE tokens
+             SET next_refresh_at = ?1
+             WHERE account_id = ?2",
+            (next_refresh_at, account_id),
         )?;
         Ok(())
     }
@@ -363,7 +382,12 @@ mod tests {
         storage.init().expect("init");
         let now = now_ts();
 
-        for account_id in ["acc-due", "acc-blocked", "acc-restored"] {
+        for account_id in [
+            "acc-due",
+            "acc-blocked",
+            "acc-invalid-refresh",
+            "acc-restored",
+        ] {
             storage
                 .insert_account(&sample_account(account_id, now))
                 .expect("insert account");
@@ -383,6 +407,15 @@ mod tests {
                 created_at: now + 10,
             })
             .expect("insert blocked status");
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-invalid-refresh".to_string()),
+                event_type: "account_status_update".to_string(),
+                message: "status=unavailable reason=refresh_token_invalid:refresh_token_reused"
+                    .to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert invalid refresh status");
         storage
             .insert_event(&Event {
                 account_id: Some("acc-restored".to_string()),
@@ -408,5 +441,58 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(ids, vec!["acc-due".to_string(), "acc-restored".to_string()]);
+    }
+
+    #[test]
+    fn update_token_next_refresh_at_preserves_access_exp() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+        let account_id = "acc-token-next-refresh";
+        storage
+            .insert_account(&sample_account(account_id, now))
+            .expect("insert account");
+        storage
+            .insert_token(&sample_token(account_id, now))
+            .expect("insert token");
+        storage
+            .update_token_refresh_schedule(account_id, Some(now + 3_600), Some(now + 600))
+            .expect("seed schedule");
+        storage
+            .update_token_next_refresh_at(account_id, Some(now + 21_600))
+            .expect("update next refresh");
+
+        let row = storage
+            .conn
+            .query_row(
+                "SELECT access_token_exp, next_refresh_at FROM tokens WHERE account_id = ?1",
+                [account_id],
+                |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+            )
+            .expect("read token schedule");
+        assert_eq!(row, (Some(now + 3_600), Some(now + 21_600)));
+    }
+
+    #[test]
+    fn list_tokens_due_for_refresh_respects_future_retry_after_expired_access_token() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+        let account_id = "acc-token-backoff";
+        storage
+            .insert_account(&sample_account(account_id, now))
+            .expect("insert account");
+        storage
+            .insert_token(&sample_token(account_id, now))
+            .expect("insert token");
+        storage
+            .update_token_refresh_schedule(account_id, Some(now - 60), Some(now + 21_600))
+            .expect("seed failure backoff schedule");
+
+        let due = storage
+            .list_tokens_due_for_refresh(now, now + 3_600, 10)
+            .expect("list due tokens");
+
+        assert!(due.is_empty());
     }
 }

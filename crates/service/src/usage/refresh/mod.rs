@@ -69,6 +69,8 @@ const ENV_TOKEN_REFRESH_POLL_INTERVAL_SECS: &str = "CODEXMANAGER_TOKEN_REFRESH_P
 const ENV_WARMUP_CRON_ENABLED: &str = "CODEXMANAGER_WARMUP_CRON_ENABLED";
 const ENV_WARMUP_CRON_EXPRESSION: &str = "CODEXMANAGER_WARMUP_CRON_EXPRESSION";
 const ENV_TOKEN_REFRESH_BATCH_LIMIT: &str = "CODEXMANAGER_TOKEN_REFRESH_BATCH_LIMIT";
+const ENV_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS: &str =
+    "CODEXMANAGER_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS";
 const COMMON_POLL_JITTER_ENV: &str = "CODEXMANAGER_POLL_JITTER_SECS";
 const COMMON_POLL_FAILURE_BACKOFF_MAX_ENV: &str = "CODEXMANAGER_POLL_FAILURE_BACKOFF_MAX_SECS";
 const USAGE_POLL_JITTER_ENV: &str = "CODEXMANAGER_USAGE_POLL_JITTER_SECS";
@@ -91,6 +93,7 @@ const GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_ENV: &str =
 const DEFAULT_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 60;
 const MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 10;
 const TOKEN_REFRESH_FAILURE_BACKOFF_MAX_SECS: u64 = 300;
+const DEFAULT_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS: u64 = 21_600;
 const TOKEN_REFRESH_LOOKAHEAD_BUFFER_SECS: u64 = 60;
 const TOKEN_REFRESH_FALLBACK_AGE_SECS: i64 = 2700;
 const DEFAULT_TOKEN_REFRESH_BATCH_LIMIT: usize = 2048;
@@ -766,6 +769,20 @@ fn token_refresh_batch_limit() -> usize {
         .max(1)
 }
 
+fn token_refresh_failure_cooldown_secs() -> u64 {
+    std::env::var(ENV_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS)
+        .max(MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS)
+}
+
+fn schedule_token_refresh_failure_retry(storage: &Storage, account_id: &str, now: i64) {
+    let cooldown = i64::try_from(token_refresh_failure_cooldown_secs()).unwrap_or(i64::MAX);
+    let next_refresh_at = now.saturating_add(cooldown);
+    let _ = storage.update_token_next_refresh_at(account_id, Some(next_refresh_at));
+}
+
 /// 函数 `token_refresh_worker_count`
 ///
 /// 作者: gaohongshun
@@ -915,6 +932,7 @@ fn run_token_refresh_task(
         Ok(_) => true,
         Err(err) => {
             let _ = mark_account_unavailable_for_auth_error(storage, &token.account_id, &err);
+            schedule_token_refresh_failure_retry(storage, &token.account_id, now_ts());
             log::warn!(
                 "token refresh polling failed: account_id={} err={}",
                 token.account_id,
