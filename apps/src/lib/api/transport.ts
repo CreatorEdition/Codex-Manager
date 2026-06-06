@@ -55,10 +55,14 @@ async function invokeWebRpc<T>(
   if (!descriptor.rpcMethod) {
     throw new Error("当前 Web / Docker 版暂不支持该操作");
   }
+  const requestOptions = {
+    ...(descriptor.requestOptions ?? {}),
+    ...options,
+  };
   return postWebRpc<T>(
     descriptor.rpcMethod,
     descriptor.mapParams ? descriptor.mapParams(params) : params ?? {},
-    options
+    requestOptions
   );
 }
 

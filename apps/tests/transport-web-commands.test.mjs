@@ -187,6 +187,20 @@ test("createWebCommandMap 为模型来源映射命令提供 Web RPC 映射", () 
   });
 });
 
+test("createWebCommandMap 为重 RPC 配置独立超时且不默认重试", () => {
+  assert.deepEqual(commandMap.service_startup_snapshot.requestOptions, {
+    timeoutMs: 30000,
+    retries: 0,
+    timeoutMessage: "RPC startup/snapshot 超时：启动快照查询超过 30 秒",
+  });
+
+  assert.deepEqual(commandMap.service_quota_model_pools.requestOptions, {
+    timeoutMs: 30000,
+    retries: 0,
+    timeoutMessage: "RPC quota/modelPools 超时：模型池查询超过 30 秒",
+  });
+});
+
 test("createWebCommandMap 为外部协议跳转提供当前窗口回退", async () => {
   const previousWindow = globalThis.window;
   const location = { href: "/" };

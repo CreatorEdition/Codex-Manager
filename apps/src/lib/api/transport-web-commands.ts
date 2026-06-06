@@ -5,6 +5,7 @@ export type InvokeParams = Record<string, unknown>;
 export type WebCommandDescriptor = {
   rpcMethod?: string;
   mapParams?: (params?: InvokeParams) => InvokeParams;
+  requestOptions?: RequestOptions;
   direct?: (params?: InvokeParams, options?: RequestOptions) => Promise<unknown>;
 };
 
@@ -230,7 +231,14 @@ export function createWebCommandMap(
       mapParams: (params) => asRecord(asRecord(params)?.patch) ?? {},
     },
     service_initialize: { rpcMethod: "initialize" },
-    service_startup_snapshot: { rpcMethod: "startup/snapshot" },
+    service_startup_snapshot: {
+      rpcMethod: "startup/snapshot",
+      requestOptions: {
+        timeoutMs: 30000,
+        retries: 0,
+        timeoutMessage: "RPC startup/snapshot 超时：启动快照查询超过 30 秒",
+      },
+    },
     service_account_list: { rpcMethod: "account/list" },
     service_account_lookup: { rpcMethod: "account/lookup" },
     service_account_delete: { rpcMethod: "account/delete" },
@@ -352,7 +360,14 @@ export function createWebCommandMap(
     service_quota_model_usage: { rpcMethod: "quota/modelUsage" },
     service_quota_api_key_usage: { rpcMethod: "quota/apiKeyUsage" },
     service_quota_source_list: { rpcMethod: "quota/sourceList" },
-    service_quota_model_pools: { rpcMethod: "quota/modelPools" },
+    service_quota_model_pools: {
+      rpcMethod: "quota/modelPools",
+      requestOptions: {
+        timeoutMs: 30000,
+        retries: 0,
+        timeoutMessage: "RPC quota/modelPools 超时：模型池查询超过 30 秒",
+      },
+    },
     service_quota_model_pool_sources: { rpcMethod: "quota/modelPoolSources" },
     service_quota_system_pool: { rpcMethod: "quota/systemPool" },
     service_quota_capacity_config: { rpcMethod: "quota/capacityConfig" },
