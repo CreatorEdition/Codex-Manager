@@ -25,8 +25,22 @@ pub async fn service_quota_model_usage(
 #[tauri::command]
 pub async fn service_quota_api_key_usage(
     addr: Option<String>,
+    key_ids: Option<Vec<String>>,
+    page: Option<i64>,
+    page_size: Option<i64>,
+    include_models: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    rpc_call_in_background("quota/apiKeyUsage", addr, None).await
+    rpc_call_in_background(
+        "quota/apiKeyUsage",
+        addr,
+        Some(serde_json::json!({
+            "keyIds": key_ids,
+            "page": page,
+            "pageSize": page_size,
+            "includeModels": include_models,
+        })),
+    )
+    .await
 }
 
 #[tauri::command]

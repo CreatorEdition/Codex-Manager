@@ -74,6 +74,7 @@
 - 账号状态事件历史剪枝：观测维护不再永久保留全部 `account_status_update` 流水，改为每账号保留最新状态事件并按批清理过期历史状态，降低 `events` 表和 WAL 长期膨胀。
 - 网关候选缓存默认延寿：`CODEXMANAGER_CANDIDATE_CACHE_TTL_MS` 默认从 500ms 提高到 5000ms，账号状态变化仍会主动失效缓存，降低高 RPS 下候选池重建和最新用量查询频率。
 - 配额来源列表默认分页：`quota/sourceList` 支持 `sourceKind/sourceIds/page/pageSize`，裸调用默认只返回第一页 100 条并只装饰当前页来源，避免旧 RPC 一次性读取全部 API Key、聚合 API、账号和最新用量。
+- API Key 配额用量默认分页：`quota/apiKeyUsage` 支持 `keyIds/page/pageSize/includeModels`，裸调用默认只返回第一页 100 条且不计算模型明细，避免全量 Key、quota limit、token stats 与 key+model 聚合。
 
 ### ⚠️ 待处理
 

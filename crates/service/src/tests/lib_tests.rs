@@ -361,6 +361,70 @@ fn quota_source_list_bare_call_defaults_to_first_page() {
     let _ = std::fs::remove_file(db_path);
 }
 
+#[test]
+fn quota_api_key_usage_bare_call_defaults_to_first_page() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-quota-api-key-usage-page");
+    let user = create_test_member("quota-api-key-usage-user", Some(1_000_000));
+    let mut key_ids = Vec::new();
+    for index in 0..125 {
+        let key_id = create_owned_test_api_key(
+            &user.id,
+            &format!("quota usage key {index:03}"),
+            "gpt-5-mini",
+        );
+        if index == 0 {
+            insert_test_request_log(
+                &key_id,
+                "trace-quota-usage-key",
+                "gpt-5-mini",
+                200,
+                120,
+                20,
+                30,
+                0.012,
+                codexmanager_core::storage::now_ts(),
+            );
+        }
+        key_ids.push(key_id);
+    }
+
+    let resp = response_result(handle_request(rpc_request(
+        "quota/apiKeyUsage",
+        serde_json::json!({}),
+    )));
+    assert!(
+        rpc_error(&resp).is_empty(),
+        "quota/apiKeyUsage failed: {:?}",
+        resp.result
+    );
+    assert_eq!(resp.result["items"].as_array().unwrap().len(), 100);
+    assert_eq!(resp.result["total"], 125);
+    assert_eq!(resp.result["page"], 1);
+    assert_eq!(resp.result["pageSize"], 100);
+    assert!(resp.result["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|item| item["models"].as_array().unwrap().is_empty()));
+
+    let scoped = response_result(handle_request(rpc_request(
+        "quota/apiKeyUsage",
+        serde_json::json!({ "keyIds": [key_ids[0]], "includeModels": true }),
+    )));
+    assert_eq!(scoped.result["items"].as_array().unwrap().len(), 1);
+    assert_eq!(scoped.result["total"], 1);
+    assert_eq!(
+        scoped.result["items"][0]["models"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let _ = std::fs::remove_file(db_path);
+}
+
 fn insert_test_request_log(
     key_id: &str,
     trace_id: &str,

@@ -54,6 +54,8 @@ pub(crate) struct QuotaModelPoolsInput {
     pub(crate) source_kind: Option<String>,
 }
 
+const DEFAULT_QUOTA_API_KEY_USAGE_PAGE_SIZE: i64 = 100;
+const MAX_QUOTA_API_KEY_USAGE_PAGE_SIZE: i64 = 500;
 const DEFAULT_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 100;
 const MAX_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 500;
 const DEFAULT_QUOTA_SOURCE_LIST_PAGE_SIZE: i64 = 100;
@@ -75,6 +77,25 @@ pub(crate) struct QuotaModelPoolSourcesInput {
     pub(crate) source_ids: Option<Vec<String>>,
     pub(crate) page: Option<i64>,
     pub(crate) page_size: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct QuotaApiKeyUsageInput {
+    pub(crate) key_ids: Option<Vec<String>>,
+    pub(crate) page: Option<i64>,
+    pub(crate) page_size: Option<i64>,
+    pub(crate) include_models: bool,
+}
+
+impl QuotaApiKeyUsageInput {
+    fn normalized(self) -> Self {
+        Self {
+            key_ids: self.key_ids.map(normalize_id_list),
+            page: self.page,
+            page_size: self.page_size,
+            include_models: self.include_models,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -313,6 +334,12 @@ fn normalize_id_list(values: Vec<String>) -> Vec<String> {
 
 fn normalized_page(value: Option<i64>) -> i64 {
     value.unwrap_or(1).max(1)
+}
+
+fn normalized_quota_api_key_usage_page_size(value: Option<i64>) -> i64 {
+    value
+        .unwrap_or(DEFAULT_QUOTA_API_KEY_USAGE_PAGE_SIZE)
+        .clamp(1, MAX_QUOTA_API_KEY_USAGE_PAGE_SIZE)
 }
 
 fn normalized_model_pool_source_page_size(value: Option<i64>) -> i64 {
@@ -1765,25 +1792,67 @@ fn override_result(item: AccountQuotaCapacityOverride) -> AccountQuotaCapacityOv
     }
 }
 
-pub(crate) fn read_quota_api_key_usage() -> Result<QuotaApiKeyUsageResult, String> {
+pub(crate) fn read_quota_api_key_usage(
+    input: QuotaApiKeyUsageInput,
+) -> Result<QuotaApiKeyUsageResult, String> {
+    let input = input.normalized();
+    let page = normalized_page(input.page);
+    let page_size = normalized_quota_api_key_usage_page_size(input.page_size);
+    if matches!(input.key_ids.as_ref(), Some(ids) if ids.is_empty()) {
+        return Ok(QuotaApiKeyUsageResult {
+            items: Vec::new(),
+            total: 0,
+            page,
+            page_size,
+        });
+    }
+
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
-    let price_rules = model_pricing::load_enabled_price_rules(&storage)?;
-    let api_keys = storage
-        .list_api_keys()
-        .map_err(|err| format!("list api keys failed: {err}"))?;
+    let total = input
+        .key_ids
+        .as_ref()
+        .map(|ids| ids.len() as i64)
+        .unwrap_or(
+            storage
+                .api_key_count_filtered(None, None, None)
+                .map_err(|err| format!("count api keys failed: {err}"))?,
+        );
+    let api_keys = if let Some(ids) = input.key_ids.as_ref() {
+        storage
+            .list_api_keys_by_ids(&paginate_owned(ids.clone(), page, page_size), None)
+            .map_err(|err| format!("list api keys failed: {err}"))?
+    } else {
+        let offset = page.saturating_sub(1).saturating_mul(page_size).max(0);
+        storage
+            .list_api_keys_paginated(None, None, None, offset, page_size)
+            .map_err(|err| format!("list api keys failed: {err}"))?
+    };
+    let key_ids = api_keys
+        .iter()
+        .map(|key| key.id.clone())
+        .collect::<Vec<_>>();
     let quota_limits = storage
-        .list_api_key_quota_limits()
+        .list_api_key_quota_limits_for_key_ids(&key_ids)
         .map_err(|err| format!("list api key quota limits failed: {err}"))?;
     let usage_by_key = storage
-        .summarize_request_token_stats_by_key()
+        .summarize_request_token_stats_by_key_ids(&key_ids)
         .map_err(|err| format!("summarize api key usage failed: {err}"))?;
     let usage_map = usage_by_key
         .iter()
         .map(|item| (item.key_id.as_str(), item))
         .collect::<HashMap<_, _>>();
-    let model_usage = storage
-        .summarize_request_token_stats_by_key_and_model(None, None)
-        .map_err(|err| format!("summarize api key model usage failed: {err}"))?;
+    let price_rules = if input.include_models {
+        model_pricing::load_enabled_price_rules(&storage)?
+    } else {
+        Vec::new()
+    };
+    let model_usage = if input.include_models {
+        storage
+            .summarize_request_token_stats_by_key_ids_and_model(&key_ids, None, None)
+            .map_err(|err| format!("summarize api key model usage failed: {err}"))?
+    } else {
+        Vec::new()
+    };
     let mut models_by_key: BTreeMap<String, Vec<QuotaApiKeyModelUsageItem>> = BTreeMap::new();
     for item in model_usage {
         let cost = model_pricing::estimate_cost_with_rules(
@@ -1811,28 +1880,38 @@ pub(crate) fn read_quota_api_key_usage() -> Result<QuotaApiKeyUsageResult, Strin
     Ok(QuotaApiKeyUsageResult {
         items: api_keys
             .into_iter()
-            .map(|key| {
-                let used = usage_map
-                    .get(key.id.as_str())
-                    .map(|item| item.total_tokens.max(0))
-                    .unwrap_or(0);
-                let limit = quota_limits.get(key.id.as_str()).copied();
-                QuotaApiKeyUsageItem {
-                    key_id: key.id.clone(),
-                    name: key.name,
-                    model_slug: key.model_slug,
-                    quota_limit_tokens: limit,
-                    used_tokens: used,
-                    remaining_tokens: limit.map(|value| value.saturating_sub(used)),
-                    estimated_cost_usd: usage_map
-                        .get(key.id.as_str())
-                        .map(|item| item.estimated_cost_usd.max(0.0))
-                        .unwrap_or(0.0),
-                    models: models_by_key.remove(key.id.as_str()).unwrap_or_default(),
-                }
-            })
+            .map(|key| api_key_usage_item(key, &quota_limits, &usage_map, &mut models_by_key))
             .collect(),
+        total,
+        page,
+        page_size,
     })
+}
+
+fn api_key_usage_item(
+    key: ApiKey,
+    quota_limits: &HashMap<String, i64>,
+    usage_map: &HashMap<&str, &codexmanager_core::storage::ApiKeyTokenUsageSummary>,
+    models_by_key: &mut BTreeMap<String, Vec<QuotaApiKeyModelUsageItem>>,
+) -> QuotaApiKeyUsageItem {
+    let used = usage_map
+        .get(key.id.as_str())
+        .map(|item| item.total_tokens.max(0))
+        .unwrap_or(0);
+    let limit = quota_limits.get(key.id.as_str()).copied();
+    QuotaApiKeyUsageItem {
+        key_id: key.id.clone(),
+        name: key.name,
+        model_slug: key.model_slug,
+        quota_limit_tokens: limit,
+        used_tokens: used,
+        remaining_tokens: limit.map(|value| value.saturating_sub(used)),
+        estimated_cost_usd: usage_map
+            .get(key.id.as_str())
+            .map(|item| item.estimated_cost_usd.max(0.0))
+            .unwrap_or(0.0),
+        models: models_by_key.remove(key.id.as_str()).unwrap_or_default(),
+    }
 }
 
 pub(crate) fn read_quota_source_list(

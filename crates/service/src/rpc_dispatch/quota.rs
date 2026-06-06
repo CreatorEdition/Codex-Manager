@@ -1,8 +1,8 @@
 use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
 
 use crate::quota::read::{
-    self, BillingRuleUpsertInput, QuotaModelPoolSourcesInput, QuotaModelPoolsInput,
-    QuotaRefreshSourcesInput, QuotaSourceListInput,
+    self, BillingRuleUpsertInput, QuotaApiKeyUsageInput, QuotaModelPoolSourcesInput,
+    QuotaModelPoolsInput, QuotaRefreshSourcesInput, QuotaSourceListInput,
 };
 
 fn string_array_param(req: &JsonRpcRequest, key: &str) -> Vec<String> {
@@ -30,7 +30,20 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let end_ts = super::i64_param(req, "endTs");
             super::value_or_error(read::read_quota_model_usage(start_ts, end_ts))
         }
-        "quota/apiKeyUsage" => super::value_or_error(read::read_quota_api_key_usage()),
+        "quota/apiKeyUsage" => {
+            let key_ids = req
+                .params
+                .as_ref()
+                .and_then(|value| value.get("keyIds"))
+                .and_then(|value| value.as_array())
+                .map(|_| string_array_param(req, "keyIds"));
+            super::value_or_error(read::read_quota_api_key_usage(QuotaApiKeyUsageInput {
+                key_ids,
+                page: super::i64_param(req, "page"),
+                page_size: super::i64_param(req, "pageSize"),
+                include_models: super::bool_param(req, "includeModels").unwrap_or(false),
+            }))
+        }
         "quota/sourceList" => {
             let source_ids = req
                 .params

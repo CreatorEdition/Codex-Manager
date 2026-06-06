@@ -106,6 +106,13 @@ export interface QuotaApiKeyUsageItem {
   models: QuotaApiKeyModelUsageItem[];
 }
 
+export interface QuotaApiKeyUsageResult {
+  items: QuotaApiKeyUsageItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface QuotaSourceSummary {
   id: string;
   kind: "api_key" | "aggregate_api" | "openai_account" | string;

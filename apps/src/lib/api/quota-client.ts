@@ -3,6 +3,7 @@ import type {
   BillingRule,
   BillingRuleUpsertParams,
   QuotaApiKeyModelUsageItem,
+  QuotaApiKeyUsageResult,
   QuotaApiKeyUsageItem,
   QuotaCapacityConfigResult,
   QuotaModelPoolItem,
@@ -134,6 +135,17 @@ function normalizeApiKeyUsageItem(payload: unknown): QuotaApiKeyUsageItem {
       toNullableNumber(source.estimatedCostUsd ?? source.estimated_cost_usd) ?? 0,
     ),
     models: asArray(source.models).map(normalizeApiKeyModelUsageItem),
+  };
+}
+
+function normalizeApiKeyUsage(payload: unknown): QuotaApiKeyUsageResult {
+  const source = asRecord(payload);
+  const items = readItems(payload).map(normalizeApiKeyUsageItem);
+  return {
+    items,
+    total: Math.max(0, toNullableNumber(source.total) ?? items.length),
+    page: Math.max(1, toNullableNumber(source.page) ?? 1),
+    pageSize: Math.max(1, toNullableNumber(source.pageSize ?? source.page_size) ?? 100),
   };
 }
 
@@ -458,9 +470,23 @@ export const quotaClient = {
     );
     return readItems(result).map(normalizeModelUsageItem);
   },
-  async apiKeyUsage(): Promise<QuotaApiKeyUsageItem[]> {
-    const result = await invoke<unknown>("service_quota_api_key_usage", withAddr());
-    return readItems(result).map(normalizeApiKeyUsageItem);
+  async apiKeyUsage(params?: {
+    keyIds?: string[] | null;
+    page?: number | null;
+    pageSize?: number | null;
+    includeModels?: boolean | null;
+  }): Promise<QuotaApiKeyUsageResult> {
+    return normalizeApiKeyUsage(
+      await invoke<unknown>(
+        "service_quota_api_key_usage",
+        withAddr({
+          keyIds: params?.keyIds ?? null,
+          page: params?.page ?? null,
+          pageSize: params?.pageSize ?? null,
+          includeModels: params?.includeModels ?? false,
+        }),
+      ),
+    );
   },
   async sourceList(params?: {
     sourceKind?: "all" | "api_key" | "aggregate_api" | "openai_account" | null;

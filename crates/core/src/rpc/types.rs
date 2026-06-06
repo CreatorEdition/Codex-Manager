@@ -575,6 +575,9 @@ pub struct QuotaApiKeyUsageItem {
 #[serde(rename_all = "camelCase")]
 pub struct QuotaApiKeyUsageResult {
     pub items: Vec<QuotaApiKeyUsageItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
