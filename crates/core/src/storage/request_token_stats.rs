@@ -9,9 +9,12 @@ use super::{
 
 const DEFAULT_REQUEST_TOKEN_STATS_RETAIN_DAYS: i64 = 14;
 const DEFAULT_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS: i64 = 900;
+const DEFAULT_OBSERVABILITY_MAINTENANCE_BATCH_LIMIT: usize = 5_000;
 const REQUEST_TOKEN_STATS_RETAIN_DAYS_ENV: &str = "CODEXMANAGER_REQUEST_TOKEN_STATS_RETENTION_DAYS";
 const OBSERVABILITY_MAINTENANCE_INTERVAL_SECS_ENV: &str =
     "CODEXMANAGER_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS";
+const OBSERVABILITY_MAINTENANCE_BATCH_LIMIT_ENV: &str =
+    "CODEXMANAGER_OBSERVABILITY_MAINTENANCE_BATCH_LIMIT";
 
 static LAST_OBSERVABILITY_MAINTENANCE_AT: AtomicI64 = AtomicI64::new(0);
 
@@ -27,6 +30,14 @@ fn observability_maintenance_interval_secs() -> i64 {
         .ok()
         .and_then(|raw| raw.trim().parse::<i64>().ok())
         .unwrap_or(DEFAULT_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS)
+}
+
+pub(super) fn observability_maintenance_batch_limit() -> usize {
+    std::env::var(OBSERVABILITY_MAINTENANCE_BATCH_LIMIT_ENV)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .map(|limit| limit.clamp(1, 100_000))
+        .unwrap_or(DEFAULT_OBSERVABILITY_MAINTENANCE_BATCH_LIMIT)
 }
 
 pub(super) fn retention_cutoff(now: i64, days: i64) -> Option<i64> {
@@ -196,14 +207,22 @@ impl Storage {
     }
 
     pub fn prune_observability_history(&self, now: i64) -> Result<()> {
+        let batch_limit = observability_maintenance_batch_limit();
         let mut touched = 0_usize;
+        let mut token_stats_batch_full = false;
         if let Some(cutoff) = retention_cutoff(now, request_token_stats_retain_days()) {
-            touched = touched.saturating_add(self.rollup_request_token_stats_before(cutoff)?);
+            let rolled = self.rollup_request_token_stats_before_limited(cutoff, batch_limit)?;
+            token_stats_batch_full = rolled >= batch_limit;
+            touched = touched.saturating_add(rolled);
         }
-        touched = touched.saturating_add(self.prune_request_logs_by_retention(now)?);
-        touched = touched.saturating_add(self.prune_events_by_retention(now)?);
-        touched = touched.saturating_add(self.prune_usage_snapshots_all_accounts(
+        if !token_stats_batch_full {
+            touched = touched
+                .saturating_add(self.prune_request_logs_by_retention_limited(now, batch_limit)?);
+        }
+        touched = touched.saturating_add(self.prune_events_by_retention_limited(now, batch_limit)?);
+        touched = touched.saturating_add(self.prune_usage_snapshots_all_accounts_limited(
             super::usage::usage_snapshots_retain_per_account(),
+            batch_limit,
         )?);
         if touched > 0 {
             let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
@@ -216,11 +235,30 @@ impl Storage {
     }
 
     pub fn rollup_request_token_stats_before(&self, cutoff_ts: i64) -> Result<usize> {
+        self.rollup_request_token_stats_before_limited(cutoff_ts, usize::MAX)
+    }
+
+    pub fn rollup_request_token_stats_before_limited(
+        &self,
+        cutoff_ts: i64,
+        limit: usize,
+    ) -> Result<usize> {
+        if limit == 0 {
+            return Ok(0);
+        }
         let now = now_ts();
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             &format!(
-                "INSERT INTO request_token_stat_rollups (
+                "WITH batch AS (
+                    SELECT id
+                    FROM request_token_stats
+                    WHERE created_at < ?1
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT ?3
+                 )
+                 INSERT INTO request_token_stat_rollups (
                     key_id, account_id, model,
                     input_tokens, cached_input_tokens, output_tokens, total_tokens,
                     reasoning_output_tokens, estimated_cost_usd, source_rows, updated_at
@@ -237,8 +275,8 @@ impl Storage {
                     IFNULL(SUM(CASE WHEN estimated_cost_usd > 0 THEN estimated_cost_usd ELSE 0 END), 0.0),
                     COUNT(1),
                     ?2
-                 FROM request_token_stats
-                 WHERE created_at < ?1
+                 FROM request_token_stats t
+                 JOIN batch ON batch.id = t.id
                  GROUP BY
                     COALESCE(NULLIF(TRIM(key_id), ''), ''),
                     COALESCE(NULLIF(TRIM(account_id), ''), ''),
@@ -254,11 +292,18 @@ impl Storage {
                     updated_at = excluded.updated_at",
                 token_total = token_total_sql_expr(),
             ),
-            (cutoff_ts, now),
+            (cutoff_ts, now, limit_i64),
         )?;
         let deleted = tx.execute(
-            "DELETE FROM request_token_stats WHERE created_at < ?1",
-            [cutoff_ts],
+            "DELETE FROM request_token_stats
+             WHERE id IN (
+                SELECT id
+                FROM request_token_stats
+                WHERE created_at < ?1
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?2
+             )",
+            (cutoff_ts, limit_i64),
         )?;
         tx.commit()?;
         Ok(deleted)

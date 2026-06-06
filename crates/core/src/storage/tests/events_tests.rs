@@ -102,3 +102,41 @@ fn prune_events_by_retention_removes_old_events() {
         Some("workspace_deactivated")
     );
 }
+
+#[test]
+fn prune_events_by_retention_limited_removes_only_one_batch() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    for index in 0..3_i64 {
+        storage
+            .insert_event(&Event {
+                account_id: Some(format!("acc-old-{index}")),
+                event_type: "usage_refresh_failed".to_string(),
+                message: "old failure".to_string(),
+                created_at: 1 + index,
+            })
+            .expect("insert old event");
+    }
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-status".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=workspace_deactivated".to_string(),
+            created_at: 1,
+        })
+        .expect("insert old status event");
+
+    let removed = storage
+        .prune_events_by_retention_limited(1_300_000, 2)
+        .expect("prune events");
+
+    assert_eq!(removed, 2);
+    assert_eq!(storage.event_count().expect("event count"), 2);
+    let reasons = storage
+        .latest_account_status_reasons(&["acc-status".to_string()])
+        .expect("load status reason");
+    assert_eq!(
+        reasons.get("acc-status").map(String::as_str),
+        Some("workspace_deactivated")
+    );
+}

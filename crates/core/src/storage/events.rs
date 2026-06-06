@@ -56,16 +56,30 @@ impl Storage {
     }
 
     pub fn prune_events_by_retention(&self, now: i64) -> Result<usize> {
+        self.prune_events_by_retention_limited(now, usize::MAX)
+    }
+
+    pub fn prune_events_by_retention_limited(&self, now: i64, limit: usize) -> Result<usize> {
         let days = events_retention_days();
         if days <= 0 {
             return Ok(0);
         }
+        if limit == 0 {
+            return Ok(0);
+        }
         let cutoff = now.saturating_sub(days.saturating_mul(86_400));
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
         self.conn.execute(
             "DELETE FROM events
-             WHERE created_at < ?1
-               AND type <> 'account_status_update'",
-            [cutoff],
+             WHERE id IN (
+                SELECT id
+                FROM events
+                WHERE created_at < ?1
+                  AND type <> 'account_status_update'
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?2
+             )",
+            (cutoff, limit_i64),
         )
     }
 

@@ -591,19 +591,38 @@ impl Storage {
     }
 
     pub fn prune_request_logs_before(&self, cutoff_ts: i64) -> Result<usize> {
+        self.prune_request_logs_before_limited(cutoff_ts, usize::MAX)
+    }
+
+    pub fn prune_request_logs_before_limited(&self, cutoff_ts: i64, limit: usize) -> Result<usize> {
+        if limit == 0 {
+            return Ok(0);
+        }
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
         self.conn.execute(
-            "DELETE FROM request_logs WHERE created_at < ?1",
-            [cutoff_ts],
+            "DELETE FROM request_logs
+             WHERE id IN (
+                SELECT id
+                FROM request_logs
+                WHERE created_at < ?1
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?2
+             )",
+            (cutoff_ts, limit_i64),
         )
     }
 
     pub fn prune_request_logs_by_retention(&self, now: i64) -> Result<usize> {
+        self.prune_request_logs_by_retention_limited(now, usize::MAX)
+    }
+
+    pub fn prune_request_logs_by_retention_limited(&self, now: i64, limit: usize) -> Result<usize> {
         let days = request_log_retention_days();
         if days <= 0 {
             return Ok(0);
         }
         let cutoff = now.saturating_sub(days.saturating_mul(86_400));
-        self.prune_request_logs_before(cutoff)
+        self.prune_request_logs_before_limited(cutoff, limit)
     }
 
     /// 函数 `summarize_request_logs_between`

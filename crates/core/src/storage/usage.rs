@@ -83,13 +83,26 @@ impl Storage {
     }
 
     pub fn prune_usage_snapshots_all_accounts(&self, retain: usize) -> Result<usize> {
+        self.prune_usage_snapshots_all_accounts_limited(retain, usize::MAX)
+    }
+
+    pub fn prune_usage_snapshots_all_accounts_limited(
+        &self,
+        retain: usize,
+        limit: usize,
+    ) -> Result<usize> {
         if retain == 0 {
             return Ok(0);
         }
+        if limit == 0 {
+            return Ok(0);
+        }
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
         self.conn.execute(
             "WITH ranked AS (
                 SELECT
                     id,
+                    captured_at,
                     ROW_NUMBER() OVER (
                         PARTITION BY account_id
                         ORDER BY captured_at DESC, id DESC
@@ -101,8 +114,10 @@ impl Storage {
                 SELECT id
                 FROM ranked
                 WHERE rn > ?1
+                ORDER BY captured_at ASC, id ASC
+                LIMIT ?2
             )",
-            [retain as i64],
+            (retain as i64, limit_i64),
         )
     }
 
@@ -740,6 +755,54 @@ mod tests {
             .expect("read acc-a latest");
         assert_eq!(latest_a.len(), 1);
         assert_eq!(latest_a[0].used_percent, Some(30.0));
+    }
+
+    #[test]
+    fn prune_usage_snapshots_all_accounts_limited_removes_only_one_batch() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        for snapshot in [
+            sample_snapshot("acc-a", now, 10.0),
+            sample_snapshot("acc-a", now + 10, 20.0),
+            sample_snapshot("acc-a", now + 20, 30.0),
+            sample_snapshot("acc-b", now, 40.0),
+            sample_snapshot("acc-b", now + 10, 50.0),
+            sample_snapshot("acc-b", now + 20, 60.0),
+        ] {
+            storage
+                .insert_usage_snapshot(&snapshot)
+                .expect("insert usage snapshot");
+        }
+
+        let removed = storage
+            .prune_usage_snapshots_all_accounts_limited(1, 2)
+            .expect("prune all account usage snapshots");
+        assert_eq!(removed, 2);
+        assert_eq!(
+            storage
+                .usage_snapshot_count()
+                .expect("count usage snapshots"),
+            4
+        );
+
+        let removed_second = storage
+            .prune_usage_snapshots_all_accounts_limited(1, 10)
+            .expect("prune remaining usage snapshots");
+        assert_eq!(removed_second, 2);
+        assert_eq!(
+            storage
+                .usage_snapshot_count_for_account("acc-a")
+                .expect("count acc-a"),
+            1
+        );
+        assert_eq!(
+            storage
+                .usage_snapshot_count_for_account("acc-b")
+                .expect("count acc-b"),
+            1
+        );
     }
 
     #[test]

@@ -1,4 +1,13 @@
 use super::{RequestLog, RequestTokenStat, Storage};
+use std::sync::{Mutex, OnceLock};
+
+fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+}
 
 /// 函数 `collect_query_plan_details`
 ///
@@ -590,4 +599,130 @@ fn request_token_stats_key_id_summaries_merge_rollups_and_filter_keys() {
         vec![("gk-a", "gpt-5", 30), ("gk-a", "gpt-5-mini", 20)]
     );
     assert!(!model_summary.iter().any(|item| item.key_id == "gk-other"));
+}
+
+#[test]
+fn rollup_request_token_stats_before_limited_rolls_only_one_batch() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    for request_log_id in 1_i64..=3 {
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id,
+                key_id: Some("gk-batch".to_string()),
+                account_id: Some("acc-batch".to_string()),
+                model: Some("gpt-5".to_string()),
+                total_tokens: Some(10 * request_log_id),
+                estimated_cost_usd: Some(0.01 * request_log_id as f64),
+                created_at: 1_000 + request_log_id,
+                ..Default::default()
+            })
+            .expect("insert token stat");
+    }
+
+    let first_batch = storage
+        .rollup_request_token_stats_before_limited(2_000, 2)
+        .expect("roll up first batch");
+    assert_eq!(first_batch, 2);
+    let remaining: i64 = storage
+        .conn
+        .query_row("SELECT COUNT(1) FROM request_token_stats", [], |row| {
+            row.get(0)
+        })
+        .expect("count remaining token stats");
+    assert_eq!(remaining, 1);
+    let rolled_tokens: i64 = storage
+        .conn
+        .query_row(
+            "SELECT total_tokens FROM request_token_stat_rollups
+             WHERE key_id = 'gk-batch' AND account_id = 'acc-batch' AND model = 'gpt-5'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load rollup");
+    assert_eq!(rolled_tokens, 30);
+
+    let second_batch = storage
+        .rollup_request_token_stats_before_limited(2_000, 2)
+        .expect("roll up second batch");
+    assert_eq!(second_batch, 1);
+    let rolled_tokens: i64 = storage
+        .conn
+        .query_row(
+            "SELECT total_tokens FROM request_token_stat_rollups
+             WHERE key_id = 'gk-batch' AND account_id = 'acc-batch' AND model = 'gpt-5'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load rollup");
+    assert_eq!(rolled_tokens, 60);
+}
+
+#[test]
+fn observability_prune_defers_request_log_delete_until_token_stats_batch_finishes() {
+    let _guard = env_guard();
+    std::env::set_var("CODEXMANAGER_OBSERVABILITY_MAINTENANCE_BATCH_LIMIT", "1");
+    std::env::set_var("CODEXMANAGER_REQUEST_TOKEN_STATS_RETENTION_DAYS", "1");
+    std::env::set_var("CODEXMANAGER_REQUEST_LOG_RETENTION_DAYS", "1");
+
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    for request_log_id in 1_i64..=2 {
+        storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(format!("trc-batch-{request_log_id}")),
+                key_id: Some("gk-batch".to_string()),
+                account_id: Some("acc-batch".to_string()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                status_code: Some(200),
+                created_at: 1_000 + request_log_id,
+                ..Default::default()
+            })
+            .expect("insert request log");
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id,
+                key_id: Some("gk-batch".to_string()),
+                account_id: Some("acc-batch".to_string()),
+                model: Some("gpt-5".to_string()),
+                total_tokens: Some(10),
+                estimated_cost_usd: Some(0.01),
+                created_at: 1_000 + request_log_id,
+                ..Default::default()
+            })
+            .expect("insert token stat");
+    }
+
+    storage
+        .prune_observability_history(200_000)
+        .expect("first maintenance");
+    let request_logs_after_first: i64 = storage
+        .conn
+        .query_row("SELECT COUNT(1) FROM request_logs", [], |row| row.get(0))
+        .expect("count request logs");
+    assert_eq!(request_logs_after_first, 2);
+
+    storage
+        .prune_observability_history(200_000)
+        .expect("second maintenance");
+    let request_logs_after_second: i64 = storage
+        .conn
+        .query_row("SELECT COUNT(1) FROM request_logs", [], |row| row.get(0))
+        .expect("count request logs");
+    assert_eq!(request_logs_after_second, 2);
+
+    storage
+        .prune_observability_history(200_000)
+        .expect("third maintenance");
+    let request_logs_after_third: i64 = storage
+        .conn
+        .query_row("SELECT COUNT(1) FROM request_logs", [], |row| row.get(0))
+        .expect("count request logs");
+    assert_eq!(request_logs_after_third, 1);
+
+    std::env::remove_var("CODEXMANAGER_OBSERVABILITY_MAINTENANCE_BATCH_LIMIT");
+    std::env::remove_var("CODEXMANAGER_REQUEST_TOKEN_STATS_RETENTION_DAYS");
+    std::env::remove_var("CODEXMANAGER_REQUEST_LOG_RETENTION_DAYS");
 }
