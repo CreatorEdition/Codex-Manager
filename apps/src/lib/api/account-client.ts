@@ -1041,9 +1041,12 @@ export const accountClient = {
     return normalizeManagedModelCatalog(result);
   },
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
   },
 >>>>>>> ee8d443a (Add explicit stale remote model pruning action)
+=======
+>>>>>>> dfd5dfe1 (fix: resolve account client merge conflict for stale model prune)
   async readApiKeySecret(keyId: string): Promise<string> {
     const result = await invoke<unknown>(
       "service_apikey_read_secret",
