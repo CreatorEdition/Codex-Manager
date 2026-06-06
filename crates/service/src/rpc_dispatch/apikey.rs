@@ -107,17 +107,6 @@ fn string_array_param(req: &JsonRpcRequest, key: &str) -> Option<Vec<String>> {
 pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonRpcResponse> {
     let result = match req.method.as_str() {
         "apikey/list" => {
-            let pagination_requested = req
-                .params
-                .as_ref()
-                .and_then(|params| params.as_object())
-                .map(|params| {
-                    params.contains_key("page")
-                        || params.contains_key("pageSize")
-                        || params.contains_key("query")
-                        || params.contains_key("statusFilter")
-                })
-                .unwrap_or(false);
             let params = req
                 .params
                 .clone()
@@ -126,9 +115,11 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                 .map(|params| params.unwrap_or_default())
                 .map(ApiKeyListParams::normalized)
                 .map_err(|err| format!("invalid apikey/list params: {err}"));
-            super::value_or_error(params.and_then(|params| {
-                apikey_list::read_api_key_list_for_actor(actor, params, pagination_requested)
-            }))
+            super::value_or_error(
+                params.and_then(|params| {
+                    apikey_list::read_api_key_list_for_actor(actor, params, true)
+                }),
+            )
         }
         "apikey/lookup" => {
             let ids = req

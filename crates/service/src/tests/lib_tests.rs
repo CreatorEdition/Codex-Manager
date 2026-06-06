@@ -1343,6 +1343,42 @@ fn account_lookup_is_admin_only_and_filters_requested_ids() {
 }
 
 #[test]
+fn account_list_bare_rpc_defaults_to_first_page() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-account-list-default-page");
+    let storage = storage_helpers::open_storage().expect("open storage");
+    let now = codexmanager_core::storage::now_ts();
+    for index in 0..6 {
+        storage
+            .insert_account(&codexmanager_core::storage::Account {
+                id: format!("acc-default-page-{index}"),
+                label: format!("Account Default Page {index}"),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort: index,
+                status: "active".to_string(),
+                created_at: now + index,
+                updated_at: now + index,
+            })
+            .expect("insert account");
+    }
+
+    let listed = response_result(handle_request_with_actor(
+        rpc_request("account/list", serde_json::json!({})),
+        RpcActor::system_admin(),
+    ));
+    assert!(listed.result.get("error").is_none(), "{:?}", listed.result);
+    assert_eq!(listed.result["total"], 6);
+    assert_eq!(listed.result["page"], 1);
+    assert_eq!(listed.result["pageSize"], 5);
+    assert_eq!(listed.result["items"].as_array().unwrap().len(), 5);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
 fn aggregate_api_lookup_is_admin_only_and_filters_requested_ids() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-aggregate-api-lookup-admin-only");
@@ -1506,23 +1542,23 @@ fn member_api_key_list_supports_backend_pagination_and_filters() {
     assert_eq!(disabled_page.result["total"], 1);
     assert_eq!(disabled_page.result["items"][0]["id"], key_disabled);
 
-    let full_list = response_result(handle_request_with_actor(
+    let default_page = response_result(handle_request_with_actor(
         rpc_request("apikey/list", serde_json::json!({})),
         actor_one,
     ));
-    assert_eq!(full_list.result["total"], 3);
-    assert_eq!(full_list.result["page"], 1);
-    assert_eq!(full_list.result["pageSize"], 3);
-    let full_ids = full_list.result["items"]
+    assert_eq!(default_page.result["total"], 3);
+    assert_eq!(default_page.result["page"], 1);
+    assert_eq!(default_page.result["pageSize"], 20);
+    let default_page_ids = default_page.result["items"]
         .as_array()
         .unwrap()
         .iter()
         .map(|item| item["id"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
-    assert!(full_ids.contains(&key_alpha));
-    assert!(full_ids.contains(&key_beta));
-    assert!(full_ids.contains(&key_disabled));
-    assert!(!full_ids.contains(&key_foreign));
+    assert!(default_page_ids.contains(&key_alpha));
+    assert!(default_page_ids.contains(&key_beta));
+    assert!(default_page_ids.contains(&key_disabled));
+    assert!(!default_page_ids.contains(&key_foreign));
 
     let _ = std::fs::remove_file(db_path);
 }

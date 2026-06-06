@@ -36,8 +36,7 @@ pub(crate) fn read_accounts(
     params: AccountListParams,
     pagination_requested: bool,
 ) -> Result<AccountListResult, String> {
-    // 中文注释：账号页需要后端分页，但仪表盘/日志等全局功能仍依赖全量账号列表；
-    // 因此这里兼容“无分页参数时返回全量，有分页参数时返回当前页”两种模式。
+    // 中文注释：公共 RPC 默认走分页；只有内部调用明确传入 false 时才保留全量兼容路径。
     let params = params.normalized();
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let query = normalize_optional_text(params.query);

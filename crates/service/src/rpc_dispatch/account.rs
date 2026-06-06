@@ -19,11 +19,6 @@ use crate::{
 pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
     let result = match req.method.as_str() {
         "account/list" => {
-            let pagination_requested = req
-                .params
-                .as_ref()
-                .map(|params| params.get("page").is_some() || params.get("pageSize").is_some())
-                .unwrap_or(false);
             let params = req
                 .params
                 .clone()
@@ -33,7 +28,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .map(AccountListParams::normalized)
                 .map_err(|err| format!("invalid account/list params: {err}"));
             super::value_or_error(
-                params.and_then(|params| account_list::read_accounts(params, pagination_requested)),
+                params.and_then(|params| account_list::read_accounts(params, true)),
             )
         }
         "account/lookup" => {
