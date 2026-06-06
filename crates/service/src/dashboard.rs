@@ -6,7 +6,7 @@ use codexmanager_core::rpc::types::{
     DashboardSourceUsageSummary, DashboardTokenUsageResult, DashboardUserUsageSummary,
     MemberDashboardAlert, MemberDashboardApiKeySummary, MemberDashboardKeyUsage,
     MemberDashboardModelUsage, MemberDashboardSummaryResult, MemberDashboardUsagePoint,
-    MemberDashboardUsageToday, MemberDashboardWalletResult, ModelInfo, RequestLogListParams,
+    MemberDashboardUsageToday, MemberDashboardWalletResult, ModelInfo,
 };
 use codexmanager_core::storage::{
     DailyTokenUsageRollup, SourceTokenUsageRanking, SourceTokenUsageRollup, TokenUsageRollup,
@@ -650,18 +650,11 @@ pub(crate) fn read_member_dashboard_summary(
     let (top_keys, top_models) =
         read_member_usage_breakdown(&api_keys, &key_ids, &key_id_set, day_start, day_end)?;
     let available_models = read_available_models_with_price_summary()?;
-    let recent_logs = requestlog_list::read_request_log_page_for_key_ids(
-        RequestLogListParams {
-            page: 1,
-            page_size: MEMBER_RECENT_LOG_LIMIT,
-            query: None,
-            status_filter: Some("all".to_string()),
-            start_ts: None,
-            end_ts: None,
-        },
+    let recent_logs = requestlog_list::read_request_logs_for_key_ids(
+        None,
+        Some(MEMBER_RECENT_LOG_LIMIT),
         &key_ids,
-    )?
-    .items;
+    )?;
     let alerts = build_alerts(
         distribution_enabled,
         wallet.as_ref(),

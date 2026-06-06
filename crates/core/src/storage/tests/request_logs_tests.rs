@@ -90,6 +90,24 @@ fn key_exact_query_matches_composite_index() {
         .any(|detail| detail.contains("idx_request_logs_key_id_created_at")));
 }
 
+#[test]
+fn key_in_query_matches_composite_index() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let details = collect_query_plan_details(
+        &storage,
+        "EXPLAIN QUERY PLAN
+         SELECT key_id, account_id, request_path, method, model, reasoning_effort, upstream_url, status_code, error, created_at
+         FROM request_logs
+         WHERE key_id IN ('gk_1', 'gk_2')
+         ORDER BY created_at DESC, id DESC
+         LIMIT 100",
+    );
+    assert!(details
+        .iter()
+        .any(|detail| detail.contains("idx_request_logs_key_id_created_at")));
+}
+
 /// 函数 `insert_request_log_with_token_stat_is_visible_via_join`
 ///
 /// 作者: gaohongshun

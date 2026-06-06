@@ -79,6 +79,7 @@
 - 聚合 API 供应商模型列表 SQL 下推：`aggregateApi/supplierModels/list` 支持 `page/pageSize`，并把 `supplierKey/providerType` 过滤下推到 SQLite，避免先全表读取后在 Rust 层过滤。
 - 模型路由裸读取不再全局自举：`apikey/modelRouting` 无来源过滤时只读取已有路由数据，不再触发账号池和聚合 API 全局 source model bootstrap；来源级读取仍同步当前来源。
 - 配额概览 SQL 汇总：`quota/overview` 不再全量读取 API Key、聚合 API、账号和最新用量快照后在 Rust 层聚合，改由 storage 层返回 API Key / 聚合 API / OpenAI 账号概览汇总行，降低几千来源时的对象搬运和 CPU。
+- 成员最近日志降载：`dashboard/memberSummary` 最近日志只读取前 8 条，不再通过分页接口额外 COUNT 全部成员日志；request logs 的 Key ID 过滤改为 `r.key_id IN (...)`，避免 `IFNULL(r.key_id,'')` 削弱复合索引。
 
 ### ⚠️ 待处理
 

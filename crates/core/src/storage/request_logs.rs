@@ -1154,7 +1154,7 @@ fn append_key_ids_clause(
         .take(normalized.len())
         .collect::<Vec<_>>()
         .join(", ");
-    clauses.push(format!("IFNULL(r.key_id, '') IN ({placeholders})"));
+    clauses.push(format!("r.key_id IN ({placeholders})"));
     params.extend(
         normalized
             .into_iter()
