@@ -1050,8 +1050,8 @@ export const EN_MESSAGES: MessageCatalog = {
     "Minimum threads reserved for normal HTTP requests to avoid being too idle.",
   普通请求自动并发: "Normal request auto concurrency",
   普通请求最低保底: "Normal request minimum",
-  "设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。":
-    'When set to "Follow request", the model for free/7-day single-window accounts won\'t be rewritten; only when you choose a specific model will those accounts be rewritten to it.',
+  "设为“跟随请求”时，不会额外改写 free / 单长周期窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。":
+    'When set to "Follow request", the model for free/single long-cycle-window accounts won\'t be rewritten; only when you choose a specific model will those accounts be rewritten to it.',
   适合小规模或低峰值场景: "Suitable for small scale or low peaks",
   "顺序优先：按账号候选顺序优先尝试，默认只会在头部小窗口内按健康度做轻微换头；均衡轮询：按“平台密钥 + 模型”维度严格轮询可用账号，默认不做健康度换头。":
     "Ordered: try accounts in order, with slight health-based head swapping in the top small window; Balanced: strictly round-robin available accounts by “API key + model”, no health swapping by default.",
@@ -1088,8 +1088,8 @@ export const EN_MESSAGES: MessageCatalog = {
   "{count}天窗口": "{count}-day window",
   "{count}小时窗口": "{count}-hour window",
   "{count}分钟窗口": "{count}-minute window",
-  仅7天额度: "7-day quota only",
-  "7天窗口未提供": "7-day window not provided",
+  仅长周期额度: "Long-cycle quota only",
+  长周期窗口未提供: "Long-cycle window not provided",
   用量缺失: "Usage missing",
   已禁用: "Disabled",
   不可用: "Unavailable",

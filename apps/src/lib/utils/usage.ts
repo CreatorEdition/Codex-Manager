@@ -407,7 +407,7 @@ function humanizeExtraRateLimitLabel(raw: string): string {
     .trim() || "额外额度";
 }
 
-function formatWindowLabel(
+export function formatUsageWindowLabel(
   windowMinutes: number | null
 ): { label: string; values?: TranslationValues } {
   if (windowMinutes == null || windowMinutes <= 0) {
@@ -458,7 +458,7 @@ function extractExtraRateLimitWindows(raw: string | null | undefined): ExtraUsag
         continue;
       }
 
-      const windowLabel = formatWindowLabel(minutes);
+      const windowLabel = formatUsageWindowLabel(minutes);
       rows.push({
         id: `${labelSeed}-${key}-${index}`,
         label: baseLabel,
@@ -676,7 +676,7 @@ export function calcAvailability(
   }
   if (normalizedStatus === "primary_window_available_only") {
     return {
-      text: displayMode === "secondary-only" ? "仅7天额度" : "7天窗口未提供",
+      text: displayMode === "secondary-only" ? "仅长周期额度" : "长周期窗口未提供",
       level: "ok",
     };
   }
@@ -706,7 +706,7 @@ export function calcAvailability(
   }
   if (!secondaryPresent) {
     return {
-      text: displayMode === "secondary-only" ? "仅7天额度" : "7天窗口未提供",
+      text: displayMode === "secondary-only" ? "仅长周期额度" : "长周期窗口未提供",
       level: "ok",
     };
   }

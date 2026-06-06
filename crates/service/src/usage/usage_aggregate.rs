@@ -329,7 +329,7 @@ mod tests {
         }
     }
 
-    /// 函数 `aggregate_summary_routes_free_single_window_account_to_secondary_bucket`
+    /// 函数 `aggregate_summary_routes_long_single_window_account_to_secondary_bucket`
     ///
     /// 作者: gaohongshun
     ///
@@ -341,14 +341,14 @@ mod tests {
     /// # 返回
     /// 无
     #[test]
-    fn aggregate_summary_routes_free_single_window_account_to_secondary_bucket() {
+    fn aggregate_summary_routes_long_single_window_account_to_secondary_bucket() {
         let accounts = vec![account("a1"), account("a2")];
         let usage_items = vec![
             usage_record("a1", Some(20.0), Some(300), Some(40.0), Some(10080), None),
             usage_record(
                 "a2",
                 Some(10.0),
-                Some(10080),
+                Some(43_200),
                 None,
                 None,
                 Some(r#"{"planType":"free"}"#),

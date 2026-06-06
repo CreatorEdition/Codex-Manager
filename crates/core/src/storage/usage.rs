@@ -882,7 +882,7 @@ mod tests {
 
         for account_id in [
             "acc-pro",
-            "acc-free",
+            "acc-monthly-free",
             "acc-unknown",
             "acc-note-free",
             "acc-nested-free",
@@ -916,10 +916,10 @@ mod tests {
             .expect("insert latest pro usage");
         storage
             .insert_usage_snapshot(&usage_snapshot(
-                "acc-free",
+                "acc-monthly-free",
                 now + 20,
                 Some(10.0),
-                Some(10080),
+                Some(43_200),
                 None,
                 None,
                 Some(r#"{"planType":"free"}"#),

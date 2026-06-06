@@ -1758,7 +1758,7 @@ function AdminSettingsPage() {
                 </Select>
                 <p className="text-[10px] text-muted-foreground">
                   {t(
-                    "设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。",
+                    "设为“跟随请求”时，不会额外改写 free / 单长周期窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。",
                   )}
                 </p>
               </div>

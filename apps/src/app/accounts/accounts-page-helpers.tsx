@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   formatRemainingDurationFromSeconds,
   formatTsFromSeconds,
+  formatUsageWindowLabel,
   getExtraUsageDisplayRows,
   getUsageDisplayBuckets,
   isPrimaryWindowOnlyUsage,
@@ -587,10 +588,16 @@ export function buildQuotaSummaryItems(
   const secondaryWindowOnly = isSecondaryWindowOnlyUsage(account.usage);
   const usageBuckets = getUsageDisplayBuckets(account.usage);
   const extraUsageRows = getExtraUsageDisplayRows(account.usage);
+  const primaryWindowLabel = formatUsageWindowLabel(account.usage?.windowMinutes ?? null);
+  const secondaryWindowMinutes = secondaryWindowOnly
+    ? (account.usage?.windowMinutes ?? null)
+    : (account.usage?.secondaryWindowMinutes ?? null);
+  const secondaryWindowLabel = formatUsageWindowLabel(secondaryWindowMinutes);
+
   return [
     {
       id: `${account.id}-primary`,
-      label: t("5小时"),
+      label: t(primaryWindowLabel.label, primaryWindowLabel.values),
       remainPercent: account.primaryRemainPercent,
       resetsAt: usageBuckets.primaryResetsAt,
       icon: RefreshCw,
@@ -601,7 +608,7 @@ export function buildQuotaSummaryItems(
     },
     {
       id: `${account.id}-secondary`,
-      label: t("7天"),
+      label: t(secondaryWindowLabel.label, secondaryWindowLabel.values),
       remainPercent: account.secondaryRemainPercent,
       resetsAt: usageBuckets.secondaryResetsAt,
       icon: RefreshCw,
