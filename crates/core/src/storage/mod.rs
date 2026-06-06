@@ -1007,7 +1007,7 @@ impl Storage {
             |s| s.ensure_model_group_tables(),
         )?;
         self.apply_compat_migration("062_observability_storage_compaction", |s| {
-            s.compact_observability_storage_for_existing_databases()
+            s.prepare_observability_storage_for_existing_databases()
         })?;
         self.apply_compat_migration("063_account_subscriptions_account_plan_type", |s| {
             s.ensure_account_subscriptions_table()
@@ -1030,7 +1030,7 @@ impl Storage {
             include_str!("../../migrations/066_events_retention_indexes.sql"),
         )?;
         self.apply_compat_migration("067_observability_retention_compaction", |s| {
-            s.compact_observability_storage_for_existing_databases()
+            s.prepare_observability_storage_for_existing_databases()
         })?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
@@ -1054,30 +1054,10 @@ impl Storage {
         Ok(())
     }
 
-    fn compact_observability_storage_for_existing_databases(&self) -> Result<()> {
+    fn prepare_observability_storage_for_existing_databases(&self) -> Result<()> {
         self.ensure_request_token_stats_table()?;
         self.ensure_request_logs_table()?;
         self.ensure_usage_secondary_columns()?;
-
-        let now = now_ts();
-        let mut touched = 0_usize;
-        if let Some(cutoff) = request_token_stats::retention_cutoff(
-            now,
-            request_token_stats::request_token_stats_retain_days(),
-        ) {
-            touched = touched.saturating_add(self.rollup_request_token_stats_before(cutoff)?);
-        }
-        touched = touched.saturating_add(self.prune_request_logs_by_retention(now)?);
-        touched = touched.saturating_add(self.prune_events_by_retention(now)?);
-        touched = touched.saturating_add(
-            self.prune_usage_snapshots_all_accounts(usage::usage_snapshots_retain_per_account())?,
-        );
-
-        if touched > 0 {
-            let _ = self
-                .conn
-                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
-        }
         Ok(())
     }
 
@@ -1479,6 +1459,10 @@ impl Storage {
 #[cfg(test)]
 #[path = "../../tests/storage/migration_tests.rs"]
 mod migration_tests;
+
+#[cfg(test)]
+#[path = "tests/observability_migration_tests.rs"]
+mod observability_migration_tests;
 
 pub(super) fn sqlite_placeholders(count: usize) -> String {
     vec!["?"; count].join(", ")
