@@ -140,3 +140,75 @@ fn prune_events_by_retention_limited_removes_only_one_batch() {
         Some("workspace_deactivated")
     );
 }
+
+#[test]
+fn prune_events_by_retention_removes_stale_account_status_history() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-status".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=usage_http_401".to_string(),
+            created_at: 1,
+        })
+        .expect("insert old status event");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-status".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=refresh_token_invalid:refresh_token_reused"
+                .to_string(),
+            created_at: 2,
+        })
+        .expect("insert latest old status event");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-other".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=workspace_deactivated".to_string(),
+            created_at: 1,
+        })
+        .expect("insert only status event for other account");
+
+    let removed = storage
+        .prune_events_by_retention(1_300_000)
+        .expect("prune events");
+
+    assert_eq!(removed, 1);
+    assert_eq!(storage.event_count().expect("event count"), 2);
+    let reasons = storage
+        .latest_account_status_reasons(&["acc-status".to_string(), "acc-other".to_string()])
+        .expect("load status reasons");
+    assert_eq!(
+        reasons.get("acc-status").map(String::as_str),
+        Some("refresh_token_invalid:refresh_token_reused")
+    );
+    assert_eq!(
+        reasons.get("acc-other").map(String::as_str),
+        Some("workspace_deactivated")
+    );
+}
+
+#[test]
+fn prune_events_by_retention_limited_counts_stale_status_history_in_batch() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    for index in 0..3_i64 {
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-status".to_string()),
+                event_type: "account_status_update".to_string(),
+                message: format!("status=unavailable reason=old_{index}"),
+                created_at: 1 + index,
+            })
+            .expect("insert old status event");
+    }
+
+    let removed = storage
+        .prune_events_by_retention_limited(1_300_000, 1)
+        .expect("prune events");
+
+    assert_eq!(removed, 1);
+    assert_eq!(storage.event_count().expect("event count"), 2);
+}

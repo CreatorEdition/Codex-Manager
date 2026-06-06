@@ -72,11 +72,31 @@ impl Storage {
         self.conn.execute(
             "DELETE FROM events
              WHERE id IN (
-                SELECT id
-                FROM events
-                WHERE created_at < ?1
-                  AND type <> 'account_status_update'
-                ORDER BY created_at ASC, id ASC
+                SELECT e.id
+                FROM events e
+                WHERE e.created_at < ?1
+                  AND (
+                    e.type <> 'account_status_update'
+                    OR (
+                      e.type = 'account_status_update'
+                      AND e.account_id IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1
+                        FROM events latest
+                        WHERE latest.type = 'account_status_update'
+                          AND latest.account_id = e.account_id
+                          AND (
+                            latest.created_at > e.created_at
+                            OR (
+                              latest.created_at = e.created_at
+                              AND latest.id > e.id
+                            )
+                          )
+                        LIMIT 1
+                      )
+                    )
+                  )
+                ORDER BY e.created_at ASC, e.id ASC
                 LIMIT ?2
              )",
             (cutoff, limit_i64),
