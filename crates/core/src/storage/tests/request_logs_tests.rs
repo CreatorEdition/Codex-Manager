@@ -187,6 +187,54 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
     assert_eq!(row.estimated_cost_usd, Some(0.123));
 }
 
+#[test]
+fn insert_request_log_with_empty_token_stat_skips_token_stats_row() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let created_at = 84_i64;
+    let log = RequestLog {
+        trace_id: Some("trc-empty-stat".to_string()),
+        key_id: Some("gk_empty".to_string()),
+        account_id: Some("acc_empty".to_string()),
+        request_path: "/v1/responses".to_string(),
+        method: "POST".to_string(),
+        model: Some("gpt-5".to_string()),
+        status_code: Some(502),
+        error: Some("upstream error".to_string()),
+        created_at,
+        ..Default::default()
+    };
+    let stat = RequestTokenStat {
+        request_log_id: 0,
+        key_id: log.key_id.clone(),
+        account_id: log.account_id.clone(),
+        model: log.model.clone(),
+        input_tokens: Some(0),
+        cached_input_tokens: Some(0),
+        output_tokens: Some(0),
+        total_tokens: Some(0),
+        reasoning_output_tokens: Some(0),
+        estimated_cost_usd: Some(0.0),
+        created_at,
+    };
+
+    let (_request_log_id, token_err) = storage
+        .insert_request_log_with_token_stat(&log, &stat)
+        .expect("insert request log with empty token stat");
+    assert!(token_err.is_none(), "empty token stat should be skipped");
+
+    let logs = storage
+        .list_request_logs(None, 10)
+        .expect("list request logs");
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].trace_id.as_deref(), Some("trc-empty-stat"));
+    assert_eq!(logs[0].total_tokens, None);
+    let summary = storage
+        .summarize_request_token_stats_by_key_ids(&["gk_empty".to_string()])
+        .expect("summarize empty key");
+    assert!(summary.is_empty());
+}
+
 /// 函数 `token_stat_failure_still_commits_request_log`
 ///
 /// 作者: gaohongshun

@@ -8,6 +8,23 @@ use super::{
 const DEFAULT_REQUEST_LOG_RETENTION_DAYS: i64 = 14;
 const REQUEST_LOG_RETENTION_DAYS_ENV: &str = "CODEXMANAGER_REQUEST_LOG_RETENTION_DAYS";
 
+fn positive_i64(value: Option<i64>) -> bool {
+    value.unwrap_or(0) > 0
+}
+
+fn positive_f64(value: Option<f64>) -> bool {
+    value.unwrap_or(0.0) > 0.0
+}
+
+fn request_token_stat_has_usage(stat: &RequestTokenStat) -> bool {
+    positive_i64(stat.input_tokens)
+        || positive_i64(stat.cached_input_tokens)
+        || positive_i64(stat.output_tokens)
+        || positive_i64(stat.total_tokens)
+        || positive_i64(stat.reasoning_output_tokens)
+        || positive_f64(stat.estimated_cost_usd)
+}
+
 fn request_log_retention_days() -> i64 {
     std::env::var(REQUEST_LOG_RETENTION_DAYS_ENV)
         .ok()
@@ -176,31 +193,35 @@ impl Storage {
         )?;
         let request_log_id = tx.last_insert_rowid();
 
-        // 中文注释：token 统计写入失败不应阻塞 request log 保留（例如 sqlite busy/锁竞争）。
-        // 这里保持“单事务单提交”，但 stat 失败时仍 commit request log。
-        let token_stat_error = tx
-            .execute(
-                "INSERT INTO request_token_stats (
-                    request_log_id, key_id, account_id, model,
-                    input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
-                    estimated_cost_usd, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                (
-                    request_log_id,
-                    &stat.key_id,
-                    &stat.account_id,
-                    &stat.model,
-                    stat.input_tokens,
-                    stat.cached_input_tokens,
-                    stat.output_tokens,
-                    stat.total_tokens,
-                    stat.reasoning_output_tokens,
-                    stat.estimated_cost_usd,
-                    stat.created_at,
-                ),
-            )
-            .err()
-            .map(|err| err.to_string());
+        // 中文注释：无 token、无费用的请求日志保留在 request_logs 即可，避免写入无统计贡献的明细行。
+        let token_stat_error = if request_token_stat_has_usage(stat) {
+            // 中文注释：token 统计写入失败不应阻塞 request log 保留（例如 sqlite busy/锁竞争）。
+            // 这里保持“单事务单提交”，但 stat 失败时仍 commit request log。
+            tx.execute(
+                    "INSERT INTO request_token_stats (
+                        request_log_id, key_id, account_id, model,
+                        input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
+                        estimated_cost_usd, created_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                    (
+                        request_log_id,
+                        &stat.key_id,
+                        &stat.account_id,
+                        &stat.model,
+                        stat.input_tokens,
+                        stat.cached_input_tokens,
+                        stat.output_tokens,
+                        stat.total_tokens,
+                        stat.reasoning_output_tokens,
+                        stat.estimated_cost_usd,
+                        stat.created_at,
+                    ),
+                )
+                .err()
+                .map(|err| err.to_string())
+        } else {
+            None
+        };
 
         tx.commit()?;
         Ok((request_log_id, token_stat_error))
