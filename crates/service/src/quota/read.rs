@@ -28,6 +28,7 @@ use crate::{refresh_aggregate_api_balance, storage_helpers::open_storage, usage_
 pub(crate) struct QuotaRefreshSourcesInput {
     pub(crate) kinds: Vec<String>,
     pub(crate) source_ids: Vec<String>,
+    pub(crate) refresh_all: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1895,19 +1896,42 @@ pub(crate) fn refresh_quota_sources(
     let kinds = if input.kinds.is_empty() {
         HashSet::from(["aggregate_api".to_string(), "openai_account".to_string()])
     } else {
-        input.kinds.into_iter().collect::<HashSet<_>>()
+        input
+            .kinds
+            .into_iter()
+            .map(|kind| kind.trim().to_string())
+            .filter(|kind| !kind.is_empty())
+            .collect::<HashSet<_>>()
     };
-    let source_ids = input.source_ids.into_iter().collect::<HashSet<_>>();
+    let mut source_ids = input
+        .source_ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    source_ids.sort();
+    source_ids.dedup();
+    ensure_quota_refresh_scope(&source_ids, input.refresh_all)?;
     let mut items = Vec::new();
 
     if kinds.contains("aggregate_api") {
-        let aggregate_apis = storage
-            .list_aggregate_apis()
-            .map_err(|err| format!("list aggregate APIs failed: {err}"))?;
-        for api in aggregate_apis {
-            if !source_ids.is_empty() && !source_ids.contains(api.id.as_str()) {
-                continue;
+        let aggregate_apis = if source_ids.is_empty() {
+            storage
+                .list_aggregate_apis()
+                .map_err(|err| format!("list aggregate APIs failed: {err}"))?
+        } else {
+            let mut apis = Vec::new();
+            for source_id in &source_ids {
+                if let Some(api) = storage
+                    .find_aggregate_api_by_id(source_id)
+                    .map_err(|err| format!("read aggregate API failed: {err}"))?
+                {
+                    apis.push(api);
+                }
             }
+            apis
+        };
+        for api in aggregate_apis {
             if !api.balance_query_enabled {
                 continue;
             }
@@ -1922,13 +1946,16 @@ pub(crate) fn refresh_quota_sources(
     }
 
     if kinds.contains("openai_account") {
-        let accounts = storage
-            .list_accounts()
-            .map_err(|err| format!("list accounts failed: {err}"))?;
+        let accounts = if source_ids.is_empty() {
+            storage
+                .list_accounts()
+                .map_err(|err| format!("list accounts failed: {err}"))?
+        } else {
+            storage
+                .list_accounts_by_ids(&source_ids)
+                .map_err(|err| format!("list accounts failed: {err}"))?
+        };
         for account in accounts {
-            if !source_ids.is_empty() && !source_ids.contains(account.id.as_str()) {
-                continue;
-            }
             let result = usage_refresh::refresh_usage_for_account(account.id.as_str());
             items.push(QuotaRefreshSourceResult {
                 id: account.id,
@@ -1940,6 +1967,15 @@ pub(crate) fn refresh_quota_sources(
     }
 
     Ok(QuotaRefreshSourcesResult { items })
+}
+
+fn ensure_quota_refresh_scope(source_ids: &[String], refresh_all: bool) -> Result<(), String> {
+    if source_ids.is_empty() && !refresh_all {
+        return Err(
+            "刷新配额来源必须指定 sourceIds；如需全量刷新请显式传 refreshAll=true".to_string(),
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1983,5 +2019,18 @@ mod tests {
         let models = api_available_model_slugs(&storage, &[]).expect("available models");
 
         assert_eq!(models, vec!["z-model", "a-model"]);
+    }
+
+    #[test]
+    fn refresh_quota_sources_requires_explicit_scope_or_refresh_all() {
+        let result = ensure_quota_refresh_scope(&[], false);
+
+        assert!(result.is_err());
+        assert!(result
+            .err()
+            .unwrap_or_default()
+            .contains("必须指定 sourceIds"));
+        assert!(ensure_quota_refresh_scope(&[], true).is_ok());
+        assert!(ensure_quota_refresh_scope(&["acc-1".to_string()], false).is_ok());
     }
 }

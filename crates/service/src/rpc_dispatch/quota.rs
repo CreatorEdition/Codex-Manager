@@ -110,6 +110,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             super::value_or_error(read::refresh_quota_sources(QuotaRefreshSourcesInput {
                 kinds: string_array_param(req, "kinds"),
                 source_ids: string_array_param(req, "sourceIds"),
+                refresh_all: super::bool_param(req, "refreshAll").unwrap_or(false),
             }))
         }
         _ => return None,

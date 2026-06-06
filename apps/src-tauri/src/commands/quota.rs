@@ -211,6 +211,7 @@ pub async fn service_quota_refresh_sources(
     addr: Option<String>,
     kinds: Option<Vec<String>>,
     source_ids: Option<Vec<String>>,
+    refresh_all: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     rpc_call_in_background(
         "quota/refreshSources",
@@ -218,6 +219,7 @@ pub async fn service_quota_refresh_sources(
         Some(serde_json::json!({
             "kinds": kinds.unwrap_or_default(),
             "sourceIds": source_ids.unwrap_or_default(),
+            "refreshAll": refresh_all.unwrap_or(false),
         })),
     )
     .await

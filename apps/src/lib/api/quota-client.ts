@@ -594,6 +594,7 @@ export const quotaClient = {
         kinds: params.kinds ?? [],
         sourceIds: params.sourceIds ?? [],
         source_ids: params.sourceIds ?? [],
+        refreshAll: params.refreshAll === true,
       }),
     );
     return readItems(result).map(normalizeRefreshSource);

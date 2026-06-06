@@ -125,6 +125,7 @@ export interface QuotaSourceSummary {
 export interface QuotaRefreshSourcesParams {
   kinds?: Array<"aggregate_api" | "openai_account">;
   sourceIds?: string[];
+  refreshAll?: boolean;
 }
 
 export interface QuotaRefreshSourceResult {

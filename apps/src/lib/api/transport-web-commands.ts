@@ -466,6 +466,7 @@ export function createWebCommandMap(
           : Array.isArray(params?.source_ids)
             ? params.source_ids
             : [],
+        refreshAll: params?.refreshAll === true,
       }),
     },
     service_aggregate_api_list: {

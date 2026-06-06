@@ -67,6 +67,8 @@
 - 管理员用量排行 SQL 下推：`dashboard/adminUsageSummary` 默认 TopN 用户、OpenAI 账号和聚合 API 排行改由 storage SQL 同时聚合今日/区间用量并 `LIMIT` 返回，避免默认首页路径把全量分组结果搬到 Rust 层排序。
 - 聚合 API 余额后台轮询限载：后台轮询只读取到期且启用余额查询的 active 聚合 API，每轮默认最多 20 个，成功默认 1 小时后再刷、失败默认 6 小时冷却，避免几千来源时周期性全量打上游。
 - 账号/API Key 裸列表默认分页：公共 RPC `account/list` 与 `apikey/list` 即使无 `page/pageSize` 也默认返回第一页，内部确需全量的启动快照继续走显式全量 helper，避免旧脚本或裸 RPC 在几千数据下全量搬运。
+- 聚合 API 模型路由按来源限载：`apikey/modelRouting` 支持 `sourceKind/sourceId/platformModelSlug` 过滤，聚合 API 页打开单个模型池时只读取并关联当前来源，避免拉取全部账号/聚合 API 的 source models 与 mappings。
+- 配额来源刷新显式全量保护：`quota/refreshSources` 无 `sourceIds` 时默认拒绝执行，只有显式 `refreshAll=true` 才允许全量刷新；指定来源时按 ID 查询，避免裸 RPC 在几千账号下触发全量余额/用量刷新。
 
 ### ⚠️ 待处理
 

@@ -187,6 +187,30 @@ test("createWebCommandMap 为模型来源映射命令提供 Web RPC 映射", () 
   });
 });
 
+test("createWebCommandMap 为配额来源刷新透传显式全量开关", () => {
+  const refreshSources = commandMap.service_quota_refresh_sources;
+  assert.equal(refreshSources.rpcMethod, "quota/refreshSources");
+  assert.ok(refreshSources.mapParams);
+  assert.deepEqual(
+    refreshSources.mapParams({
+      kinds: ["openai_account"],
+      source_ids: ["acc-1"],
+      refreshAll: true,
+      ignored: "drop",
+    }),
+    {
+      kinds: ["openai_account"],
+      sourceIds: ["acc-1"],
+      refreshAll: true,
+    },
+  );
+  assert.deepEqual(refreshSources.mapParams({}), {
+    kinds: [],
+    sourceIds: [],
+    refreshAll: false,
+  });
+});
+
 test("createWebCommandMap 为重 RPC 配置独立超时且不默认重试", () => {
   assert.deepEqual(commandMap.service_startup_snapshot.requestOptions, {
     timeoutMs: 30000,
