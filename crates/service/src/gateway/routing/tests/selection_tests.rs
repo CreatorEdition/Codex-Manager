@@ -7,6 +7,27 @@ use super::{
 use crate::account_status::mark_account_unavailable_for_gateway_error;
 use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
 
+/// 默认候选缓存 TTL 不能是亚秒级，否则几千账号场景下会频繁重建候选池。
+#[test]
+fn default_candidate_cache_ttl_avoids_subsecond_rebuilds() {
+    let _guard = crate::test_env_guard();
+    let previous_ttl = std::env::var(CANDIDATE_CACHE_TTL_ENV).ok();
+    std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
+    super::reload_from_env();
+
+    assert!(
+        super::candidate_cache_ttl() >= std::time::Duration::from_secs(5),
+        "默认候选缓存 TTL 不应是亚秒级，否则几千账号下会频繁重建候选池"
+    );
+
+    if let Some(value) = previous_ttl {
+        std::env::set_var(CANDIDATE_CACHE_TTL_ENV, value);
+    } else {
+        std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
+    }
+    super::reload_from_env();
+}
+
 /// 函数 `candidate_snapshot_cache_reuses_recent_snapshot`
 ///
 /// 作者: gaohongshun

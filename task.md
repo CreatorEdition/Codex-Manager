@@ -72,6 +72,7 @@
 - 网关模型校验移除全局自举：请求热路径不再执行账号池/聚合 API 模型路由全局 bootstrap，已发现 source model 仍可通过直接来源匹配，模型路由维护改由管理与同步路径承担。
 - Token refresh 失败退避与永久无效过滤：后台令牌刷新跳过最新状态为 `refresh_token_invalid:*` 的账号，普通失败会推迟 `next_refresh_at`，避免坏 token 每分钟反复进入轮询并写入状态/事件。
 - 账号状态事件历史剪枝：观测维护不再永久保留全部 `account_status_update` 流水，改为每账号保留最新状态事件并按批清理过期历史状态，降低 `events` 表和 WAL 长期膨胀。
+- 网关候选缓存默认延寿：`CODEXMANAGER_CANDIDATE_CACHE_TTL_MS` 默认从 500ms 提高到 5000ms，账号状态变化仍会主动失效缓存，降低高 RPS 下候选池重建和最新用量查询频率。
 
 ### ⚠️ 待处理
 
