@@ -82,6 +82,8 @@ mod local_models;
 #[path = "request/local_response.rs"]
 mod local_response;
 mod local_validation;
+#[path = "observability/maintenance.rs"]
+mod maintenance;
 #[path = "observability/metrics.rs"]
 mod metrics;
 mod model_picker;

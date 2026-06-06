@@ -58,6 +58,7 @@
 - 后台用量轮询失败账号冷却：轮询候选 SQL 会跳过 `CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS` 窗口内刚写入 `usage_refresh_failed` 的账号，默认 6 小时，避免长期失败账号每轮继续打上游。
 - Token 用量按 Key 聚合下推过滤：`summarize_request_token_stats_by_key_ids*` 在 `request_token_stats` 与 `request_token_stat_rollups` 两个 UNION 分支内先按 keyIds 过滤，避免成员仪表盘和平台 Key 用量页扫描全量 token_stats 后再过滤。
 - 空 Token 统计跳过写入：`insert_request_log_with_token_stat()` 对 token 与费用均为 0 的请求只写 `request_logs`，不再写无统计贡献的 `request_token_stats` 行，降低失败请求和无 usage 响应的 WAL 写入放大。
+- 观测维护后台化：网关请求日志写入后只做原子调度，rollup、请求日志/events/usage snapshots 清理和 WAL checkpoint 改由后台线程使用独立 storage handle 执行，避免普通请求命中维护窗口时阻塞 RPC。
 
 ### ⚠️ 待处理
 
@@ -65,5 +66,5 @@
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
 - `dashboard/adminUsageSummary` 已完成首页 TopN 限载；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并将 TopN/分页进一步下推到 SQL 聚合层。
-- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate、网关候选配额保护、网关候选基础查询、用量快照维护剪枝、用量刷新失败事件降噪、失败账号轮询冷却、按 Key token_stats 聚合和空 token_stats 写入跳过已限载/下推，后续仍需继续审计 request_logs 留存策略、观测维护后台化与 WAL 收缩效果。
+- 运行版只读诊断显示 `events` / `usage_snapshots` / WAL 是体积主因；后台用量轮询、token refresh 候选、用量列表裸调用、usage aggregate、网关候选配额保护、网关候选基础查询、用量快照维护剪枝、用量刷新失败事件降噪、失败账号轮询冷却、按 Key token_stats 聚合、空 token_stats 写入跳过和观测维护后台化已限载/下推/移出请求线程，后续仍需继续审计 request_logs 留存策略与 WAL 收缩效果。
 - 首页模型池卡片在 summary 模式下容量数字会显示未知；后续如要展示容量，应通过独立轻量汇总或分页来源接口懒加载，不能回退到裸 RPC 全量扫描。
