@@ -425,6 +425,44 @@ fn quota_api_key_usage_bare_call_defaults_to_first_page() {
     let _ = std::fs::remove_file(db_path);
 }
 
+#[test]
+fn account_manager_users_list_bare_call_defaults_to_page() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-users-list-bare-page");
+    let mut member_ids = Vec::new();
+    for index in 0..25 {
+        member_ids
+            .push(create_test_member(&format!("users-list-member-{index:03}"), Some(1_000_000)).id);
+    }
+
+    let resp = response_result(handle_request_with_actor(
+        rpc_request("accountManager/users/list", serde_json::json!({})),
+        RpcActor::system_admin(),
+    ));
+    assert!(
+        rpc_error(&resp).is_empty(),
+        "accountManager/users/list failed: {:?}",
+        resp.result
+    );
+    assert_eq!(resp.result["items"].as_array().unwrap().len(), 20);
+    assert_eq!(resp.result["total"], 25);
+    assert_eq!(resp.result["page"], 1);
+    assert_eq!(resp.result["pageSize"], 20);
+
+    let lookup = response_result(handle_request_with_actor(
+        rpc_request(
+            "accountManager/users/list",
+            serde_json::json!({ "ids": [member_ids[0].clone()] }),
+        ),
+        RpcActor::system_admin(),
+    ));
+    assert!(lookup.result.as_array().is_some());
+    assert_eq!(lookup.result.as_array().unwrap().len(), 1);
+    assert_eq!(lookup.result[0]["id"], member_ids[0]);
+
+    let _ = std::fs::remove_file(db_path);
+}
+
 fn insert_test_request_log(
     key_id: &str,
     trace_id: &str,

@@ -261,7 +261,8 @@ export const appClient = {
       "service_account_manager_users_list",
       hasIds ? { ids } : {},
     );
-    return Array.isArray(result) ? result.map(readAppUser) : [];
+    if (Array.isArray(result)) return result.map(readAppUser);
+    return readAppUserListResult(result).items;
   },
   async listAppUserPage(params?: {
     page?: number;

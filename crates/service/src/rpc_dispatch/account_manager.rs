@@ -47,12 +47,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
         "accountManager/users/list" => {
             if let Some(ids) = string_array_param(req, "ids") {
                 super::value_or_error(crate::lookup_app_users(ids))
-            } else if req
-                .params
-                .as_ref()
-                .map(|params| params.get("page").is_some() || params.get("pageSize").is_some())
-                .unwrap_or(false)
-            {
+            } else {
                 let input = req
                     .params
                     .clone()
@@ -66,8 +61,6 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                     })
                     .map_err(|err| format!("invalid app user list params: {err}"));
                 super::value_or_error(input.and_then(crate::list_app_users_paginated))
-            } else {
-                super::value_or_error(crate::list_app_users())
             }
         }
         "accountManager/users/create" => {
