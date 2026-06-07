@@ -52,6 +52,47 @@ CodexManager is a local desktop + service-process account pool manager and gatew
 - For the latest release notes, see [CHANGELOG.md](CHANGELOG.md).
 - If you are not sure which document to open first, use the table below.
 
+<<<<<<< HEAD
+=======
+## Sponsors
+
+Thanks to the following sponsors for supporting CodexManager.
+
+<table>
+  <tr>
+    <td align="center" valign="middle" width="180">
+      <a href="https://apikey.fun/register?aff=Codex-Manager">
+        <img src="../../assets/images/sponsors/APIKey.Fun.png" alt="APIKEY.FUN" width="120" />
+      </a>
+    </td>
+    <td valign="top">
+      Thanks to <strong>APIKEY.FUN</strong> for sponsoring this project! APIKEY.FUN is a professional enterprise-grade AI API gateway dedicated to providing stable, efficient, and low-cost AI model API access for businesses and individual developers. The platform supports popular mainstream models including Claude, OpenAI, and Gemini, with pricing as low as 7% of the official price. Register through this project's <a href="https://apikey.fun/register?aff=Codex-Manager">exclusive link</a> to receive an exclusive benefit of up to <strong>permanent 5% off top-ups</strong>.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle" width="180">
+      <a href="https://gzxsy.vip/register?aff=eapz">
+        <img src="../../assets/images/sponsors/xingsiyan.jpg" alt="Xing Si Yan Gateway" width="120" />
+      </a>
+    </td>
+    <td valign="top">
+      <strong>Xing Si Yan Gateway</strong> provides stable relay and supporting services for Claude Code, Codex, and similar model-call scenarios. It is suitable for developers and teams that require highly available APIs, convenient onboarding, and continuous delivery support. Visit the <a href="https://gzxsy.vip/register?aff=eapz">official site</a> for the latest plans.
+    </td>
+  </tr>
+</table>
+
+Other supporters: [Wonderdch](https://github.com/Wonderdch), [suxinwl](https://github.com/suxinwl), [Hermit](https://github.com/HermitChen), [Suifeng023](https://github.com/Suifeng023), [HK-hub](https://github.com/HK-hub)
+
+## Ecosystem Pairing
+
+### OpenCowork
+
+- Repository: [AIDotNet/OpenCowork](https://github.com/AIDotNet/OpenCowork)
+- Recommended pairing: use OpenCowork for local file operations, multi-agent execution, workplace messaging, and desktop automation, while CodexManager handles Codex account management, usage tracking, platform keys, and the local gateway entry point.
+- Best for: teams that want to separate the execution workspace and office integration from account-pool management and gateway access.
+- A simple way to think about it: **OpenCowork executes in the real workspace, CodexManager manages accounts and gateway access.**
+
+>>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
 ## Quick navigation
 | What you need | Open this document |
 | --- | --- |

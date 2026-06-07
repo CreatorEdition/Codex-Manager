@@ -28,6 +28,8 @@ import { ManagedModelPayload } from "@/lib/api/account-client";
 import { useI18n } from "@/lib/i18n/provider";
 import { ManagedModelInfo } from "@/types";
 
+type TranslateFn = ReturnType<typeof useI18n>["t"];
+
 interface ModelCatalogModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -128,15 +130,19 @@ function toPrettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function parseOptionalNumber(text: string, label: string): number {
+function parseOptionalNumber(text: string, label: string, t: TranslateFn): number {
   const parsed = Number(text.trim() || "0");
   if (!Number.isFinite(parsed)) {
-    throw new Error(`${label} 必须是数字`);
+    throw new Error(`${label} ${t("必须是数字")}`);
   }
   return parsed;
 }
 
-function parseJsonObject(text: string, label: string): Record<string, unknown> {
+function parseJsonObject(
+  text: string,
+  label: string,
+  t: TranslateFn,
+): Record<string, unknown> {
   const trimmed = text.trim();
   if (!trimmed) {
     return {};
@@ -144,12 +150,14 @@ function parseJsonObject(text: string, label: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(trimmed);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("必须是对象");
+      throw new Error(t("必须是对象"));
     }
     return parsed as Record<string, unknown>;
   } catch (error) {
     throw new Error(
-      `${label} 不是有效 JSON 对象: ${error instanceof Error ? error.message : String(error)}`,
+      `${label} ${t("不是有效 JSON 对象")}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
     );
   }
 }
@@ -292,10 +300,15 @@ export function ModelCatalogModal({
   const handleSave = async () => {
     const slug = draft.slug.trim();
     if (!slug) {
+<<<<<<< HEAD
       throw new Error("模型 slug 不能为空");
+=======
+      setPriceError(t("模型 slug 不能为空"));
+      return;
+>>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
     }
 
-    const advancedFields = parseJsonObject(draft.advancedJson, "高级 JSON");
+    const advancedFields = parseJsonObject(draft.advancedJson, t("高级 JSON"), t);
     const nextModel: ManagedModelInfo = {
       ...buildDefaultModel(nextSortIndex, model?.updatedAt ?? 0),
       ...advancedFields,
@@ -305,13 +318,41 @@ export function ModelCatalogModal({
       sourceKind: draft.sourceKind,
       userEdited: draft.userEdited,
       supportedInApi: draft.supportedInApi,
-      sortIndex: parseOptionalNumber(draft.sortIndex, "排序权重"),
-      priority: parseOptionalNumber(draft.priority, "Priority"),
+      sortIndex: parseOptionalNumber(draft.sortIndex, t("排序权重"), t),
+      priority: parseOptionalNumber(draft.priority, t("Priority"), t),
       visibility: draft.visibility.trim() || null,
       defaultReasoningLevel: draft.defaultReasoningLevel.trim() || null,
       updatedAt: model?.updatedAt ?? 0,
     };
 
+<<<<<<< HEAD
+=======
+    const ip = draft.inputPricePer1m.trim();
+    const cp = draft.cachedInputPricePer1m.trim();
+    const op = draft.outputPricePer1m.trim();
+    const hasAnyPriceText = ip !== "" || cp !== "" || op !== "";
+    const isClearingExistingOverride = !hasAnyPriceText && !!priceRule?.id;
+    const hasUserInput = hasAnyPriceText || isClearingExistingOverride;
+
+    if (hasUserInput) {
+      const inputNum = ip !== "" ? Number(ip) : null;
+      const cachedNum = cp !== "" ? Number(cp) : null;
+      const outputNum = op !== "" ? Number(op) : null;
+      if (
+        (inputNum !== null && (!Number.isFinite(inputNum) || inputNum < 0)) ||
+        (cachedNum !== null && (!Number.isFinite(cachedNum) || cachedNum < 0)) ||
+        (outputNum !== null && (!Number.isFinite(outputNum) || outputNum < 0))
+      ) {
+        setPriceError(t("价格必须为非负有效数字"));
+        return;
+      }
+      if (!isClearingExistingOverride && (inputNum == null || outputNum == null)) {
+        setPriceError(t("输入价格和输出价格必须同时填写"));
+        return;
+      }
+    }
+
+>>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
     const saved = await onSave({
       previousSlug: model?.slug || null,
       sourceKind: nextModel.sourceKind,
@@ -320,6 +361,34 @@ export function ModelCatalogModal({
       model: nextModel,
     });
     if (saved) {
+<<<<<<< HEAD
+=======
+      if (onSavePriceRule && slug && hasUserInput) {
+        try {
+          setSavingPrice(true);
+          await onSavePriceRule({
+            id: priceRule?.id,
+            provider: priceRule?.provider ?? undefined,
+            modelPattern: slug,
+            inputPricePer1m: isClearingExistingOverride ? 0 : Number(ip),
+            cachedInputPricePer1m: isClearingExistingOverride
+              ? null
+              : (cp !== "" ? Number(cp) : null),
+            outputPricePer1m: isClearingExistingOverride ? 0 : Number(op),
+            enabled: isClearingExistingOverride ? false : true,
+          });
+        } catch (error) {
+          setPriceError(
+            `${t("模型已保存，但价格保存失败")}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          setSavingPrice(false);
+          return;
+        }
+        setSavingPrice(false);
+      }
+>>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
       onOpenChange(false);
     }
   };
