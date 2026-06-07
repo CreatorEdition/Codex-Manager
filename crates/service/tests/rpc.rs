@@ -624,7 +624,7 @@ fn rpc_account_list_empty_uses_default_pagination() {
     );
 }
 
-/// 函数 `rpc_account_list_supports_pagination`
+/// 函数 `rpc_account_list_returns_all_accounts`
 ///
 /// 作者: gaohongshun
 ///
@@ -636,15 +636,15 @@ fn rpc_account_list_empty_uses_default_pagination() {
 /// # 返回
 /// 无
 #[test]
-fn rpc_account_list_supports_pagination() {
-    let ctx = RpcTestContext::new("rpc-account-list-page");
+fn rpc_account_list_returns_all_accounts() {
+    let ctx = RpcTestContext::new("rpc-account-list-all");
     ctx.seed_accounts(7);
     let server = codexmanager_service::start_one_shot_server().expect("start server");
 
     let req = JsonRpcRequest {
         id: 3.into(),
         method: "account/list".to_string(),
-        params: Some(serde_json::json!({"page": 2, "pageSize": 3})),
+        params: None,
         trace: None,
     };
     let json = serde_json::to_string(&req).expect("serialize");
@@ -655,15 +655,15 @@ fn rpc_account_list_supports_pagination() {
         .get("items")
         .and_then(|value| value.as_array())
         .expect("items array");
-    assert_eq!(items.len(), 3, "unexpected page size: {result}");
+    assert_eq!(items.len(), 7, "unexpected account count: {result}");
     assert_eq!(
         result.get("total").and_then(|value| value.as_i64()),
         Some(7)
     );
-    assert_eq!(result.get("page").and_then(|value| value.as_i64()), Some(2));
+    assert_eq!(result.get("page").and_then(|value| value.as_i64()), Some(1));
     assert_eq!(
         result.get("pageSize").and_then(|value| value.as_i64()),
-        Some(3)
+        Some(7)
     );
 
     let ids = items
@@ -675,7 +675,10 @@ fn rpc_account_list_supports_pagination() {
                 .expect("item id")
         })
         .collect::<Vec<_>>();
-    assert_eq!(ids, vec!["acc-3", "acc-4", "acc-5"]);
+    assert_eq!(
+        ids,
+        vec!["acc-0", "acc-1", "acc-2", "acc-3", "acc-4", "acc-5", "acc-6"]
+    );
     assert_eq!(
         items[0].get("status").and_then(|value| value.as_str()),
         Some("active")
@@ -1080,6 +1083,7 @@ fn rpc_app_settings_can_roundtrip_free_account_max_model() {
     );
 }
 
+<<<<<<< HEAD
 /// 函数 `rpc_account_list_active_filter_uses_backend_filtered_pagination`
 ///
 /// 作者: gaohongshun
@@ -1267,6 +1271,8 @@ fn rpc_aggregate_api_list_supports_backend_filters_and_pagination() {
     );
 }
 
+=======
+>>>>>>> cf306b11 (修复未注册的插件)
 /// 函数 `rpc_account_delete_many_deletes_requested_accounts`
 ///
 /// 作者: gaohongshun

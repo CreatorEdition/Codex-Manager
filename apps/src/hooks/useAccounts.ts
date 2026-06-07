@@ -10,10 +10,12 @@ import { accountClient } from "@/lib/api/account-client";
 import { CODEX_PROFILE_CANDIDATES_QUERY_KEY } from "@/lib/api/codex-profile-client";
 >>>>>>> 82970aaa (feat: add Codex CLI platform mode switching)
 import { attachUsagesToAccounts } from "@/lib/api/normalize";
+import { serviceClient } from "@/lib/api/service-client";
 import {
   buildStartupSnapshotQueryKey,
   STARTUP_SNAPSHOT_PROFILE_PREFETCH,
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
+  STARTUP_SNAPSHOT_STALE_TIME,
 } from "@/lib/api/startup-snapshot";
 import { getAppErrorMessage } from "@/lib/api/transport";
 import { listenUsageRefreshCompleted } from "@/lib/api/usage-refresh-events";
@@ -23,7 +25,7 @@ import { useLocalDayRange } from "@/hooks/useLocalDayRange";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
-import { AccountListResult, AccountUsage, StartupSnapshot } from "@/types";
+import { Account, AccountListResult, AccountUsage, StartupSnapshot } from "@/types";
 
 type ImportByDirectoryResult = Awaited<ReturnType<typeof accountClient.importByDirectory>>;
 type ImportByFileResult = Awaited<ReturnType<typeof accountClient.importByFile>>;
@@ -158,6 +160,18 @@ function buildUsageListFingerprint(usages: AccountUsage[]): string {
     .join("|");
 }
 
+function buildAccountListResultFromSnapshot(accounts: Account[]): AccountListResult | undefined {
+  if (accounts.length === 0) {
+    return undefined;
+  }
+  return {
+    items: accounts,
+    total: accounts.length,
+    page: 1,
+    pageSize: accounts.length,
+  };
+}
+
 /**
  * 函数 `useAccounts`
  *
@@ -183,15 +197,12 @@ export function useAccounts(params?: AccountListParams) {
   const areAccountQueriesEnabled = useDeferredDesktopActivation(
     isServiceReady && isPageActive,
   );
-  const accountsAutoRefreshIntervalMs = getAccountsAutoRefreshIntervalMs(
-    areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
-    backgroundTasks.usagePollIntervalSecs,
-  );
   const usageListRefreshIntervalMs = getUsageListRefreshIntervalMs(
     areAccountQueriesEnabled && backgroundTasks.usagePollingEnabled,
     backgroundTasks.usagePollIntervalSecs,
   );
   const usageListFingerprintRef = useRef<string | null>(null);
+<<<<<<< HEAD
   const startupSnapshot =
     queryClient.getQueryData<StartupSnapshot>(
       buildStartupSnapshotQueryKey(
@@ -225,6 +236,36 @@ export function useAccounts(params?: AccountListParams) {
         pageSize: normalizedListParams.pageSize,
       }
     : undefined;
+=======
+  const allowEmptyAccountListRef = useRef(false);
+  const startupSnapshotQueryKey = buildStartupSnapshotQueryKey(
+    serviceStatus.addr,
+    STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
+    localDayRange.dayStartTs,
+  );
+  const startupSnapshotQuery = useQuery({
+    queryKey: startupSnapshotQueryKey,
+    queryFn: () =>
+      serviceClient.getStartupSnapshot({
+        requestLogLimit: STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
+        dayStartTs: localDayRange.dayStartTs,
+        dayEndTs: localDayRange.dayEndTs,
+      }),
+    enabled: areAccountQueriesEnabled,
+    retry: 1,
+    staleTime: STARTUP_SNAPSHOT_STALE_TIME,
+  });
+  const startupSnapshot =
+    startupSnapshotQuery.data ||
+    queryClient.getQueryData<StartupSnapshot>(startupSnapshotQueryKey);
+  const startupAccounts = startupSnapshot?.accounts || [];
+  const startupUsages = startupSnapshot?.usageSnapshots || [];
+  const hasStartupAccountSnapshot = startupAccounts.length > 0;
+  const startupAccountList = useMemo(
+    () => buildAccountListResultFromSnapshot(startupAccounts),
+    [startupAccounts],
+  );
+>>>>>>> cf306b11 (修复未注册的插件)
 
   /**
    * 函数 `ensureServiceReady`
@@ -247,16 +288,54 @@ export function useAccounts(params?: AccountListParams) {
     return false;
   };
 
+  // 账号实体列表只在显式账号操作/手动刷新时更新；用量轮询通过 usage/list 合并展示，避免临时空读覆盖账号池。
   const accountsQuery = useQuery({
+<<<<<<< HEAD
     queryKey: ["accounts", "list", normalizedListParams],
     queryFn: () => accountClient.list(normalizedListParams),
+=======
+    queryKey: ["accounts", "list"],
+    queryFn: async () => {
+      const data = await accountClient.list();
+      if (data.items.length > 0) {
+        allowEmptyAccountListRef.current = false;
+        return data;
+      }
+      if (allowEmptyAccountListRef.current) {
+        allowEmptyAccountListRef.current = false;
+        return data;
+      }
+      if (
+        startupAccountList &&
+        startupAccountList.items.length > 0
+      ) {
+        console.warn(
+          "account/list returned empty while startup snapshot still has accounts; keeping startup account list",
+          {
+            startupCount: startupAccountList.items.length,
+            startupTotal: startupAccountList.total,
+          },
+        );
+        return startupAccountList;
+      }
+      return data;
+    },
+>>>>>>> cf306b11 (修复未注册的插件)
     enabled: areAccountQueriesEnabled,
     retry: 1,
-    refetchInterval: accountsAutoRefreshIntervalMs,
-    refetchIntervalInBackground: false,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    initialData: () =>
+      queryClient.getQueryData<AccountListResult>(["accounts", "list"]) ||
+      startupAccountList,
     placeholderData: (previousData): AccountListResult | undefined =>
+<<<<<<< HEAD
       previousData ||
       (startupAccountPage?.items.length ? startupAccountPage : undefined),
+=======
+      previousData || startupAccountList,
+>>>>>>> cf306b11 (修复未注册的插件)
   });
   const visibleAccountIds = useMemo(
     () => (accountsQuery.data?.items || startupAccountPage?.items || [])
@@ -298,7 +377,6 @@ export function useAccounts(params?: AccountListParams) {
     const refreshVisibleUsageData = () => {
       void Promise.all([
         queryClient.refetchQueries({ queryKey: ["usage", "list"], type: "active" }),
-        queryClient.refetchQueries({ queryKey: ["accounts", "list"], type: "active" }),
         queryClient.invalidateQueries({ queryKey: ["usage-aggregate"] }),
         queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
         queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
@@ -339,7 +417,6 @@ export function useAccounts(params?: AccountListParams) {
     }
 
     void Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["accounts", "list"] }),
       queryClient.invalidateQueries({ queryKey: ["usage-aggregate"] }),
       queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
       queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
@@ -352,12 +429,14 @@ export function useAccounts(params?: AccountListParams) {
     usagesQuery.isFetched,
   ]);
 
+  const visibleAccountList = accountsQuery.data;
+
   const accounts = useMemo(() => {
     return attachUsagesToAccounts(
-      accountsQuery.data?.items || [],
+      visibleAccountList?.items || [],
       usagesQuery.data || []
     );
-  }, [accountsQuery.data?.items, usagesQuery.data]);
+  }, [visibleAccountList?.items, usagesQuery.data]);
 
   const accountListResult = accountsQuery.data || startupAccountPage || {
     items: [],
@@ -415,7 +494,7 @@ export function useAccounts(params?: AccountListParams) {
   }, [accounts]);
 
   /**
-   * 函数 `invalidateAll`
+   * 函数 `invalidateUsageData`
    *
    * 作者: gaohongshun
    *
@@ -427,9 +506,8 @@ export function useAccounts(params?: AccountListParams) {
    * # 返回
    * 返回函数执行结果
    */
-  const invalidateAll = async () => {
+  const invalidateUsageData = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["accounts"] }),
       queryClient.invalidateQueries({ queryKey: ["usage"] }),
       queryClient.invalidateQueries({ queryKey: ["usage-aggregate"] }),
       queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
@@ -437,6 +515,17 @@ export function useAccounts(params?: AccountListParams) {
       queryClient.invalidateQueries({ queryKey: ["logs"] }),
       queryClient.invalidateQueries({ queryKey: CODEX_PROFILE_CANDIDATES_QUERY_KEY }),
     ]);
+  };
+
+  const invalidateAccountData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["accounts", "list"] }),
+      invalidateUsageData(),
+    ]);
+  };
+
+  const allowExplicitEmptyAccountList = () => {
+    allowEmptyAccountListRef.current = true;
   };
 
   const refreshAccountMutation = useMutation({
@@ -448,7 +537,7 @@ export function useAccounts(params?: AccountListParams) {
       toast.error(`${t("刷新失败")}: ${formatUsageRefreshErrorMessage(error, t)}`);
     },
     onSettled: async () => {
-      await invalidateAll();
+      await invalidateUsageData();
     },
   });
 
@@ -461,7 +550,7 @@ export function useAccounts(params?: AccountListParams) {
       toast.error(`${t("刷新失败")}: ${formatUsageRefreshErrorMessage(error, t)}`);
     },
     onSettled: async () => {
-      await invalidateAll();
+      await invalidateUsageData();
     },
   });
 
@@ -475,7 +564,7 @@ export function useAccounts(params?: AccountListParams) {
       toast.error(`${t("刷新 AT/RT 失败")}: ${getAppErrorMessage(error)}`);
     },
     onSettled: async () => {
-      await invalidateAll();
+      await invalidateAccountData();
     },
   });
 
@@ -514,14 +603,15 @@ export function useAccounts(params?: AccountListParams) {
       toast.error(`${t("批量刷新 AT/RT 失败")}: ${getAppErrorMessage(error)}`);
     },
     onSettled: async () => {
-      await invalidateAll();
+      await invalidateAccountData();
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (accountId: string) => accountClient.delete(accountId),
     onSuccess: async () => {
-      await invalidateAll();
+      allowExplicitEmptyAccountList();
+      await invalidateAccountData();
       toast.success(t("账号已删除"));
     },
     onError: (error: unknown) => {
@@ -532,7 +622,8 @@ export function useAccounts(params?: AccountListParams) {
   const deleteManyMutation = useMutation({
     mutationFn: (accountIds: string[]) => accountClient.deleteMany(accountIds),
     onSuccess: async (_result, accountIds) => {
-      await invalidateAll();
+      allowExplicitEmptyAccountList();
+      await invalidateAccountData();
       toast.success(t("已删除 {count} 个账号", { count: accountIds.length }));
     },
     onError: (error: unknown) => {
@@ -543,8 +634,11 @@ export function useAccounts(params?: AccountListParams) {
   const deleteByStatusesMutation = useMutation({
     mutationFn: (statuses: string[]) => accountClient.deleteByStatuses({ statuses }),
     onSuccess: async (result: DeleteAccountsByStatusesResult) => {
-      await invalidateAll();
       const deleted = Number(result?.deleted || 0);
+      if (deleted > 0) {
+        allowExplicitEmptyAccountList();
+      }
+      await invalidateAccountData();
       if (deleted > 0) {
         toast.success(t("已清理 {count} 个账号", { count: deleted }));
       } else {
@@ -560,7 +654,7 @@ export function useAccounts(params?: AccountListParams) {
     mutationFn: ({ accountId, sort }: { accountId: string; sort: number }) =>
       accountClient.updateSort(accountId, sort),
     onSuccess: async () => {
-      await invalidateAll();
+      await invalidateAccountData();
       toast.success(t("账号顺序已更新"));
     },
     onError: (error: unknown) => {
@@ -576,7 +670,7 @@ export function useAccounts(params?: AccountListParams) {
       return updates.length;
     },
     onSuccess: async (count) => {
-      await invalidateAll();
+      await invalidateAccountData();
       toast.success(
         count > 1
           ? t("账号顺序已调整（{count} 项）", { count })
@@ -584,7 +678,7 @@ export function useAccounts(params?: AccountListParams) {
       );
     },
     onError: async (error: unknown) => {
-      await invalidateAll();
+      await invalidateAccountData();
       toast.error(`${t("调整账号顺序失败")}: ${getAppErrorMessage(error)}`);
     },
   });
@@ -619,7 +713,7 @@ export function useAccounts(params?: AccountListParams) {
         quotaCapacitySecondaryWindowTokens,
       }),
     onSuccess: async () => {
-      await invalidateAll();
+      await invalidateAccountData();
       toast.success(t("账号信息已更新"));
     },
     onError: (error: unknown) => {
@@ -640,7 +734,7 @@ export function useAccounts(params?: AccountListParams) {
         ? accountClient.enableAccount(accountId)
         : accountClient.disableAccount(accountId),
     onSuccess: async (_result, variables) => {
-      await invalidateAll();
+      await invalidateAccountData();
       const normalizedSourceStatus = String(variables.sourceStatus || "")
         .trim()
         .toLowerCase();
@@ -677,7 +771,7 @@ export function useAccounts(params?: AccountListParams) {
         toast.info(t("已取消导入"));
         return;
       }
-      await invalidateAll();
+      await invalidateAccountData();
       toast.success(buildImportSummaryMessage(result, t));
     },
     onError: (error: unknown) => {
@@ -692,7 +786,7 @@ export function useAccounts(params?: AccountListParams) {
         toast.info(t("已取消导入"));
         return;
       }
-      await invalidateAll();
+      await invalidateAccountData();
       toast.success(buildImportSummaryMessage(result, t));
     },
     onError: (error: unknown) => {
@@ -729,7 +823,7 @@ export function useAccounts(params?: AccountListParams) {
   const warmupMutation = useMutation({
     mutationFn: (params?: WarmupPayload) => accountClient.warmup(params),
     onSuccess: async (result: WarmupResult) => {
-      await invalidateAll();
+      await invalidateUsageData();
       const requested = Number(result?.requested || 0);
       const succeeded = Number(result?.succeeded || 0);
       const failed = Number(result?.failed || 0);
@@ -763,7 +857,7 @@ export function useAccounts(params?: AccountListParams) {
   const setPreferredMutation = useMutation({
     mutationFn: (accountId: string) => accountClient.setPreferred(accountId),
     onSuccess: async () => {
-      await invalidateAll();
+      await invalidateAccountData();
       toast.success(t("已设为优先账号"));
     },
     onError: (error: unknown) => {
@@ -774,7 +868,7 @@ export function useAccounts(params?: AccountListParams) {
   const clearPreferredMutation = useMutation({
     mutationFn: (accountId: string) => accountClient.clearPreferred(accountId),
     onSuccess: async () => {
-      await invalidateAll();
+      await invalidateAccountData();
       toast.success(t("已取消优先账号"));
     },
     onError: (error: unknown) => {
@@ -786,10 +880,14 @@ export function useAccounts(params?: AccountListParams) {
     accounts,
     accountListResult,
     planTypes,
+<<<<<<< HEAD
     total: totalAccounts,
     totalAccounts,
     accountPage: accountListResult.page,
     accountPageSize: accountListResult.pageSize,
+=======
+    total: visibleAccountList?.total || accounts.length,
+>>>>>>> cf306b11 (修复未注册的插件)
     isLoading:
       isServiceReady &&
       !(canUseStartupAccountPlaceholder && hasStartupAccountSnapshot) &&
@@ -823,7 +921,7 @@ export function useAccounts(params?: AccountListParams) {
     },
     refreshAccountList: async () => {
       if (!ensureServiceReady("刷新账号列表")) return;
-      await invalidateAll();
+      await invalidateAccountData();
       toast.success(t("账号列表已刷新"));
     },
     deleteAccount: (accountId: string) => {

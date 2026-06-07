@@ -381,11 +381,16 @@ async function importAccountContents(contents: string[]): Promise<AccountImportR
 }
 
 export const accountClient = {
+<<<<<<< HEAD
   async list(params?: AccountListParams): Promise<AccountListResult> {
     const result = await invoke<unknown>(
       "service_account_list",
       withAddr(params ? { ...params } : {}),
     );
+=======
+  async list(): Promise<AccountListResult> {
+    const result = await invoke<unknown>("service_account_list", withAddr());
+>>>>>>> cf306b11 (修复未注册的插件)
     return normalizeAccountList(result);
   },
   async lookupAccounts(ids: string[]) {

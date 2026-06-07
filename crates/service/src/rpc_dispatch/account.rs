@@ -1,4 +1,4 @@
-use codexmanager_core::rpc::types::{AccountListParams, JsonRpcRequest, JsonRpcResponse};
+use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
 
 use crate::{
     account_cleanup, account_delete, account_delete_many, account_export, account_import,
@@ -18,6 +18,7 @@ use crate::{
 /// 返回函数执行结果
 pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
     let result = match req.method.as_str() {
+<<<<<<< HEAD
         "account/list" => {
             let params = req
                 .params
@@ -47,6 +48,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .unwrap_or_default();
             super::value_or_error(account_list::lookup_accounts(ids))
         }
+=======
+        "account/list" => super::value_or_error(account_list::read_accounts()),
+>>>>>>> cf306b11 (修复未注册的插件)
         "account/delete" => {
             let account_id = super::str_param(req, "accountId").unwrap_or("");
             super::ok_or_error(account_delete::delete_account(account_id))

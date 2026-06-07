@@ -48,6 +48,7 @@ pub(crate) fn read_startup_snapshot(
     api_key_limit: Option<i64>,
     options: StartupSnapshotOptions,
 ) -> Result<StartupSnapshotResult, String> {
+<<<<<<< HEAD
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let account_total = storage
         .account_count_filtered(None, None)
@@ -82,6 +83,31 @@ pub(crate) fn read_startup_snapshot(
     } else {
         Default::default()
     };
+=======
+    let storage =
+        storage_helpers::open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let accounts = storage
+        .list_accounts()
+        .map_err(|err| format!("list accounts failed: {err}"))?;
+    let db_path = std::env::var("CODEXMANAGER_DB_PATH").unwrap_or_else(|_| "<unset>".to_string());
+    log::info!(
+        "startup/snapshot read: db_path={} account_count={}",
+        db_path,
+        accounts.len()
+    );
+    let account_context = account_list::build_account_summary_context(&storage, &accounts)?;
+    let usage_aggregate_summary = usage_aggregate::compute_usage_aggregate_summary(
+        &accounts,
+        &account_context.usage_snapshots,
+    );
+    let usage_snapshots = account_context
+        .usage_snapshots
+        .into_iter()
+        .map(crate::usage_read::usage_snapshot_result_from_record)
+        .collect();
+    let api_keys = apikey_list::read_api_keys()?;
+    let api_models = apikey_models::read_model_options(false)?;
+>>>>>>> cf306b11 (修复未注册的插件)
     let manual_preferred_account_id = gateway::manual_preferred_account();
     let request_log_today_summary = if options.include_today_summary {
         requestlog_today_summary::read_requestlog_today_summary(day_start_ts, day_end_ts)?
