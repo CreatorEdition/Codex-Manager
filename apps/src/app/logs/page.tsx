@@ -1,47 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Database,
-  RefreshCw,
-  Shield,
-  Trash2,
-  Zap,
-  type LucideIcon,
-} from "lucide-react";
+import { Database } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/modals/confirm-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { accountClient } from "@/lib/api/account-client";
 import {
   buildStartupSnapshotQueryKey,
@@ -61,10 +26,9 @@ import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useCodexProfileModeStatus } from "@/hooks/useCodexProfileModeStatus";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
-import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
-import { formatCompactNumber, formatTsFromSeconds } from "@/lib/utils/usage";
-import { cn } from "@/lib/utils";
+import { RequestLogsTabContent } from "./page-sections";
 import {
+<<<<<<< HEAD
   AggregateApi,
   ApiKey,
   RequestLog,
@@ -1381,6 +1345,18 @@ function buildSummaryPlaceholder(logs: RequestLog[]): RequestLogFilterSummary {
  * # 返回
  * 返回函数执行结果
  */
+=======
+  buildFixedTimePreset,
+  LogsPageSkeleton,
+  type LogsTab,
+  type StatusFilter,
+  type TimeRangePreset,
+  fromDateTimeLocalValue,
+} from "./page-helpers";
+import { buildSummaryPlaceholder } from "./page-cells";
+import { AccountListResult, ApiKey, RequestLogListResult, StartupSnapshot } from "@/types";
+
+>>>>>>> fccf5a63 (refactor frontend structure and gateway endpoint handling)
 function LogsPageContent() {
   const { t } = useI18n();
   const localDayRange = useLocalDayRange();
@@ -1621,6 +1597,7 @@ function LogsPageContent() {
     successCount: 0,
     errorCount: 0,
     totalTokens: 0,
+    totalCostUsd: 0,
   };
   const totalPages = Math.max(
     1,
@@ -1739,438 +1716,74 @@ function LogsPageContent() {
         </TabsList>
 
         <TabsContent value="requests" className="space-y-5">
-          {isDirectAccountMode ? (
-            <div className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-start gap-3">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
-                <div>
-                  <div className="font-semibold text-amber-700 dark:text-amber-200">
-                    {t("账号直连模式不会产生新的 CodexManager 请求日志")}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {t("这里仅展示历史网关请求；如需记录请求，请切换到本地网关模式。")}
-                  </div>
-                </div>
-              </div>
-              <a
-                href={buildStaticRouteUrl("/platform-mode")}
-                className="inline-flex h-8 w-fit items-center justify-center rounded-lg border border-amber-500/40 bg-background/70 px-3 text-xs font-medium text-foreground transition-colors hover:bg-background"
-              >
-                {t("去切换为本地网关")}
-              </a>
-            </div>
-          ) : null}
-
-          <Card className="glass-card shadow-sm">
-            <CardContent className="space-y-3 pt-0">
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto_auto] xl:items-center">
-                <div className="min-w-0">
-                  <Input
-                    placeholder={t("搜索路径、账号或密钥 ID...")}
-                    className="glass-card h-10 rounded-xl px-3"
-                    value={search}
-                    onChange={(event) => {
-                      setSearch(event.target.value);
-                      setPage(1);
-                    }}
-                  />
-                </div>
-                <div className="flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1">
-                  {["all", "2xx", "4xx", "5xx"].map((item) => (
-                    <Button
-                      key={item}
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setFilter(item as StatusFilter);
-                        setPage(1);
-                      }}
-                      className={cn(
-                        "h-auto rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-all",
-                        filter === item
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                      )}
-                    >
-                      {item.toUpperCase()}
-                    </Button>
-                  ))}
-                </div>
-                <div className="flex shrink-0 items-center gap-2 xl:justify-self-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="glass-card h-9 rounded-xl px-3.5"
-                    onClick={() =>
-                      queryClient.invalidateQueries({ queryKey: ["logs"] })
-                    }
-                  >
-                    <RefreshCw className="mr-1.5 h-4 w-4" /> {t("刷新")}
-                  </Button>
-                  {isAdminMode ? (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="h-9 rounded-xl px-3.5"
-                    onClick={() => setClearConfirmOpen(true)}
-                    disabled={clearMutation.isPending}
-                  >
-                    <Trash2 className="mr-1.5 h-4 w-4" /> {t("清空日志")}
-                  </Button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-end">
-                <div className="space-y-2">
-                  <div className="text-[11px] font-medium text-muted-foreground">
-                    {t("快捷时间")}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1">
-                    {(
-                      [
-                        ["all", t("全部时间")],
-                        ["30m", t("最近30分钟")],
-                        ["2h", t("最近2小时")],
-                        ["24h", t("最近24小时")],
-                        ["today", t("今天")],
-                      ] as Array<[TimeRangePreset, string]>
-                    ).map(([value, label]) => (
-                      <Button
-                        key={value}
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => applyTimePreset(value)}
-                        className={cn(
-                          "h-auto rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
-                          timePreset === value
-                            ? "bg-background text-foreground shadow-sm"
-                            : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                        )}
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <div className="text-[11px] font-medium text-muted-foreground">
-                      {t("开始时间")}
-                    </div>
-                    <Input
-                      type="datetime-local"
-                      className="glass-card h-10 rounded-xl px-3"
-                      value={startTimeInput}
-                      onChange={(event) => {
-                        setTimePreset("custom");
-                        setStartTimeInput(event.target.value);
-                        setPage(1);
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-[11px] font-medium text-muted-foreground">
-                      {t("结束时间")}
-                    </div>
-                    <Input
-                      type="datetime-local"
-                      className="glass-card h-10 rounded-xl px-3"
-                      value={endTimeInput}
-                      onChange={(event) => {
-                        setTimePreset("custom");
-                        setEndTimeInput(event.target.value);
-                        setPage(1);
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div className="text-[11px] text-muted-foreground xl:justify-self-end xl:text-right">
-                  <div className="font-medium text-foreground">
-                    {compactMetaText}
-                  </div>
-                  {hasActiveTimeRange ? (
-                    <Button
-                      type="button"
-                      variant="link"
-                      className="mt-1 h-auto p-0 text-xs text-primary hover:underline"
-                      onClick={() => applyTimePreset("all")}
-                    >
-                      {t("清除时间筛选")}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryCard
-              title={t("当前结果")}
-              value={`${summary.filteredCount}`}
-              description={`${t("总日志")} ${summary.totalCount} ${t("条")}${
-                isDirectAccountMode ? ` · ${t("仅网关流量")}` : ""
-              }`}
-              icon={Zap}
-              toneClass="bg-primary/12 text-primary"
-            />
-            <SummaryCard
-              title={t("2XX 成功")}
-              value={`${summary.successCount}`}
-              description={
-                isDirectAccountMode
-                  ? `${t("状态码 200-299")} · ${t("仅网关流量")}`
-                  : t("状态码 200-299")
-              }
-              icon={CheckCircle2}
-              toneClass="bg-green-500/12 text-green-500"
-            />
-            <SummaryCard
-              title={t("异常请求")}
-              value={`${summary.errorCount}`}
-              description={
-                isDirectAccountMode
-                  ? `${t("4xx / 5xx 或显式错误")} · ${t("仅网关流量")}`
-                  : t("4xx / 5xx 或显式错误")
-              }
-              icon={AlertTriangle}
-              toneClass="bg-red-500/12 text-red-500"
-            />
-            <SummaryCard
-              title={t("累计Token")}
-              value={formatCompactTokenAmount(summary.totalTokens)}
-              description={
-                isDirectAccountMode
-                  ? `${t("当前筛选结果中的总Token")} · ${t("仅网关流量")}`
-                  : t("当前筛选结果中的总Token")
-              }
-              icon={Database}
-              toneClass="bg-amber-500/12 text-amber-500"
-            />
-          </div>
-
-          <Card className="glass-card overflow-hidden gap-0 py-0 shadow-sm">
-            <CardHeader className="flex min-h-1 items-center border-b border-border/40 bg-[var(--table-section-bg)] py-3">
-              <div className="flex w-full flex-col gap-1 xl:flex-row xl:items-center xl:justify-between">
-                <div>
-                  <CardTitle className="text-[15px] font-semibold">
-                    {t("请求明细 按")}{" "}
-                    <span className="font-medium text-foreground">
-                      {currentFilterLabel}
-                    </span>{" "}
-                    {t("展示")}
-                  </CardTitle>
-                </div>
-                <div className="text-xs text-muted-foreground"></div>
-              </div>
-            </CardHeader>
-            <CardContent className="px-0">
-              <Table className="min-w-[1500px] table-fixed">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="h-12 w-[150px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("时间")}
-                </TableHead>
-                <TableHead className="w-[240px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("类型 / 方法 / 路径")}
-                </TableHead>
-                <TableHead className="w-[224px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("账号 / 密钥")}
-                </TableHead>
-                <TableHead className="w-[220px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("模型 / 推理 / 等级")}
-                </TableHead>
-                <TableHead className="w-[92px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("状态")}
-                </TableHead>
-                <TableHead className="w-[128px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("用时 / 首响")}
-                </TableHead>
-                <TableHead className="w-[148px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("Token")}
-                </TableHead>
-                <TableHead className="w-[240px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("错误")}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLogsLoading ? (
-                Array.from({ length: 10 }).map((_, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <Skeleton className="h-4 w-32" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-40" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-32" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-24" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-6 w-12 rounded-full" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-12" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-20" />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton className="h-4 w-full" />
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : logs.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={8}
-                    className="h-52 px-4 text-center text-sm text-muted-foreground"
-                  >
-                    {!serviceStatus.connected
-                      ? t("服务未连接，无法获取日志")
-                      : isDirectAccountMode
-                        ? t("账号直连模式下不会产生请求日志，如需记录请求请切换到本地网关模式。")
-                        : t("暂无请求日志")}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                logs.map((log: RequestLog) => (
-                  <TableRow
-                    key={log.id}
-                    className="group text-xs hover:bg-muted/20"
-                  >
-                    <TableCell className="px-4 py-3 font-mono text-[11px] text-muted-foreground">
-                      {formatTsFromSeconds(log.createdAt, t("未知时间"))}
-                    </TableCell>
-                    <TableCell className="px-4 py-3 align-top">
-                      <RequestRouteInfoCell log={log} />
-                    </TableCell>
-                    <TableCell className="px-4 py-3 align-top">
-                      <AccountKeyInfoCell
-                        log={log}
-                        accountLabel={resolveAccountDisplayName(
-                          log,
-                          accountNameMap,
-                        )}
-                        accountNameMap={accountNameMap}
-                        apiKeyMap={apiKeyMap}
-                        aggregateApiMap={aggregateApiMap}
-                      />
-                    </TableCell>
-                    <TableCell className="px-4 py-3 align-top">
-                      <ModelEffortCell log={log} />
-                    </TableCell>
-                    <TableCell className="px-4 py-3 align-top">
-                      {getStatusBadge(resolveDisplayedStatusCode(log))}
-                    </TableCell>
-                    <TableCell className="px-4 py-3 align-top font-mono">
-                      <span
-                        className="text-xs text-primary"
-                        title={t("首响表示从请求开始到首个上游响应片段的耗时")}
-                      >
-                        {formatDuration(log.durationMs)}/
-                        {formatDuration(log.firstResponseMs)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="px-4 py-3 align-top">
-                      <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
-                        <span>{t("总")} {formatTableTokenAmount(log.totalTokens)}</span>
-                        <span>
-                          {t("输入")} {formatTableTokenAmount(log.inputTokens)}
-                        </span>
-                        <span className="opacity-60">
-                          {t("缓存")} {formatTableTokenAmount(log.cachedInputTokens)}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-4 py-3 text-left align-top">
-                      <ErrorInfoCell error={log.error} />
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-            </CardContent>
-          </Card>
-
-          <div className="flex items-center justify-between px-2">
-            <div className="text-xs text-muted-foreground">
-              {t("共")} {summary.filteredCount} {t("条匹配日志")}
-            </div>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs text-muted-foreground">
-                  {t("每页显示")}
-                </span>
-                <Select
-                  value={pageSize}
-                  onValueChange={(value) => {
-                    setPageSize(value || "10");
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-8 w-[78px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                    {["5", "10", "20", "50", "100", "200"].map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {value}
-                      </SelectItem>
-                    ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage(Math.max(1, currentPage - 1))}
-                >
-                  {t("上一页")}
-                </Button>
-                <div className="min-w-[68px] text-center text-xs font-medium">
-                  {t("第")} {currentPage} / {totalPages} {t("页")}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 text-xs"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
-                >
-                  {t("下一页")}
-                </Button>
-              </div>
-            </div>
-          </div>
+          <RequestLogsTabContent
+            t={t}
+            isDirectAccountMode={isDirectAccountMode}
+            isAdminMode={isAdminMode}
+            serviceConnected={serviceStatus.connected}
+            search={search}
+            filter={filter}
+            timePreset={timePreset}
+            startTimeInput={startTimeInput}
+            endTimeInput={endTimeInput}
+            compactMetaText={compactMetaText}
+            hasActiveTimeRange={hasActiveTimeRange}
+            pageSize={pageSize}
+            currentFilterLabel={currentFilterLabel}
+            summary={summary}
+            logs={logs}
+            isLogsLoading={isLogsLoading}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            accountNameMap={accountNameMap}
+            apiKeyMap={apiKeyMap}
+            aggregateApiMap={aggregateApiMap}
+            clearMutationPending={clearMutation.isPending}
+            onSearchChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            onFilterChange={(value) => {
+              setFilter(value);
+              setPage(1);
+            }}
+            onRefresh={() => {
+              void queryClient.invalidateQueries({ queryKey: ["logs"] });
+            }}
+            onOpenClearConfirm={() => setClearConfirmOpen(true)}
+            onApplyTimePreset={applyTimePreset}
+            onStartTimeChange={(value) => {
+              setTimePreset("custom");
+              setStartTimeInput(value);
+              setPage(1);
+            }}
+            onEndTimeChange={(value) => {
+              setTimePreset("custom");
+              setEndTimeInput(value);
+              setPage(1);
+            }}
+            onClearTimeRange={() => applyTimePreset("all")}
+            onPageSizeChange={(value) => {
+              setPageSize(value || "10");
+              setPage(1);
+            }}
+            onPreviousPage={() => setPage(Math.max(1, currentPage - 1))}
+            onNextPage={() => setPage(Math.min(totalPages, currentPage + 1))}
+          />
         </TabsContent>
 
       </Tabs>
 
       {isAdminMode ? (
-      <ConfirmDialog
-        open={clearConfirmOpen}
-        onOpenChange={setClearConfirmOpen}
-        title={t("清空请求日志")}
-        description={t("确定清空全部请求日志吗？该操作不可恢复。")}
-        confirmText={t("清空")}
-        confirmVariant="destructive"
-        onConfirm={() => clearMutation.mutate()}
-      />
+        <ConfirmDialog
+          open={clearConfirmOpen}
+          onOpenChange={setClearConfirmOpen}
+          title={t("清空请求日志")}
+          description={t("确定清空全部请求日志吗？该操作不可恢复。")}
+          confirmText={t("清空")}
+          confirmVariant="destructive"
+          onConfirm={() => clearMutation.mutate()}
+        />
       ) : null}
     </div>
   );

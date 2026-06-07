@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { appClient } from "@/lib/api/app-client";
@@ -34,7 +34,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -45,32 +44,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  AppWindow,
-  Check,
   Cpu,
   Download,
   ExternalLink,
-  FolderOpen,
   Globe,
   Palette,
-  RefreshCw,
-  RotateCcw,
   Save,
   Settings as SettingsIcon,
-  ShieldCheck,
   UserRound,
   Variable,
   LockKeyhole,
@@ -81,18 +65,19 @@ import { WebPasswordModal } from "@/components/modals/web-password-modal";
 import { useI18n } from "@/lib/i18n/provider";
 import { AppearanceTabContent } from "@/app/settings/components/appearance-tab-content";
 import { EnvTabContent } from "@/app/settings/components/env-tab-content";
-import { ModelForwardRulesEditor } from "@/app/settings/components/model-forward-rules-editor";
+import { GatewayTabContent } from "@/app/settings/components/gateway-tab-content";
+import {
+  AccessControlCard,
+  ServiceListenCard,
+} from "@/app/settings/components/general-tab-cards";
+import { GeneralBasicsCard } from "@/app/settings/components/general-basics-card";
+import { TasksTabContent } from "@/app/settings/components/tasks-tab-content";
 import {
   CUSTOM_WORKER_MODE_VALUE,
-  DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS,
-  EMPTY_RESIDENCY_OPTION,
   ENV_DESCRIPTION_MAP,
   ENV_EFFECT_SCOPE_LABELS,
   ENV_RISK_BADGE_CLASSES,
   ENV_RISK_LABELS,
-  RESIDENCY_REQUIREMENT_LABELS,
-  ROUTE_STRATEGY_LABELS,
-  SERVICE_LISTEN_MODE_LABELS,
   SETTINGS_ACTIVE_TAB_KEY,
   SETTINGS_TABS,
   THEMES,
@@ -102,21 +87,22 @@ import {
   type CheckUpdateRequest,
   compareEnvOverrideItems,
   ensureModelForwardRuleRows,
+<<<<<<< HEAD
   formatFreeAccountModelLabel,
   inferServiceBindPreview,
+=======
+>>>>>>> fccf5a63 (refactor frontend structure and gateway endpoint handling)
   matchesRecommendedWorkerSettings,
   normalizeEnvRiskLevel,
-  parseModelForwardRules,
   normalizeWorkerRecommendation,
   parseIntegerInput,
-  serializeModelForwardRules,
+  parseModelForwardRules,
   readInitialSettingsTab,
+  serializeModelForwardRules,
   stringifyNumber,
   type SettingsTab,
   type WorkerPreset,
-} from "@/app/settings/settings-page-helpers";
-
-function MemberSettingsPage() {
+} from "@/app/settings/settings-page-helpers";function MemberSettingsPage() {
   const { t } = useI18n();
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
@@ -1374,219 +1360,41 @@ function AdminSettingsPage() {
         </TabsList>
 
         <TabsContent value="general" className="space-y-6">
-          <Card className="glass-card shadow-sm">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <AppWindow className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">{t("基础设置")}</CardTitle>
-              </div>
-              <CardDescription>{t("控制应用启动和窗口行为")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <Card size="sm">
-                <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-1">
-                    <Label>{updateActionLabel}</Label>
-                    <p className="text-xs text-muted-foreground">
-                      {updateActionDescription}
-                    </p>
-                    {lastUpdateCheck ? (
-                      <p className="text-xs text-muted-foreground">
-                        {preparedUpdate
-                          ? `${t("已下载")} ${preparedUpdate.latestVersion || preparedUpdate.releaseTag || t("新版本")}${t("，等待替换更新")}`
-                          : lastUpdateCheck.hasUpdate
-                            ? `${t("发现新版本")} ${lastUpdateCheck.latestVersion || lastUpdateCheck.releaseTag || t("可用")}`
-                            : lastUpdateCheck.reason ||
-                              `${t("当前版本")} ${lastUpdateCheck.currentVersion || t("未知")} ${t("已是最新")}`}
-                      </p>
-                    ) : null}
-                    {shouldShowUpdateLogsEntry ? (
-                      <div className="pt-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-auto px-0 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={handleOpenUpdateLogsDir}
-                        >
-                          <FolderOpen className="h-3.5 w-3.5" />
-                          {t("打开日志目录")}
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="gap-2 self-start md:self-auto"
-                    disabled={!canSelfUpdate || updateActionBusy}
-                    onClick={handleUpdateAction}
-                  >
-                    {manualUpdateCheckPending ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                    ) : prepareUpdate.isPending ? (
-                      <Download className="h-4 w-4 animate-pulse" />
-                    ) : applyPreparedUpdate.isPending ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                    ) : hasPreparedUpdate ? (
-                      <Check className="h-4 w-4" />
-                    ) : canDownloadUpdate ? (
-                      <Download className="h-4 w-4" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4" />
-                    )}
-                    {updateActionBusyLabel}
-                  </Button>
-                </CardContent>
-              </Card>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>{t("关闭时最小化到托盘")}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t("点击关闭按钮不会直接退出程序")}
-                  </p>
-                </div>
-                <Switch
-                  checked={snapshot.closeToTrayOnClose}
-                  disabled={!canCloseToTray || !snapshot.closeToTraySupported}
-                  onCheckedChange={(value) =>
-                    updateSettings.mutate({ closeToTrayOnClose: value })
-                  }
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>{t("视觉性能模式")}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t("关闭毛玻璃等特效以提升低配电脑性能")}
-                  </p>
-                </div>
-                <Switch
-                  checked={snapshot.lowTransparency}
-                  onCheckedChange={(value) =>
-                    updateSettings.mutate({ lowTransparency: value })
-                  }
-                />
-              </div>
-            </CardContent>
-          </Card>
+                    <GeneralBasicsCard
+            t={t}
+            updateActionLabel={updateActionLabel}
+            updateActionDescription={updateActionDescription}
+            lastUpdateCheck={lastUpdateCheck}
+            preparedUpdate={preparedUpdate}
+            shouldShowUpdateLogsEntry={shouldShowUpdateLogsEntry}
+            handleOpenUpdateLogsDir={handleOpenUpdateLogsDir}
+            canSelfUpdate={canSelfUpdate}
+            updateActionBusy={updateActionBusy}
+            handleUpdateAction={handleUpdateAction}
+            manualUpdateCheckPending={manualUpdateCheckPending}
+            prepareUpdatePending={prepareUpdate.isPending}
+            applyPreparedUpdatePending={applyPreparedUpdate.isPending}
+            hasPreparedUpdate={hasPreparedUpdate}
+            canDownloadUpdate={canDownloadUpdate}
+            updateActionBusyLabel={updateActionBusyLabel}
+            snapshot={snapshot}
+            canCloseToTray={canCloseToTray}
+            updateSettings={updateSettings}
+          />
+<ServiceListenCard
+            t={t}
+            snapshot={snapshot}
+            updateSettings={updateSettings}
+          />
 
-          <Card className="glass-card shadow-sm">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Globe className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">{t("服务监听")}</CardTitle>
-              </div>
-              <CardDescription>
-                {t("统一控制 Service 与 Web 的监听模式，决定仅本机访问还是开放给局域网")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="grid gap-2">
-                <Label>{t("监听地址")}</Label>
-                <Select
-                  value={snapshot.serviceListenMode || "loopback"}
-                  onValueChange={(value) => {
-                    const nextValue = String(value || "").trim() || "loopback";
-                    if (nextValue === snapshot.serviceListenMode) {
-                      return;
-                    }
-                    updateSettings.mutate({ serviceListenMode: nextValue });
-                  }}
-                >
-                  <SelectTrigger className="w-full md:w-[320px]">
-                    <SelectValue placeholder={t("选择监听地址模式")}>
-                      {(value) =>
-                        t(
-                          SERVICE_LISTEN_MODE_LABELS[
-                            String(value || "").trim()
-                          ] || String(value || "").trim() || "仅本机 (localhost)",
-                        )
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                    {(snapshot.serviceListenModeOptions?.length
-                      ? snapshot.serviceListenModeOptions
-                      : ["loopback", "all_interfaces"]
-                    ).map((mode) => (
-                      <SelectItem key={mode} value={mode}>
-                        {t(SERVICE_LISTEN_MODE_LABELS[mode] || mode)}
-                      </SelectItem>
-                    ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Card size="sm">
-                <CardContent className="text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">{t("当前访问地址")}</span>
-                  <code className="text-xs text-primary">
-                    {snapshot.serviceAddr}
-                  </code>
-                </div>
-                <Separator className="my-2" />
-                <div className="mt-2 flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">{t("实际监听地址")}</span>
-                  <code className="text-xs text-primary">
-                    {inferServiceBindPreview(
-                      snapshot.serviceAddr,
-                      snapshot.serviceListenMode || "loopback",
-                    )}
-                  </code>
-                </div>
-                </CardContent>
-              </Card>
-
-              <p className="text-[10px] text-muted-foreground">
-                {t("切换到")} <code>0.0.0.0</code>{" "}
-                {t(
-                  "后，局域网设备可通过当前机器 IP 访问；设置保存后需要重启相关进程才会生效，Web 监听地址会默认跟随这里的模式。",
-                )}
-              </p>
-            </CardContent>
-          </Card>
-
-          {showAccessControlSettings ? (
-            <Card className="glass-card shadow-sm">
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                  <CardTitle className="text-base">{t("访问控制")}</CardTitle>
-                </div>
-                <CardDescription>
-                  {t("统一管理 Web 登录方式、访问密码和团队额度分发。")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Card size="sm">
-                  <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Label>{t("当前访问方式")}</Label>
-                        <Badge variant="secondary">{t(webAuthModeLabel)}</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {snapshot.distributionEnabled
-                          ? t("额度分发已开启，平台 Key 会按归属钱包扣减额度。")
-                          : t("额度分发未开启，平台 Key 不会扣减成员钱包额度。")}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      className="gap-2 self-start md:self-auto"
-                      disabled={!canAccessManagementRpc}
-                      onClick={() => setWebPasswordModalOpen(true)}
-                    >
-                      <ShieldCheck className="h-4 w-4" />
-                      {t("访问控制")}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </CardContent>
-            </Card>
-          ) : null}
+          <AccessControlCard
+            t={t}
+            snapshot={snapshot}
+            canAccessManagementRpc={canAccessManagementRpc}
+            showAccessControlSettings={showAccessControlSettings}
+            webAuthModeLabel={webAuthModeLabel}
+            onOpen={() => setWebPasswordModalOpen(true)}
+          />
 
         </TabsContent>
 
@@ -1601,6 +1409,7 @@ function AdminSettingsPage() {
         </TabsContent>
 
         <TabsContent value="gateway" className="space-y-4">
+<<<<<<< HEAD
           <Card className="glass-card shadow-sm">
             <CardHeader>
               <CardTitle className="text-base">{t("网关策略")}</CardTitle>
@@ -2278,8 +2087,55 @@ function AdminSettingsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+=======
+          <GatewayTabContent
+            t={t}
+            snapshot={snapshot}
+            updateSettings={updateSettings}
+            quotaGuardInputValues={quotaGuardInputValues}
+            setQuotaGuardDraft={setQuotaGuardDraft}
+            saveQuotaGuardField={saveQuotaGuardField}
+            transportInputValues={transportInputValues}
+            setTransportDraft={setTransportDraft}
+            saveTransportField={saveTransportField}
+            modelForwardRuleRows={modelForwardRuleRows}
+            updateModelForwardRuleRows={updateModelForwardRuleRows}
+            commitModelForwardRulesDraft={commitModelForwardRulesDraft}
+            compactModelForwardRuleRows={compactModelForwardRuleRows}
+            updateCompactModelForwardRuleRows={updateCompactModelForwardRuleRows}
+            commitCompactModelForwardRulesDraft={commitCompactModelForwardRulesDraft}
+            gatewayOriginatorInput={gatewayOriginatorInput}
+            gatewayOriginatorDraft={gatewayOriginatorDraft}
+            setGatewayOriginatorDraft={setGatewayOriginatorDraft}
+            gatewayOriginatorDefault={gatewayOriginatorDefault}
+            upstreamProxyInput={upstreamProxyInput}
+            upstreamProxyDraft={upstreamProxyDraft}
+            setUpstreamProxyDraft={setUpstreamProxyDraft}
+          />
         </TabsContent>
 
+        <TabsContent value="tasks" className="space-y-4">
+          <TasksTabContent
+            t={t}
+            snapshot={snapshot}
+            backgroundTaskDraft={backgroundTaskDraft}
+            setBackgroundTaskDraft={setBackgroundTaskDraft}
+            updateBackgroundTasks={updateBackgroundTasks}
+            saveBackgroundTaskField={saveBackgroundTaskField}
+            saveBackgroundTaskTextField={saveBackgroundTaskTextField}
+            activeWorkerModeValue={activeWorkerModeValue}
+            activeWorkerPreset={activeWorkerPreset}
+            activeWorkerSummary={activeWorkerSummary}
+            deriveConcurrencyRecommendationPending={deriveConcurrencyRecommendation.isPending}
+            applyWorkerPreset={applyWorkerPreset}
+            deriveConcurrencyRecommendation={() => deriveConcurrencyRecommendation.mutate()}
+            workerAdvancedDialogOpen={workerAdvancedDialogOpen}
+            setWorkerAdvancedDialogOpen={setWorkerAdvancedDialogOpen}
+            saveAccountMaxInflightField={saveAccountMaxInflightField}
+            onInvalidWarmupCron={() => toast.error(t("请先填写 Cron 表达式"))}
+          />
+>>>>>>> fccf5a63 (refactor frontend structure and gateway endpoint handling)
+        </TabsContent>
         <TabsContent value="env" className="space-y-4">
           <EnvTabContent
             t={t}
