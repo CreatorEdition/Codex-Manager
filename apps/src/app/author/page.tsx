@@ -50,6 +50,11 @@ const AUTHOR_SUPPORT_IMAGES = [
   },
 ] as const;
 
+const AUTHOR_PARTNER_IMAGE_BY_KEY: Record<string, string> = {
+  xingsiyan: "/sponsors/xingsiyan.jpg",
+  racknerd: "/sponsors/racknerd.gif",
+};
+
 function PartnerTable({
   items,
   onOpenLink,
@@ -71,10 +76,10 @@ function PartnerTable({
               className={index === 0 ? "border-b-0" : ""}
             >
               <TableCell className="w-[180px] p-5 align-middle">
-                <div className="flex items-center justify-center rounded-xl border border-border/50 bg-card/80 p-4 shadow-inner">
-                  {item.imageSrc ? (
+                <div className="flex items-center justify-center rounded-xl border border-border/50 bg-white/95 p-4">
+                  {AUTHOR_PARTNER_IMAGE_BY_KEY[item.key] || item.imageSrc ? (
                     <img
-                      src={item.imageSrc}
+                      src={AUTHOR_PARTNER_IMAGE_BY_KEY[item.key] || item.imageSrc}
                       alt={translate(item.imageAlt ?? item.name)}
                       className="max-h-20 w-auto object-contain"
                     />
@@ -291,7 +296,7 @@ export default function AuthorPage() {
                   <div className="mt-4 overflow-hidden rounded-xl border border-border/50 bg-card/80 p-3 shadow-inner">
                     <img
                       src={item.src}
-                      alt={item.title}
+                      alt={t(item.title)}
                       className="mx-auto aspect-square w-full max-w-[220px] rounded-xl object-cover"
                     />
                   </div>
@@ -324,12 +329,12 @@ export default function AuthorPage() {
                 <p className="mt-3 text-xs leading-6 text-muted-foreground">
                   {t("扫码可直接添加作者微信，也可以手动搜索上面的微信号。")}
                 </p>
-                <div className="mt-4 overflow-hidden rounded-xl border border-border/50 bg-card/80 p-3 shadow-inner">
-                    <img
-                      src="/author-wechat.jpg"
-                      alt={t("作者微信二维码")}
-                      className="mx-auto aspect-square w-full max-w-[180px] rounded-xl object-cover"
-                    />
+                <div className="mt-4 overflow-hidden rounded-xl border border-border/50 bg-white p-3">
+                  <img
+                    src="/author-wechat.jpg"
+                    alt={t("作者微信二维码")}
+                    className="mx-auto aspect-square w-full max-w-[180px] rounded-xl object-cover"
+                  />
                 </div>
               </div>
 

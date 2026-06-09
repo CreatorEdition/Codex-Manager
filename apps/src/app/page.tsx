@@ -80,6 +80,7 @@ import {
   formatPercent,
 } from "@/lib/dashboard/format";
 import { quotaClient } from "@/lib/api/quota-client";
+import type { AppLocale } from "@/lib/i18n/config";
 import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
@@ -144,6 +145,25 @@ interface AdminUsageRangeValue {
   endTs: number | null;
   startInput: string;
   endInput: string;
+}
+
+const SUPPORTED_INTL_LOCALES = ["zh-CN", "en-US", "ru-RU", "ko-KR"] as const;
+
+const INTL_LOCALE_BY_APP_LOCALE: Record<Exclude<AppLocale, "zh-CN">, string> = {
+  en: "en-US",
+  ru: "ru-RU",
+  ko: "ko-KR",
+};
+
+function intlLocaleFromAppLocale(locale: string): string {
+  if (
+    SUPPORTED_INTL_LOCALES.includes(
+      locale as (typeof SUPPORTED_INTL_LOCALES)[number],
+    )
+  ) {
+    return locale;
+  }
+  return INTL_LOCALE_BY_APP_LOCALE[locale as Exclude<AppLocale, "zh-CN">] ?? "zh-CN";
 }
 
 function formatDateInputValue(date: Date): string {
@@ -223,11 +243,11 @@ function formatDateTime(value: number | null | undefined): string {
   return formatLocalDateTimeFromSeconds(value, "从未使用");
 }
 
-function formatShortDate(value: number | null | undefined): string {
+function formatShortDate(value: number | null | undefined, locale: AppLocale): string {
   if (!value) return "--";
   const date = new Date(value * 1000);
   if (Number.isNaN(date.getTime())) return "--";
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(intlLocaleFromAppLocale(locale), {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
@@ -236,11 +256,12 @@ function formatShortDate(value: number | null | undefined): string {
 function formatShortDateRange(
   startTs: number | null | undefined,
   endTsExclusive: number | null | undefined,
+  locale: AppLocale,
 ): string {
   if (!startTs || !endTsExclusive || endTsExclusive <= startTs) {
     return "--";
   }
-  return `${formatShortDate(startTs)} - ${formatShortDate(endTsExclusive - 1)}`;
+  return `${formatShortDate(startTs, locale)} - ${formatShortDate(endTsExclusive - 1, locale)}`;
 }
 
 function formatDuration(value: number | null | undefined): string {
@@ -509,15 +530,15 @@ function DailyTokenLineChart({
   zoomWindow?: { startIndex: number; endIndex: number } | null;
   onZoomWindowChange?: (next: { startIndex: number; endIndex: number } | null) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const chartConfig = {
     totalTokens: {
-      label: "Token",
+      label: t("Token"),
       color: "var(--primary)",
     },
   } satisfies ChartConfig;
   const chartData = points.map((item) => ({
-    date: formatShortDate(item.dayStartTs),
+    date: formatShortDate(item.dayStartTs, locale),
     totalTokens: item.usage.totalTokens,
     estimatedCostUsd: item.usage.estimatedCostUsd,
     requestCount: item.usage.requestCount,
@@ -754,21 +775,32 @@ function AdminUsageAnalyticsCard({
   onApplyCustomRange: () => void;
   isCustomRangeInvalid: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [zoomWindow, setZoomWindow] = useState<{
     startIndex: number;
     endIndex: number;
   } | null>(null);
 
   useEffect(() => {
+    let active = true;
     if (!summary?.dailyUsage.length) {
-      setZoomWindow(null);
-      return;
+      queueMicrotask(() => {
+        if (active) setZoomWindow(null);
+      });
+      return () => {
+        active = false;
+      };
     }
-    setZoomWindow({
+    const nextZoomWindow = {
       startIndex: 0,
       endIndex: summary.dailyUsage.length - 1,
+    };
+    queueMicrotask(() => {
+      if (active) setZoomWindow(nextZoomWindow);
     });
+    return () => {
+      active = false;
+    };
   }, [summary?.dailyUsage.length, summary?.rangeEndTs, summary?.rangeStartTs]);
 
   if (isLoading) {
@@ -849,7 +881,7 @@ function AdminUsageAnalyticsCard({
               {t("按天、成员、OpenAI 账号和聚合 API 汇总 token 消耗")}
             </p>
             <div className="mt-2 text-[11px] text-muted-foreground">
-              {t("当前区间")} {formatShortDateRange(summary.rangeStartTs, summary.rangeEndTs)}
+              {t("当前区间")} {formatShortDateRange(summary.rangeStartTs, summary.rangeEndTs, locale)}
               {" · "}
               {t("图表区域支持鼠标滚轮缩放")}
             </div>
@@ -1010,14 +1042,21 @@ function AdminDashboard() {
     if (adminUsageRangePreset === "custom") {
       return;
     }
+    let active = true;
     const nextRange = buildAdminUsagePresetRange(
       adminUsageRangePreset,
       localDayRange.dayStartTs,
       localDayRange.dayEndTs,
     );
-    setAdminUsageRangeStartInput(nextRange.startInput);
-    setAdminUsageRangeEndInput(nextRange.endInput);
-    setAdminUsageRangeParams(nextRange);
+    queueMicrotask(() => {
+      if (!active) return;
+      setAdminUsageRangeStartInput(nextRange.startInput);
+      setAdminUsageRangeEndInput(nextRange.endInput);
+      setAdminUsageRangeParams(nextRange);
+    });
+    return () => {
+      active = false;
+    };
   }, [
     adminUsageRangePreset,
     localDayRange.dayEndTs,
@@ -1498,7 +1537,7 @@ function MemberDashboard() {
           value={`${summary.apiKeySummary.enabledCount}/${summary.apiKeySummary.totalCount}`}
           icon={KeyRound}
           color="text-blue-500"
-          sub={`${t("启用 / 全部")} · ${t("最近")} ${formatDateTime(summary.apiKeySummary.lastUsedAt)}`}
+          sub={`${t("启用 / 全部")} · ${t("最近")} ${t(formatDateTime(summary.apiKeySummary.lastUsedAt))}`}
         />
         <MetricCard
           title={t("可用模型")}
@@ -1541,6 +1580,7 @@ function MemberAlerts({
   alerts: MemberDashboardAlert[];
   onCreateKey: () => void;
 }) {
+  const { t } = useI18n();
   if (alerts.length === 0) return null;
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1549,14 +1589,14 @@ function MemberAlerts({
           alert.kind === "no_api_key" ? (
             <Button size="xs" variant="outline" onClick={onCreateKey}>
               <Plus className="h-3 w-3" />
-              {alert.actionLabel || "创建 Key"}
+              {alert.actionLabel ? t(alert.actionLabel) : t("创建 Key")}
             </Button>
           ) : alert.actionHref ? (
             <a
               href={buildStaticRouteUrl(alert.actionHref)}
               className="inline-flex h-6 items-center gap-1 rounded-md border border-border/60 bg-background/40 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
             >
-              {alert.actionLabel || "查看"}
+              {alert.actionLabel ? t(alert.actionLabel) : t("查看")}
               <ArrowRight className="h-3 w-3" />
             </a>
           ) : null;
@@ -1567,8 +1607,8 @@ function MemberAlerts({
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="font-semibold">{alert.title}</div>
-                <div className="mt-0.5 text-xs opacity-80">{alert.message}</div>
+                <div className="font-semibold">{t(alert.title)}</div>
+                <div className="mt-0.5 text-xs opacity-80">{t(alert.message)}</div>
               </div>
               {action}
             </div>
@@ -1650,7 +1690,7 @@ function MemberKeyUsageCard({
                       <TableCell>{formatCompactTokenAmount(item.todayTokens)}</TableCell>
                       <TableCell>{formatUsd(item.todayCostUsd)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {formatDateTime(item.lastUsedAt)}
+                        {t(formatDateTime(item.lastUsedAt))}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1670,6 +1710,8 @@ function MemberKeyUsageCard({
 }
 
 function MemberKeyCompactRow({ item }: { item: MemberDashboardKeyUsage }) {
+  const { t } = useI18n();
+
   return (
     <div className="py-3">
       <div className="flex items-start justify-between gap-3">
@@ -1684,7 +1726,7 @@ function MemberKeyCompactRow({ item }: { item: MemberDashboardKeyUsage }) {
       <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
         <span className="text-muted-foreground">{formatCompactTokenAmount(item.todayTokens)}</span>
         <span className="text-muted-foreground">{formatUsd(item.todayCostUsd)}</span>
-        <span className="truncate text-muted-foreground">{formatDateTime(item.lastUsedAt)}</span>
+        <span className="truncate text-muted-foreground">{t(formatDateTime(item.lastUsedAt))}</span>
       </div>
     </div>
   );
@@ -1697,7 +1739,7 @@ function MemberUsageTrendCard({
   summary: MemberDashboardSummary;
   className?: string;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const maxTokens = useMemo(
     () => Math.max(1, ...summary.usageTrend7d.map((item) => item.totalTokens)),
     [summary.usageTrend7d],
@@ -1722,10 +1764,10 @@ function MemberUsageTrendCard({
                 <div
                   className="w-full rounded-t-md bg-primary/75 transition-all"
                   style={{ height }}
-                  title={`${formatShortDate(item.dayStartTs)} ${formatCompactTokenAmount(item.totalTokens)}`}
+                  title={`${formatShortDate(item.dayStartTs, locale)} ${formatCompactTokenAmount(item.totalTokens)}`}
                 />
                 <div className="text-[10px] text-muted-foreground">
-                  {formatShortDate(item.dayStartTs)}
+                  {formatShortDate(item.dayStartTs, locale)}
                 </div>
               </div>
             );
@@ -1845,7 +1887,7 @@ function MemberAvailableModelsCard({
                   </div>
                 </div>
                 <div className="text-left text-xs text-muted-foreground sm:text-right">
-                  <div>{modelPriceSummary(model)}</div>
+                  <div>{t(modelPriceSummary(model))}</div>
                   <div className="mt-1">
                     {model.contextWindow
                       ? `${formatCompactTokenAmount(model.contextWindow)} context`
@@ -1913,7 +1955,7 @@ function MemberRecentLogsCard({
                     </span>
                   </div>
                   <div className="mt-1 truncate text-xs text-muted-foreground">
-                    {formatDateTime(log.createdAt)}
+                    {t(formatDateTime(log.createdAt))}
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground sm:text-right">
