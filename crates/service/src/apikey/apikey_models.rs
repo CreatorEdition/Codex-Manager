@@ -5,7 +5,7 @@ use codexmanager_core::rpc::types::{
     ManagedModelRoutingResult, ManagedModelSourceMappingEntry,
     ManagedModelSourceMappingUpsertParams, ManagedModelSourceModelEntry,
     ManagedModelSourceModelUpsertParams, ManagedModelSourceSyncParams, ModelInfo,
-    ModelReasoningLevel, ModelTruncationPolicy, ModelsResponse,
+    ModelReasoningLevel, ModelServiceTier, ModelTruncationPolicy, ModelsResponse,
 };
 use codexmanager_core::storage::{
     now_ts, ModelCatalogModelRecord, ModelCatalogReasoningLevelRecord, ModelCatalogScopeRecord,
@@ -447,10 +447,19 @@ pub(crate) fn delete_managed_model_source_mapping(
     let source_id = normalize_required("sourceId", source_id)?;
     let upstream_model = normalize_required("upstreamModel", upstream_model)?;
     storage
+<<<<<<< HEAD
         .upsert_model_source_mapping_preference(&source_kind, &source_id, &upstream_model, "unlinked")
         .map_err(|err| format!("save unlink preference failed: {err}"))?;
     storage
         .delete_model_source_mapping(id.as_str())
+=======
+        .delete_model_source_mapping_with_unlink_preference(
+            &id,
+            &source_kind,
+            &source_id,
+            &upstream_model,
+        )
+>>>>>>> c58f5a26 (增强上游中转兼容观测)
         .map_err(|err| format!("delete model mapping failed: {err}"))
 }
 
@@ -950,6 +959,7 @@ fn auto_associate_source_models(
         if existing_source_platform_mappings.contains(source_model.upstream_model.as_str()) {
             continue;
         }
+<<<<<<< HEAD
         if prefs
             .get(source_model.upstream_model.as_str())
             .map_or(false, |v| v == "unlinked")
@@ -959,6 +969,16 @@ fn auto_associate_source_models(
         let enabled = prefs
             .get(source_model.upstream_model.as_str())
             .map_or(true, |v| v != "disabled");
+=======
+        let enabled = match prefs
+            .get(source_model.upstream_model.as_str())
+            .map(String::as_str)
+        {
+            Some("unlinked") => continue,
+            Some(v) => v != "disabled",
+            None => true,
+        };
+>>>>>>> c58f5a26 (增强上游中转兼容观测)
         let mapping = ModelSourceMapping {
             id: generate_mapping_id(),
             platform_model_slug: source_model.upstream_model.clone(),
@@ -976,6 +996,72 @@ fn auto_associate_source_models(
             .upsert_model_source_mapping(&mapping)
             .map_err(|err| format!("save model mapping failed: {err}"))?;
     }
+<<<<<<< HEAD
+=======
+
+    if source_kind == ROUTING_SOURCE_KIND_AGGREGATE_API && auto_create_platform_models {
+        if let Err(err) =
+            ensure_model_price_rules_for_aggregate_api(storage, source_id, &source_models)
+        {
+            log::warn!("aggregate API {source_id}: 自动创建模型价格规则失败: {err}");
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_model_price_rules_for_aggregate_api(
+    storage: &Storage,
+    source_id: &str,
+    source_models: &[ModelSourceModel],
+) -> Result<(), String> {
+    let existing_patterns: HashSet<String> = storage
+        .list_enabled_model_price_rules()
+        .map_err(|err| format!("list model price rules failed: {err}"))?
+        .into_iter()
+        .map(|rule| rule.model_pattern.to_ascii_lowercase())
+        .collect();
+
+    let now = now_ts();
+    for model in source_models {
+        let slug = model.upstream_model.trim();
+        if slug.is_empty() || existing_patterns.contains(&slug.to_ascii_lowercase()) {
+            continue;
+        }
+        if crate::quota::model_pricing::resolve_model_price(slug, 0).is_some() {
+            continue;
+        }
+        storage
+            .upsert_model_price_rule(&ModelPriceRule {
+                id: format!("agg-sync-{source_id}-{slug}"),
+                provider: crate::quota::model_pricing::infer_provider(slug).to_string(),
+                model_pattern: slug.to_string(),
+                match_type: "exact".to_string(),
+                billing_mode: "standard".to_string(),
+                currency: "USD".to_string(),
+                unit: "per_1m_tokens".to_string(),
+                input_price_per_1m: Some(0.0),
+                cached_input_price_per_1m: Some(0.0),
+                output_price_per_1m: Some(0.0),
+                reasoning_output_price_per_1m: None,
+                cache_write_5m_price_per_1m: None,
+                cache_write_1h_price_per_1m: None,
+                cache_hit_price_per_1m: None,
+                long_context_threshold_tokens: None,
+                long_context_input_price_per_1m: None,
+                long_context_cached_input_price_per_1m: None,
+                long_context_output_price_per_1m: None,
+                source: "aggregate_api_sync".to_string(),
+                source_url: None,
+                seed_version: None,
+                enabled: true,
+                priority: -10,
+                created_at: now,
+                updated_at: now,
+            })
+            .map_err(|err| format!("upsert model price rule for {slug} failed: {err}"))?;
+    }
+>>>>>>> c58f5a26 (增强上游中转兼容观测)
     Ok(())
 }
 
@@ -1330,6 +1416,10 @@ fn normalize_model_info(mut model: ModelInfo) -> Option<ModelInfo> {
     if model.input_modalities.is_empty() {
         model.input_modalities = default_input_modalities();
     }
+    model.service_tiers = normalize_service_tiers(model.service_tiers);
+    model.default_service_tier = model
+        .default_service_tier
+        .and_then(|value| normalize_optional(value));
     Some(model)
 }
 
@@ -1341,10 +1431,23 @@ fn model_info_from_row(
     input_modalities: Option<Vec<String>>,
     available_in_plans: Option<Vec<String>>,
 ) -> Option<ModelInfo> {
+    let mut extra = parse_extra_json_map(Some(row.extra_json.as_str())).unwrap_or_default();
+    let service_tiers = take_json_field(&mut extra, &["service_tiers", "serviceTiers"])
+        .and_then(|value| serde_json::from_value::<Vec<ModelServiceTier>>(value).ok())
+        .map(normalize_service_tiers)
+        .unwrap_or_default();
+    let default_service_tier =
+        take_json_field(&mut extra, &["default_service_tier", "defaultServiceTier"])
+            .and_then(|value| value.as_str().map(str::to_string))
+            .and_then(normalize_optional);
+    let upgrade_info = take_json_field(&mut extra, &["upgrade_info", "upgradeInfo"]);
     let mut model = ModelInfo {
         slug: row.slug.clone(),
         display_name: row.display_name.clone(),
-        extra: parse_extra_json_map(Some(row.extra_json.as_str())).unwrap_or_default(),
+        service_tiers,
+        default_service_tier,
+        upgrade_info,
+        extra,
         ..Default::default()
     };
 
@@ -1602,7 +1705,7 @@ fn model_record_from_model(
         effective_context_window_percent: model.effective_context_window_percent,
         minimal_client_version_json: serialize_json_option(&model.minimal_client_version)?,
         supports_search_tool: model.supports_search_tool,
-        extra_json: serialize_extra_map(&model.extra)?,
+        extra_json: model_extra_json(model)?,
         sort_index,
         updated_at,
     })
@@ -1815,8 +1918,12 @@ fn merge_model_info(mut cached: ModelInfo, incoming: ModelInfo) -> ModelInfo {
         cached.additional_speed_tiers,
         incoming.additional_speed_tiers,
     );
+    cached.service_tiers = merge_service_tiers(cached.service_tiers, incoming.service_tiers);
+    cached.default_service_tier =
+        merge_option_string(cached.default_service_tier, incoming.default_service_tier);
     cached.availability_nux = incoming.availability_nux.or(cached.availability_nux);
     cached.upgrade = incoming.upgrade.or(cached.upgrade);
+    cached.upgrade_info = incoming.upgrade_info.or(cached.upgrade_info);
     cached.base_instructions =
         merge_option_string(cached.base_instructions, incoming.base_instructions);
     cached.model_messages = incoming.model_messages.or(cached.model_messages);
@@ -1941,6 +2048,35 @@ fn merge_string_vec(cached: Vec<String>, incoming: Vec<String>) -> Vec<String> {
     merged
 }
 
+fn merge_service_tiers(
+    cached: Vec<ModelServiceTier>,
+    incoming: Vec<ModelServiceTier>,
+) -> Vec<ModelServiceTier> {
+    let incoming = normalize_service_tiers(incoming);
+    if incoming.is_empty() {
+        normalize_service_tiers(cached)
+    } else {
+        incoming
+    }
+}
+
+fn normalize_service_tiers(tiers: Vec<ModelServiceTier>) -> Vec<ModelServiceTier> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+    for mut tier in tiers {
+        let id = tier.id.trim().to_string();
+        if id.is_empty() || !seen.insert(id.clone()) {
+            continue;
+        }
+        let name = tier.name.trim().to_string();
+        tier.id = id.clone();
+        tier.name = if name.is_empty() { id } else { name };
+        tier.description = tier.description.trim().to_string();
+        normalized.push(tier);
+    }
+    normalized
+}
+
 fn merge_extra_maps(
     mut cached: BTreeMap<String, Value>,
     incoming: BTreeMap<String, Value>,
@@ -1970,6 +2106,35 @@ fn serialize_json_option(value: &Option<Value>) -> Result<Option<String>, String
         .as_ref()
         .map(|item| serde_json::to_string(item).map_err(|e| e.to_string()))
         .transpose()
+}
+
+fn take_json_field(extra: &mut BTreeMap<String, Value>, keys: &[&str]) -> Option<Value> {
+    for key in keys {
+        if let Some(value) = extra.remove(*key) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn model_extra_json(model: &ModelInfo) -> Result<String, String> {
+    let mut extra = model.extra.clone();
+    if !model.service_tiers.is_empty() {
+        extra.insert(
+            "service_tiers".to_string(),
+            serde_json::to_value(&model.service_tiers).map_err(|e| e.to_string())?,
+        );
+    }
+    if let Some(value) = model.default_service_tier.as_deref() {
+        extra.insert(
+            "default_service_tier".to_string(),
+            Value::String(value.to_string()),
+        );
+    }
+    if let Some(value) = model.upgrade_info.clone() {
+        extra.insert("upgrade_info".to_string(), value);
+    }
+    serialize_extra_map(&extra)
 }
 
 fn serialize_extra_map(extra: &BTreeMap<String, Value>) -> Result<String, String> {
@@ -2220,6 +2385,47 @@ mod tests {
         assert_eq!(normalized.models[0].display_name, "GPT-5");
         assert!(normalized.models[0].supported_in_api);
         assert_eq!(normalized.models[0].supported_reasoning_levels.len(), 1);
+    }
+
+    #[test]
+    fn normalize_models_response_keeps_sparse_service_tiers() {
+        let response = ModelsResponse {
+            models: vec![serde_json::from_value(json!({
+                "slug": "gpt-5.5",
+                "display_name": "GPT-5.5",
+                "supported_in_api": true,
+                "visibility": "list",
+                "service_tiers": [
+                    { "id": "flex" },
+                    { "id": "priority", "name": "Priority", "description": "Fast lane" }
+                ],
+                "default_service_tier": "flex",
+                "upgrade_info": { "model": "gpt-5.5" }
+            }))
+            .expect("parse model")],
+            ..Default::default()
+        };
+
+        let normalized = normalize_models_response(response);
+        assert_eq!(normalized.models.len(), 1);
+        assert_eq!(normalized.models[0].service_tiers.len(), 2);
+        assert_eq!(normalized.models[0].service_tiers[0].id, "flex");
+        assert_eq!(normalized.models[0].service_tiers[0].name, "flex");
+        assert_eq!(normalized.models[0].service_tiers[0].description, "");
+        assert_eq!(normalized.models[0].service_tiers[1].id, "priority");
+        assert_eq!(normalized.models[0].service_tiers[1].name, "Priority");
+        assert_eq!(
+            normalized.models[0].default_service_tier.as_deref(),
+            Some("flex")
+        );
+        assert_eq!(
+            normalized.models[0]
+                .upgrade_info
+                .as_ref()
+                .and_then(|value| value.get("model"))
+                .and_then(Value::as_str),
+            Some("gpt-5.5")
+        );
     }
 
     #[test]
@@ -2491,6 +2697,45 @@ mod tests {
     }
 
     #[test]
+    fn read_model_options_from_storage_keeps_sparse_service_tiers() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        let mut row = model_catalog_record("gpt-5.5");
+        row.extra_json = json!({
+            "service_tiers": [
+                { "id": "flex" },
+                { "id": "priority", "name": "Priority", "description": "Fast lane" }
+            ],
+            "default_service_tier": "flex",
+            "upgrade_info": {
+                "model": "gpt-5.5"
+            }
+        })
+        .to_string();
+        storage
+            .upsert_model_catalog_models(&[row])
+            .expect("seed sparse service tiers");
+
+        let response = read_model_options_from_storage(&storage).expect("read models");
+        assert_eq!(response.models.len(), 1);
+        assert_eq!(response.models[0].service_tiers.len(), 2);
+        assert_eq!(response.models[0].service_tiers[0].id, "flex");
+        assert_eq!(response.models[0].service_tiers[0].name, "flex");
+        assert_eq!(
+            response.models[0].default_service_tier.as_deref(),
+            Some("flex")
+        );
+        assert_eq!(
+            response.models[0]
+                .upgrade_info
+                .as_ref()
+                .and_then(|value| value.get("model"))
+                .and_then(Value::as_str),
+            Some("gpt-5.5")
+        );
+    }
+
+    #[test]
     fn managed_catalog_save_prunes_stale_default_model_group_models() {
         let storage = Storage::open_in_memory().expect("open storage");
         storage.init().expect("init storage");
@@ -2670,7 +2915,17 @@ mod tests {
                     "display_name": "GPT-5.4 Custom",
                     "description": "customized locally",
                     "supported_in_api": true,
-                    "input_modalities": ["text", "image"]
+                    "input_modalities": ["text", "image"],
+                    "service_tiers": [{
+                        "id": "flex",
+                        "name": "Flex",
+                        "description": "Lower priority capacity."
+                    }],
+                    "default_service_tier": "flex",
+                    "upgrade_info": {
+                        "model": "gpt-5.4",
+                        "upgrade_copy": "Use this model for coding"
+                    }
                 }))
                 .expect("parse managed model"),
                 source_kind: MODEL_SOURCE_KIND_CUSTOM.to_string(),
@@ -2691,6 +2946,21 @@ mod tests {
         assert_eq!(response.items[0].source_kind, MODEL_SOURCE_KIND_CUSTOM);
         assert!(response.items[0].user_edited);
         assert_eq!(response.items[0].sort_index, 9);
+        assert_eq!(response.items[0].model.service_tiers.len(), 1);
+        assert_eq!(response.items[0].model.service_tiers[0].id, "flex");
+        assert_eq!(
+            response.items[0].model.default_service_tier.as_deref(),
+            Some("flex")
+        );
+        assert_eq!(
+            response.items[0]
+                .model
+                .upgrade_info
+                .as_ref()
+                .and_then(|value| value.get("model"))
+                .and_then(Value::as_str),
+            Some("gpt-5.4")
+        );
         assert_eq!(
             response.extra.get("etag").and_then(Value::as_str),
             Some("managed")
