@@ -16,6 +16,27 @@
 <p align="center"><strong>本地桌面端 + 服务进程的 Codex 账号池管理器</strong></p>
 <p align="center">统一管理账号、用量与平台 Key，并提供本地网关能力。</p>
 
+<<<<<<< HEAD
+=======
+## 认可社区
+<p align="left">
+  <a href="https://linux.do/t/topic/1688401" title="LINUX DO">
+    <img
+      src="https://cdn3.ldstatic.com/original/4X/c/c/d/ccd8c210609d498cbeb3d5201d4c259348447562.png"
+      alt="LINUX DO"
+      width="100"
+      hight="100"
+    />
+  </a>
+</p>
+
+## 源码说明：
+> 本产品完全由本人指挥+AI打造 Codex（98%） Gemini (2%) 如果在使用过程中产生问题请友好交流，因为开源只是觉得有人能用的上，基本功能也没什么问题，不喜勿喷。
+> 其次是本人没有足够的环境来验证每个包都有没有问题，本人也要上班(我只是个穷逼买不起mac之类的)，本人只保证win的桌面端的可用性，如果其他端有问题，请在充分测试后提交 Issues，有时间我自会处理
+> 最后感谢各位使用者反馈的各个平台问题和参与的部分测试。
+
+
+>>>>>>> f04bb444 (docs: update linux.do image url)
 ## 免责声明
 
 - 本项目仅用于学习与开发目的。
