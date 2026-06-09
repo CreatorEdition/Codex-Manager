@@ -396,8 +396,9 @@ impl IncomingHeaderSnapshot {
     /// # 返回
     /// 返回函数执行结果
     pub(crate) fn sticky_key_material(&self) -> Option<&str> {
-        self.x_api_key
+        self.session_id
             .as_deref()
+            .or(self.x_api_key.as_deref())
             .or(self.authorization_bearer_case_insensitive.as_deref())
     }
 

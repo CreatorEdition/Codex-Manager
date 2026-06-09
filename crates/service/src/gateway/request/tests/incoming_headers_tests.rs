@@ -71,6 +71,25 @@ fn goog_api_key_header_is_accepted_as_platform_key() {
     );
 }
 
+#[test]
+fn session_id_is_preferred_for_sticky_key_material() {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        "session_id",
+        axum::http::HeaderValue::from_static("session-thread-1"),
+    );
+    headers.insert(
+        "x-api-key",
+        axum::http::HeaderValue::from_static("platform-key-1"),
+    );
+
+    let snapshot = IncomingHeaderSnapshot::from_http_headers(&headers);
+
+    assert_eq!(snapshot.platform_key(), Some("platform-key-1"));
+    assert_eq!(snapshot.session_id(), Some("session-thread-1"));
+    assert_eq!(snapshot.sticky_key_material(), Some("session-thread-1"));
+}
+
 /// 函数 `codex_headers_are_captured_from_http_headers`
 ///
 /// 作者: gaohongshun
@@ -153,6 +172,10 @@ fn turn_metadata_session_id_is_used_when_session_header_is_missing() {
 
     assert_eq!(
         snapshot.session_id(),
+        Some("019e779c-f433-7040-ace3-c93eab04ae31")
+    );
+    assert_eq!(
+        snapshot.sticky_key_material(),
         Some("019e779c-f433-7040-ace3-c93eab04ae31")
     );
     assert!(snapshot.turn_metadata().is_some());
