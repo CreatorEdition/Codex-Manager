@@ -1073,19 +1073,6 @@ impl Storage {
             include_str!("../../migrations/065_model_source_mapping_preferences.sql"),
             |s| s.ensure_model_source_tables(),
         )?;
-<<<<<<< HEAD
-        self.apply_sql_migration(
-            "065_api_key_list_indexes",
-            include_str!("../../migrations/065_api_key_list_indexes.sql"),
-        )?;
-        self.apply_sql_migration(
-            "066_events_retention_indexes",
-            include_str!("../../migrations/066_events_retention_indexes.sql"),
-        )?;
-        self.apply_compat_migration("067_observability_retention_compaction", |s| {
-            s.prepare_observability_storage_for_existing_databases()
-        })?;
-=======
         self.apply_sql_or_compat_migration(
             "066_request_logs_service_tier_source",
             include_str!("../../migrations/066_request_logs_service_tier_source.sql"),
@@ -1101,7 +1088,17 @@ impl Storage {
             include_str!("../../migrations/068_request_logs_route_strategy_source.sql"),
             |s| s.ensure_request_log_route_strategy_columns(),
         )?;
->>>>>>> c58f5a26 (增强上游中转兼容观测)
+        self.apply_sql_migration(
+            "069_api_key_list_indexes",
+            include_str!("../../migrations/069_api_key_list_indexes.sql"),
+        )?;
+        self.apply_sql_migration(
+            "070_events_retention_indexes",
+            include_str!("../../migrations/070_events_retention_indexes.sql"),
+        )?;
+        self.apply_compat_migration("071_observability_retention_compaction", |s| {
+            s.prepare_observability_storage_for_existing_databases()
+        })?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_supplier_model_tables()?;
