@@ -29,8 +29,6 @@ pub(crate) fn adapt_request_for_protocol(
     })
 }
 
-<<<<<<< HEAD
-=======
 pub(crate) fn adapt_openai_responses_to_anthropic_messages(
     body: &[u8],
     model_override: Option<&str>,
@@ -106,7 +104,6 @@ pub(crate) fn adapt_openai_responses_to_anthropic_messages(
         .map_err(|err| format!("serialize anthropic request failed: {err}"))
 }
 
->>>>>>> c58f5a26 (增强上游中转兼容观测)
 fn adapt_anthropic_messages_request(
     _path: &str,
     body: Vec<u8>,
@@ -428,8 +425,6 @@ fn anthropic_message_role_to_responses(role: &str) -> &'static str {
     }
 }
 
-<<<<<<< HEAD
-=======
 fn responses_input_to_anthropic_messages(
     input: Option<&Value>,
     system_parts: &mut Vec<String>,
@@ -726,7 +721,6 @@ fn parse_json_string_or_value(value: Option<&Value>) -> Value {
     }
 }
 
->>>>>>> c58f5a26 (增强上游中转兼容观测)
 fn anthropic_system_to_developer_message(system: Option<&Value>) -> Option<Value> {
     anthropic_system_to_text(system).map(|text| {
         json!({
@@ -1681,8 +1675,8 @@ fn generate_tool_call_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        adapt_request_for_protocol, backfill_empty_gemini_function_response_names,
-        gemini_function_response_output,
+        adapt_openai_responses_to_anthropic_messages, adapt_request_for_protocol,
+        backfill_empty_gemini_function_response_names, gemini_function_response_output,
     };
     use crate::apikey_profile::{PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE};
     use crate::gateway::{GeminiStreamOutputMode, ResponseAdapter};
@@ -2326,8 +2320,6 @@ mod tests {
     }
 
     #[test]
-<<<<<<< HEAD
-=======
     fn responses_request_rewrites_to_anthropic_messages_for_claude_upstream() {
         let body = json!({
             "model": "gpt-5.3",
@@ -2476,7 +2468,6 @@ mod tests {
     }
 
     #[test]
->>>>>>> c58f5a26 (增强上游中转兼容观测)
     fn gemini_thinking_config_adds_reasoning_and_include_only_when_explicit() {
         let body = serde_json::json!({
             "contents": [{"role":"user","parts":[{"text":"hi"}]}],

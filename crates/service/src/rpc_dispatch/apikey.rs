@@ -1,5 +1,5 @@
 use codexmanager_core::rpc::types::{
-    ApiKeyListParams, ApiKeyUsageStatListResult, JsonRpcRequest, JsonRpcResponse,
+    ApiKeyListResult, ApiKeyUsageStatListResult, JsonRpcRequest, JsonRpcResponse,
     ManagedModelCatalogResult, ManagedModelCatalogUpsertParams, ManagedModelRoutingResult,
     ManagedModelSourceMappingUpsertParams, ManagedModelSourceModelUpsertParams,
     ManagedModelSourceSyncParams, ModelsResponse,
@@ -79,20 +79,6 @@ fn filter_catalog_for_actor(
     })
 }
 
-fn string_array_param(req: &JsonRpcRequest, key: &str) -> Option<Vec<String>> {
-    req.params
-        .as_ref()
-        .and_then(|params| params.get(key))
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str())
-                .map(|item| item.to_string())
-                .collect::<Vec<_>>()
-        })
-}
-
 /// 函数 `try_handle`
 ///
 /// 作者: gaohongshun
@@ -106,37 +92,9 @@ fn string_array_param(req: &JsonRpcRequest, key: &str) -> Option<Vec<String>> {
 /// 返回函数执行结果
 pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonRpcResponse> {
     let result = match req.method.as_str() {
-        "apikey/list" => {
-            let params = req
-                .params
-                .clone()
-                .map(serde_json::from_value::<ApiKeyListParams>)
-                .transpose()
-                .map(|params| params.unwrap_or_default())
-                .map(ApiKeyListParams::normalized)
-                .map_err(|err| format!("invalid apikey/list params: {err}"));
-            super::value_or_error(
-                params.and_then(|params| {
-                    apikey_list::read_api_key_list_for_actor(actor, params, true)
-                }),
-            )
-        }
-        "apikey/lookup" => {
-            let ids = req
-                .params
-                .as_ref()
-                .and_then(|params| params.get("ids"))
-                .and_then(|value| value.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.as_str())
-                        .map(|item| item.to_string())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            super::value_or_error(apikey_list::lookup_api_keys_for_actor(actor, ids))
-        }
+        "apikey/list" => super::value_or_error(
+            apikey_list::read_api_keys_for_actor(actor).map(|items| ApiKeyListResult { items }),
+        ),
         "apikey/create" => {
             let name = super::string_param(req, "name");
             let model_slug = super::string_param(req, "modelSlug");
@@ -233,10 +191,6 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
             let slug = super::str_param(req, "slug").unwrap_or("");
             super::ok_or_error(apikey_models::delete_managed_model_catalog_model(slug))
         }
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 5724052e (Address model catalog cleanup review feedback)
         "apikey/modelCatalogPruneStaleRemote" => {
             if !actor.is_admin() {
                 super::value_or_error::<ManagedModelCatalogResult>(Err(super::permission_denied(
@@ -249,15 +203,6 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                 )
             }
         }
-<<<<<<< HEAD
-=======
-        "apikey/modelCatalogPruneStaleRemote" => super::value_or_error(
-            apikey_models::prune_stale_remote_managed_model_catalog()
-                .and_then(|catalog| filter_catalog_for_actor(actor, catalog)),
-        ),
->>>>>>> ee8d443a (Add explicit stale remote model pruning action)
-=======
->>>>>>> 5724052e (Address model catalog cleanup review feedback)
         "apikey/modelRouting" => {
             if actor.is_admin() {
                 super::value_or_error(apikey_models::read_managed_model_routing())
@@ -308,11 +253,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
             ))
         }
         "apikey/usageStats" => super::value_or_error(
-            apikey_usage_stats::read_api_key_usage_stats_for_actor(
-                actor,
-                string_array_param(req, "keyIds"),
-            )
-            .map(|items| ApiKeyUsageStatListResult { items }),
+            apikey_usage_stats::read_api_key_usage_stats_for_actor(actor)
+                .map(|items| ApiKeyUsageStatListResult { items }),
         ),
         "apikey/updateModel" => {
             let key_id = super::str_param(req, "id").unwrap_or("");
