@@ -260,6 +260,27 @@ impl Storage {
         )
     }
 
+    pub fn account_count_active_available(
+        &self,
+        query: Option<&str>,
+        group_name: Option<&str>,
+    ) -> Result<i64> {
+        self.count_accounts_with_usage_mode(
+            query,
+            group_name,
+            AccountUsageQueryMode::ActiveAvailable,
+            None,
+        )
+    }
+
+    pub fn account_count_low_quota(
+        &self,
+        query: Option<&str>,
+        group_name: Option<&str>,
+    ) -> Result<i64> {
+        self.count_accounts_with_usage_mode(query, group_name, AccountUsageQueryMode::LowQuota, None)
+    }
+
     /// 函数 `query_accounts_with_usage_mode`
     ///
     /// 作者: gaohongshun
@@ -317,6 +338,34 @@ impl Storage {
             out.push(map_account_row(row)?);
         }
         Ok(out)
+    }
+
+    fn count_accounts_with_usage_mode(
+        &self,
+        query: Option<&str>,
+        group_name: Option<&str>,
+        mode: AccountUsageQueryMode,
+        status: Option<&str>,
+    ) -> Result<i64> {
+        let mut params = Vec::new();
+        let mut where_clause = build_account_where_clause(query, group_name, &mut params, "a");
+        append_account_status_clause(&mut where_clause, &mut params, "a", status);
+        append_where_clause(
+            &mut where_clause,
+            account_usage_filter_clause(mode, "a", "lu").as_str(),
+        );
+        let sql = format!(
+            "{latest_usage_cte}
+             SELECT COUNT(1)
+             FROM accounts a
+             LEFT JOIN latest_usage lu
+               ON lu.account_id = a.id
+              AND lu.rn = 1
+             {where_clause}",
+            latest_usage_cte = latest_usage_cte_sql(),
+        );
+        self.conn
+            .query_row(&sql, params_from_iter(params), |row| row.get(0))
     }
 
     /// 函数 `list_gateway_candidates`

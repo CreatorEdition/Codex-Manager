@@ -1,4 +1,4 @@
-use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
+use codexmanager_core::rpc::types::{AccountListParams, JsonRpcRequest, JsonRpcResponse};
 
 use crate::{
     account_cleanup, account_delete, account_delete_many, account_export, account_import,
@@ -18,7 +18,35 @@ use crate::{
 /// 返回函数执行结果
 pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
     let result = match req.method.as_str() {
-        "account/list" => super::value_or_error(account_list::read_accounts()),
+        "account/list" => {
+            let params = req
+                .params
+                .clone()
+                .map(serde_json::from_value::<AccountListParams>)
+                .transpose()
+                .map(|params| params.unwrap_or_default())
+                .map(AccountListParams::normalized)
+                .map_err(|err| format!("invalid account/list params: {err}"));
+            super::value_or_error(
+                params.and_then(|params| account_list::read_accounts(params, true)),
+            )
+        }
+        "account/lookup" => {
+            let ids = req
+                .params
+                .as_ref()
+                .and_then(|params| params.get("ids"))
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(|item| item.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            super::value_or_error(account_list::lookup_accounts(ids))
+        }
         "account/delete" => {
             let account_id = super::str_param(req, "accountId").unwrap_or("");
             super::ok_or_error(account_delete::delete_account(account_id))

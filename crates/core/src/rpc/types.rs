@@ -198,6 +198,54 @@ pub struct AccountSummary {
     pub quota_capacity_secondary_window_tokens: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AccountListParams {
+    pub page: i64,
+    pub page_size: i64,
+    pub query: Option<String>,
+    pub filter: Option<String>,
+    pub group_filter: Option<String>,
+    pub plan_filter: Option<String>,
+    pub status_filter: Option<String>,
+    #[serde(alias = "sort_mode")]
+    pub sort_mode: Option<String>,
+}
+
+impl Default for AccountListParams {
+    fn default() -> Self {
+        Self {
+            page: 1,
+            page_size: 5,
+            query: None,
+            filter: None,
+            group_filter: None,
+            plan_filter: None,
+            status_filter: None,
+            sort_mode: None,
+        }
+    }
+}
+
+impl AccountListParams {
+    pub fn normalized(self) -> Self {
+        Self {
+            page: if self.page < 1 { 1 } else { self.page },
+            page_size: if self.page_size < 1 {
+                5
+            } else {
+                self.page_size
+            },
+            query: self.query,
+            filter: self.filter,
+            group_filter: self.group_filter,
+            plan_filter: self.plan_filter,
+            status_filter: self.status_filter,
+            sort_mode: self.sort_mode,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountListResult {

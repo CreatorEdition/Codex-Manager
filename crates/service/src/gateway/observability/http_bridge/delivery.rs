@@ -752,6 +752,7 @@ fn convert_success_body_for_adapter(
         ResponseAdapter::AnthropicMessagesFromResponses => {
             convert_responses_body_to_anthropic_messages(body, tool_name_restore_map)
         }
+        ResponseAdapter::ResponsesFromAnthropicMessages => None,
         ResponseAdapter::ChatCompletionsFromResponses => {
             convert_responses_body_to_chat_completions(body)
         }
@@ -1039,6 +1040,9 @@ fn convert_error_body_for_adapter(response_adapter: ResponseAdapter, message: &s
         ResponseAdapter::AnthropicMessagesFromResponses => {
             convert_upstream_error_to_anthropic_body(message)
         }
+        ResponseAdapter::ResponsesFromAnthropicMessages => {
+            convert_upstream_error_to_anthropic_body(message)
+        }
         ResponseAdapter::ChatCompletionsFromResponses => serde_json::to_vec(&json!({
             "error": {
                 "message": message,
@@ -1079,6 +1083,7 @@ fn compatibility_stream_content_type(
 ) -> &'static str {
     match response_adapter {
         ResponseAdapter::AnthropicMessagesFromResponses => "text/event-stream",
+        ResponseAdapter::ResponsesFromAnthropicMessages => "text/event-stream",
         ResponseAdapter::ChatCompletionsFromResponses => "text/event-stream",
         ResponseAdapter::CompactFromChatCompletions => "application/json",
         ResponseAdapter::ImagesB64JsonFromResponses | ResponseAdapter::ImagesUrlFromResponses => {
@@ -2125,6 +2130,33 @@ pub(crate) fn respond_with_upstream(
                     None,
                 ));
             }
+            ResponseAdapter::ResponsesFromAnthropicMessages => {
+                let delivery_error = respond_streaming_chunked(request, status, headers, upstream)
+                    .err()
+                    .map(|err| err.to_string());
+                return Ok(with_bridge_debug_meta(
+                    UpstreamResponseBridgeResult {
+                        usage: UpstreamResponseUsage::default(),
+                        stream_terminal_seen: true,
+                        stream_terminal_error: None,
+                        delivery_error,
+                        upstream_error_hint: None,
+                        delivered_status_code: None,
+                        upstream_request_id: None,
+                        upstream_cf_ray: None,
+                        upstream_auth_error: None,
+                        upstream_identity_error_code: None,
+                        upstream_content_type: None,
+                        last_sse_event_type: None,
+                    },
+                    &upstream_request_id,
+                    &upstream_cf_ray,
+                    &upstream_auth_error,
+                    &upstream_identity_error_code,
+                    &upstream_content_type,
+                    None,
+                ));
+            }
             ResponseAdapter::ChatCompletionsFromResponses => {
                 let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
                 let response_body: Box<dyn std::io::Read + Send> =
@@ -2254,11 +2286,11 @@ pub(crate) fn respond_with_upstream(
                     None,
                 ));
             }
-            ResponseAdapter::Passthrough => {}
+            ResponseAdapter::Passthrough | ResponseAdapter::ResponsesFromAnthropicMessages => {}
         }
     }
     match response_adapter {
-        ResponseAdapter::Passthrough => {
+        ResponseAdapter::Passthrough | ResponseAdapter::ResponsesFromAnthropicMessages => {
             let status = StatusCode(upstream.status().as_u16());
             let mut headers = Vec::new();
             for (name, value) in upstream.headers().iter() {
@@ -3240,12 +3272,12 @@ pub(crate) fn respond_with_stream_upstream(
                     None,
                 ));
             }
-            ResponseAdapter::Passthrough => {}
+            ResponseAdapter::Passthrough | ResponseAdapter::ResponsesFromAnthropicMessages => {}
         }
     }
 
     match response_adapter {
-        ResponseAdapter::Passthrough => {
+        ResponseAdapter::Passthrough | ResponseAdapter::ResponsesFromAnthropicMessages => {
             let status = StatusCode(upstream.status().as_u16());
             let mut headers = Vec::new();
             for (name, value) in upstream.headers().iter() {
@@ -3831,6 +3863,7 @@ fn resolve_stream_keepalive_frame(
                 SseKeepAliveFrame::Comment
             }
         }
+        ResponseAdapter::ResponsesFromAnthropicMessages => SseKeepAliveFrame::Comment,
         ResponseAdapter::AnthropicMessagesFromResponses
         | ResponseAdapter::ChatCompletionsFromResponses
         | ResponseAdapter::CompactFromChatCompletions

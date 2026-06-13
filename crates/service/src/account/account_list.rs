@@ -1,5 +1,5 @@
 use codexmanager_core::{
-    rpc::types::{AccountListResult, AccountSummary},
+    rpc::types::{AccountListParams, AccountListResult, AccountSummary},
     storage::{
         Account, AccountMetadata, AccountQuotaCapacityOverride, AccountSubscription, Token,
         UsageSnapshotRecord,
@@ -28,8 +28,7 @@ enum AccountFilter {
 /// 时间: 2026-04-02
 ///
 /// # 参数
-/// - params: 参数 params
-/// - pagination_requested: 参数 pagination_requested
+/// - crate: 参数 crate
 ///
 /// # 返回
 /// 返回函数执行结果
@@ -40,30 +39,93 @@ pub(crate) fn read_accounts(
     // 中文注释：公共 RPC 默认走分页；只有内部调用明确传入 false 时才保留全量兼容路径。
     let params = params.normalized();
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
-    let db_path = std::env::var("CODEXMANAGER_DB_PATH").unwrap_or_else(|_| "<unset>".to_string());
-    let accounts = storage
-        .list_accounts()
-        .map_err(|err| format!("list accounts failed: {err}"))?;
+    let query = normalize_optional_text(params.query);
+    let group_filter = normalize_optional_text(params.group_filter);
+    let filter = normalize_filter(params.filter);
+
+    if filter == AccountFilter::All {
+        if pagination_requested {
+            let page_size = normalize_page_size(params.page_size);
+            let total = storage
+                .account_count_filtered(query.as_deref(), group_filter.as_deref())
+                .map_err(|err| format!("count accounts failed: {err}"))?;
+            let page = clamp_page(params.page, total, page_size);
+            let offset = (page - 1) * page_size;
+            let accounts = storage
+                .list_accounts_paginated(
+                    query.as_deref(),
+                    group_filter.as_deref(),
+                    offset,
+                    page_size,
+                )
+                .map_err(|err| format!("list accounts failed: {err}"))?;
+            let items = to_account_summaries(&storage, accounts)?;
+            return Ok(AccountListResult {
+                items,
+                total,
+                page,
+                page_size,
+            });
+        }
+
+        let accounts = storage
+            .list_accounts_filtered(query.as_deref(), group_filter.as_deref())
+            .map_err(|err| format!("list accounts failed: {err}"))?;
+        let total = accounts.len() as i64;
+        let items = to_account_summaries(&storage, accounts)?;
+        return Ok(AccountListResult {
+            items,
+            total,
+            page: 1,
+            page_size: if total > 0 {
+                total
+            } else {
+                DEFAULT_ACCOUNT_PAGE_SIZE
+            },
+        });
+    }
+
+    if pagination_requested {
+        let total =
+            filtered_account_count(&storage, filter, query.as_deref(), group_filter.as_deref())?;
+        let page_size = normalize_page_size(params.page_size);
+        let page = clamp_page(params.page, total, page_size);
+        let offset = (page - 1) * page_size;
+        let paged = filtered_accounts(
+            &storage,
+            filter,
+            query.as_deref(),
+            group_filter.as_deref(),
+            Some((offset, page_size)),
+        )?;
+        let items = to_account_summaries(&storage, paged)?;
+        return Ok(AccountListResult {
+            items,
+            total,
+            page,
+            page_size,
+        });
+    }
+
+    let accounts = filtered_accounts(
+        &storage,
+        filter,
+        query.as_deref(),
+        group_filter.as_deref(),
+        None,
+    )?;
     let total = accounts.len() as i64;
     let items = to_account_summaries(&storage, accounts)?;
-    let page_size = if total > 0 {
-        total
-    } else {
-        DEFAULT_ACCOUNT_PAGE_SIZE
-    };
-
-    log::info!(
-        "account/list read: db_path={} total={} item_count={}",
-        db_path,
-        total,
-        items.len()
-    );
 
     Ok(AccountListResult {
         items,
         total,
         page: 1,
-        page_size,
+        page_size: if total > 0 {
+            total
+        } else {
+            DEFAULT_ACCOUNT_PAGE_SIZE
+        },
     })
 }
 

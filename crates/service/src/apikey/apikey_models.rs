@@ -9,7 +9,7 @@ use codexmanager_core::rpc::types::{
 };
 use codexmanager_core::storage::{
     now_ts, ModelCatalogModelRecord, ModelCatalogReasoningLevelRecord, ModelCatalogScopeRecord,
-    ModelCatalogStringItemRecord, ModelSourceMapping, ModelSourceModel, Storage,
+    ModelCatalogStringItemRecord, ModelPriceRule, ModelSourceMapping, ModelSourceModel, Storage,
 };
 use rand::RngCore;
 use serde_json::Value;
@@ -447,12 +447,10 @@ pub(crate) fn delete_managed_model_source_mapping(
     let source_id = normalize_required("sourceId", source_id)?;
     let upstream_model = normalize_required("upstreamModel", upstream_model)?;
     storage
-        .delete_model_source_mapping_with_unlink_preference(
-            &id,
-            &source_kind,
-            &source_id,
-            &upstream_model,
-        )
+        .upsert_model_source_mapping_preference(&source_kind, &source_id, &upstream_model, "unlinked")
+        .map_err(|err| format!("save unlink preference failed: {err}"))?;
+    storage
+        .delete_model_source_mapping(&id)
         .map_err(|err| format!("delete model mapping failed: {err}"))
 }
 
@@ -945,7 +943,7 @@ fn auto_associate_source_models(
     }
 
     let now = now_ts();
-    for source_model in source_models {
+    for source_model in &source_models {
         if !platform_slugs.contains(source_model.upstream_model.as_str()) {
             continue;
         }
@@ -1010,10 +1008,19 @@ fn ensure_model_price_rules_for_aggregate_api(
         if crate::quota::model_pricing::resolve_model_price(slug, 0).is_some() {
             continue;
         }
+        let provider = if slug.contains("gpt") || slug.contains("o1") || slug.contains("o3") {
+            "openai"
+        } else if slug.contains("claude") {
+            "anthropic"
+        } else if slug.contains("gemini") {
+            "google"
+        } else {
+            "unknown"
+        };
         storage
             .upsert_model_price_rule(&ModelPriceRule {
                 id: format!("agg-sync-{source_id}-{slug}"),
-                provider: crate::quota::model_pricing::infer_provider(slug).to_string(),
+                provider: provider.to_string(),
                 model_pattern: slug.to_string(),
                 match_type: "exact".to_string(),
                 billing_mode: "standard".to_string(),
