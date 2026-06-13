@@ -307,11 +307,7 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     let applied_066: i64 = storage
         .conn
         .query_row(
-<<<<<<< HEAD
-            "SELECT COUNT(1) FROM schema_migrations WHERE version = '066_events_retention_indexes'",
-=======
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '066_request_logs_service_tier_source'",
->>>>>>> c58f5a26 (增强上游中转兼容观测)
             [],
             |row| row.get(0),
         )
@@ -320,18 +316,12 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
     let applied_067: i64 = storage
         .conn
         .query_row(
-<<<<<<< HEAD
-            "SELECT COUNT(1) FROM schema_migrations WHERE version = '067_observability_retention_compaction'",
-=======
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '067_request_logs_model_reasoning_sources'",
->>>>>>> c58f5a26 (增强上游中转兼容观测)
             [],
             |row| row.get(0),
         )
         .expect("count 067 migration");
     assert_eq!(applied_067, 1);
-<<<<<<< HEAD
-=======
     let applied_068: i64 = storage
         .conn
         .query_row(
@@ -341,7 +331,6 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 068 migration");
     assert_eq!(applied_068, 1);
->>>>>>> c58f5a26 (增强上游中转兼容观测)
 
     assert!(!storage
         .has_column("accounts", "note")
