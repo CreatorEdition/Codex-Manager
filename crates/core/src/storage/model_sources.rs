@@ -485,4 +485,3 @@ fn map_preference(row: &Row<'_>) -> Result<ModelSourceMappingPreference> {
         updated_at: row.get(4)?,
     })
 }
-}

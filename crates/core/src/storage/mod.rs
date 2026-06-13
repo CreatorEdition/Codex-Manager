@@ -1062,8 +1062,8 @@ impl Storage {
             include_str!("../../migrations/064_drop_gateway_error_logs.sql"),
         )?;
         self.apply_sql_or_compat_migration(
-            "064_model_source_mapping_preferences",
-            include_str!("../../migrations/064_model_source_mapping_preferences.sql"),
+            "065_model_source_mapping_preferences",
+            include_str!("../../migrations/065_model_source_mapping_preferences.sql"),
             |s| s.ensure_model_source_tables(),
         )?;
         self.apply_sql_migration(
