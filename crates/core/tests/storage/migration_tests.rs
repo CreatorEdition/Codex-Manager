@@ -1211,6 +1211,7 @@ fn model_catalog_string_items_migration_tolerates_missing_legacy_tables() {
 }
 
 #[test]
+#[ignore = "观测数据清理已移至后台维护，启动迁移不再执行rollup和prune"]
 fn observability_storage_compaction_migration_rolls_up_and_prunes_legacy_rows() {
     let path = temp_db_path("observability-compaction");
     {
@@ -1288,7 +1289,7 @@ fn observability_storage_compaction_migration_rolls_up_and_prunes_legacy_rows() 
                 "DELETE FROM schema_migrations WHERE version = '062_observability_storage_compaction'",
                 [],
             )
-            .expect("remove 057 marker");
+            .expect("remove 062 marker");
 
         storage
             .conn
@@ -1380,15 +1381,15 @@ fn observability_storage_compaction_migration_rolls_up_and_prunes_legacy_rows() 
     let storage = Storage::open(&path).expect("reopen file storage");
     storage.init().expect("run compaction migration");
 
-    let applied_057: i64 = storage
+    let applied_062: i64 = storage
         .conn
         .query_row(
             "SELECT COUNT(1) FROM schema_migrations WHERE version = '062_observability_storage_compaction'",
             [],
             |row| row.get(0),
         )
-        .expect("count 057 migration");
-    assert_eq!(applied_057, 1);
+        .expect("count 062 migration");
+    assert_eq!(applied_062, 1);
 
     let remaining_old_logs: i64 = storage
         .conn
