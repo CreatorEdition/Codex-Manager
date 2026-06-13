@@ -165,7 +165,6 @@ impl Storage {
         self.query_accounts(query, group_name, Some((offset, limit)))
     }
 
-<<<<<<< HEAD
     /// 按 ID 批量读取账号，用于日志页等当前页展示 lookup。
     pub fn list_accounts_by_ids(&self, account_ids: &[String]) -> Result<Vec<Account>> {
         let mut ids = account_ids
@@ -254,8 +253,6 @@ impl Storage {
         )
     }
 
-=======
->>>>>>> cf306b11 (修复未注册的插件)
     /// 函数 `list_gateway_candidates`
     ///
     /// 作者: gaohongshun
