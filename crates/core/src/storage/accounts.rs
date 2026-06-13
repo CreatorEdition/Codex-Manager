@@ -2,6 +2,11 @@ use rusqlite::{params_from_iter, types::Value, Result, Row};
 
 use super::{now_ts, Account, Storage, Token};
 
+enum AccountUsageQueryMode {
+    ActiveAvailable,
+    LowQuota,
+}
+
 impl Storage {
     /// 函数 `insert_account`
     ///
@@ -221,6 +226,7 @@ impl Storage {
             query,
             group_name,
             AccountUsageQueryMode::ActiveAvailable,
+            None,
             pagination,
         )
     }
@@ -249,8 +255,68 @@ impl Storage {
             query,
             group_name,
             AccountUsageQueryMode::LowQuota,
+            None,
             pagination,
         )
+    }
+
+    /// 函数 `query_accounts_with_usage_mode`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-02
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - query: 参数 query
+    /// - group_name: 参数 group_name
+    /// - mode: 参数 mode
+    /// - status: 参数 status
+    /// - pagination: 参数 pagination
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    fn query_accounts_with_usage_mode(
+        &self,
+        query: Option<&str>,
+        group_name: Option<&str>,
+        mode: AccountUsageQueryMode,
+        status: Option<&str>,
+        pagination: Option<(i64, i64)>,
+    ) -> Result<Vec<Account>> {
+        let mut params = Vec::new();
+        let mut where_clause = build_account_where_clause(query, group_name, &mut params, "a");
+        append_account_status_clause(&mut where_clause, &mut params, "a", status);
+        append_where_clause(
+            &mut where_clause,
+            account_usage_filter_clause(mode, "a", "lu").as_str(),
+        );
+        let mut sql = format!(
+            "{latest_usage_cte}
+             SELECT {account_select}
+             FROM accounts a
+             LEFT JOIN latest_usage lu
+               ON lu.account_id = a.id
+              AND lu.rn = 1
+             {where_clause}
+             ORDER BY a.sort ASC, a.updated_at DESC",
+            latest_usage_cte = latest_usage_cte_sql(),
+            account_select = account_select_columns("a"),
+        );
+
+        if let Some((offset, limit)) = pagination {
+            sql.push_str(" LIMIT ? OFFSET ?");
+            params.push(Value::Integer(limit.max(1)));
+            params.push(Value::Integer(offset.max(0)));
+        }
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_account_row(row)?);
+        }
+        Ok(out)
     }
 
     /// 函数 `list_gateway_candidates`
@@ -798,14 +864,116 @@ fn latest_usage_cte_sql() -> &'static str {
             account_id,
             used_percent,
             window_minutes,
+            resets_at,
             secondary_used_percent,
             secondary_window_minutes,
+            secondary_resets_at,
+            captured_at,
             ROW_NUMBER() OVER (
                 PARTITION BY account_id
                 ORDER BY captured_at DESC, id DESC
             ) AS rn
         FROM usage_snapshots
     )"
+}
+
+fn append_where_clause(where_clause: &mut String, clause: &str) {
+    if clause.trim().is_empty() {
+        return;
+    }
+    if where_clause.is_empty() {
+        where_clause.push_str(" WHERE ");
+    } else {
+        where_clause.push_str(" AND ");
+    }
+    where_clause.push_str(clause);
+}
+
+fn append_account_status_clause(
+    where_clause: &mut String,
+    params: &mut Vec<Value>,
+    table_name: &str,
+    status: Option<&str>,
+) {
+    let Some(status) = normalize_optional_filter(status) else {
+        return;
+    };
+    let status_column = qualified_column(table_name, "status");
+    append_where_clause(
+        where_clause,
+        &format!("LOWER(TRIM(COALESCE({status_column}, ''))) = LOWER(TRIM(?))"),
+    );
+    params.push(Value::Text(status));
+}
+
+fn account_usage_filter_clause(
+    mode: AccountUsageQueryMode,
+    account_alias: &str,
+    usage_alias: &str,
+) -> String {
+    match mode {
+        AccountUsageQueryMode::ActiveAvailable => {
+            let status_expr = format!("LOWER(TRIM(COALESCE({account_alias}.status, '')))");
+            let available_usage = available_usage_clause(usage_alias);
+            let stale_exhausted = stale_exhausted_usage_clause(usage_alias);
+            format!(
+                "{status_expr} NOT IN ('inactive', 'disabled', 'unavailable', 'banned')
+                 AND (
+                    (
+                      {status_expr} <> 'limited'
+                      AND ({usage_alias}.account_id IS NULL OR ({available_usage}))
+                    )
+                    OR (
+                      {status_expr} = 'limited'
+                      AND {usage_alias}.account_id IS NOT NULL
+                      AND ({stale_exhausted})
+                      AND ({available_usage})
+                    )
+                 )"
+            )
+        }
+        AccountUsageQueryMode::LowQuota => {
+            let primary_low = effective_low_usage_clause(
+                usage_alias,
+                &format!("{usage_alias}.used_percent"),
+                &format!("{usage_alias}.resets_at"),
+            );
+            let secondary_low = effective_low_usage_clause(
+                usage_alias,
+                &format!("{usage_alias}.secondary_used_percent"),
+                &format!("{usage_alias}.secondary_resets_at"),
+            );
+            format!(
+                "{usage_alias}.account_id IS NOT NULL
+                 AND ({primary_low} OR {secondary_low})"
+            )
+        }
+    }
+}
+
+fn stale_exhausted_usage_clause(usage_alias: &str) -> String {
+    let primary_stale =
+        usage_window_reset_stale_clause(usage_alias, &format!("{usage_alias}.resets_at"));
+    let secondary_stale =
+        usage_window_reset_stale_clause(usage_alias, &format!("{usage_alias}.secondary_resets_at"));
+    format!(
+        "({usage_alias}.used_percent >= 100 AND ({primary_stale}))
+         OR ({usage_alias}.secondary_used_percent >= 100 AND ({secondary_stale}))"
+    )
+}
+
+fn effective_low_usage_clause(usage_alias: &str, used_expr: &str, reset_expr: &str) -> String {
+    let stale = usage_window_reset_stale_clause(usage_alias, reset_expr);
+    format!("({used_expr} >= 80 AND NOT ({stale}))")
+}
+
+fn usage_window_reset_stale_clause(usage_alias: &str, reset_expr: &str) -> String {
+    format!(
+        "{reset_expr} IS NOT NULL
+         AND {reset_expr} > 0
+         AND {usage_alias}.captured_at < {reset_expr}
+         AND {reset_expr} <= CAST(strftime('%s','now') AS INTEGER)"
+    )
 }
 
 fn latest_usage_for_account_join_sql(account_alias: &str, usage_alias: &str) -> String {

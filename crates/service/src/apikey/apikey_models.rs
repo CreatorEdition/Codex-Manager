@@ -447,19 +447,12 @@ pub(crate) fn delete_managed_model_source_mapping(
     let source_id = normalize_required("sourceId", source_id)?;
     let upstream_model = normalize_required("upstreamModel", upstream_model)?;
     storage
-<<<<<<< HEAD
-        .upsert_model_source_mapping_preference(&source_kind, &source_id, &upstream_model, "unlinked")
-        .map_err(|err| format!("save unlink preference failed: {err}"))?;
-    storage
-        .delete_model_source_mapping(id.as_str())
-=======
         .delete_model_source_mapping_with_unlink_preference(
             &id,
             &source_kind,
             &source_id,
             &upstream_model,
         )
->>>>>>> c58f5a26 (增强上游中转兼容观测)
         .map_err(|err| format!("delete model mapping failed: {err}"))
 }
 
@@ -959,17 +952,6 @@ fn auto_associate_source_models(
         if existing_source_platform_mappings.contains(source_model.upstream_model.as_str()) {
             continue;
         }
-<<<<<<< HEAD
-        if prefs
-            .get(source_model.upstream_model.as_str())
-            .map_or(false, |v| v == "unlinked")
-        {
-            continue;
-        }
-        let enabled = prefs
-            .get(source_model.upstream_model.as_str())
-            .map_or(true, |v| v != "disabled");
-=======
         let enabled = match prefs
             .get(source_model.upstream_model.as_str())
             .map(String::as_str)
@@ -978,7 +960,6 @@ fn auto_associate_source_models(
             Some(v) => v != "disabled",
             None => true,
         };
->>>>>>> c58f5a26 (增强上游中转兼容观测)
         let mapping = ModelSourceMapping {
             id: generate_mapping_id(),
             platform_model_slug: source_model.upstream_model.clone(),
@@ -996,8 +977,6 @@ fn auto_associate_source_models(
             .upsert_model_source_mapping(&mapping)
             .map_err(|err| format!("save model mapping failed: {err}"))?;
     }
-<<<<<<< HEAD
-=======
 
     if source_kind == ROUTING_SOURCE_KIND_AGGREGATE_API && auto_create_platform_models {
         if let Err(err) =
@@ -1061,7 +1040,6 @@ fn ensure_model_price_rules_for_aggregate_api(
             })
             .map_err(|err| format!("upsert model price rule for {slug} failed: {err}"))?;
     }
->>>>>>> c58f5a26 (增强上游中转兼容观测)
     Ok(())
 }
 

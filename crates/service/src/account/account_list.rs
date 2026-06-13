@@ -11,7 +11,6 @@ use crate::account_plan::resolve_effective_account_plan;
 use crate::storage_helpers::open_storage;
 
 const DEFAULT_ACCOUNT_PAGE_SIZE: i64 = 5;
-<<<<<<< HEAD
 const MAX_ACCOUNT_PAGE_SIZE: i64 = 500;
 const MAX_ACCOUNT_LOOKUP_IDS: usize = 500;
 
@@ -21,8 +20,6 @@ enum AccountFilter {
     Active,
     Low,
 }
-=======
->>>>>>> cf306b11 (修复未注册的插件)
 
 /// 函数 `read_accounts`
 ///
@@ -31,20 +28,17 @@ enum AccountFilter {
 /// 时间: 2026-04-02
 ///
 /// # 参数
-/// - crate: 参数 crate
+/// - params: 参数 params
+/// - pagination_requested: 参数 pagination_requested
 ///
 /// # 返回
 /// 返回函数执行结果
-<<<<<<< HEAD
 pub(crate) fn read_accounts(
     params: AccountListParams,
     pagination_requested: bool,
 ) -> Result<AccountListResult, String> {
     // 中文注释：公共 RPC 默认走分页；只有内部调用明确传入 false 时才保留全量兼容路径。
     let params = params.normalized();
-=======
-pub(crate) fn read_accounts() -> Result<AccountListResult, String> {
->>>>>>> cf306b11 (修复未注册的插件)
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let db_path = std::env::var("CODEXMANAGER_DB_PATH").unwrap_or_else(|_| "<unset>".to_string());
     let accounts = storage
@@ -73,7 +67,6 @@ pub(crate) fn read_accounts() -> Result<AccountListResult, String> {
     })
 }
 
-<<<<<<< HEAD
 pub(crate) fn lookup_accounts(ids: Vec<String>) -> Result<Vec<AccountSummary>, String> {
     let ids = normalize_lookup_ids(ids);
     if ids.is_empty() {
@@ -252,8 +245,6 @@ fn filtered_accounts(
     }
 }
 
-=======
->>>>>>> cf306b11 (修复未注册的插件)
 /// 函数 `to_account_summary_with_reason`
 ///
 /// 作者: gaohongshun
