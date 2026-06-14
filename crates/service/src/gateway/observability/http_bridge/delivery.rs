@@ -3012,43 +3012,25 @@ pub(crate) fn respond_with_stream_upstream(
     request_started_at: std::time::Instant,
 ) -> Result<UpstreamResponseBridgeResult, String> {
     let keepalive_frame = resolve_stream_keepalive_frame(response_adapter, request_path);
-    let upstream_request_id =
-        first_upstream_header(upstream.headers(), REQUEST_ID_HEADER_CANDIDATES);
-    let upstream_cf_ray = first_upstream_header(upstream.headers(), &[CF_RAY_HEADER_NAME]);
-    let upstream_auth_error = first_upstream_header(upstream.headers(), &[AUTH_ERROR_HEADER_NAME]);
-    let upstream_identity_error_code =
-        crate::gateway::extract_identity_error_code_from_headers(upstream.headers());
-    let upstream_content_type = upstream
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.to_string());
+
+    // 提取上游元数据
+    let metadata = extract_upstream_metadata(upstream.headers());
+    let upstream_request_id = metadata.request_id;
+    let upstream_cf_ray = metadata.cf_ray;
+    let upstream_auth_error = metadata.auth_error;
+    let upstream_identity_error_code = metadata.identity_error_code;
+    let upstream_content_type = metadata.content_type;
+
     if response_adapter != ResponseAdapter::Passthrough {
         let status = StatusCode(upstream.status().as_u16());
-        let mut headers = Vec::new();
-        for (name, value) in upstream.headers().iter() {
-            let name_str = name.as_str();
-            if name_str.eq_ignore_ascii_case("transfer-encoding")
-                || name_str.eq_ignore_ascii_case("content-length")
-                || name_str.eq_ignore_ascii_case("connection")
-            {
-                continue;
-            }
-            if let Ok(header) = Header::from_bytes(name_str.as_bytes(), value.as_bytes()) {
-                headers.push(header);
-            }
-        }
-        if let Some(trace_id) = trace_id {
-            push_trace_id_header(&mut headers, trace_id);
-        }
-        let is_sse = upstream_content_type
-            .as_deref()
-            .map(|value| value.to_ascii_lowercase().starts_with("text/event-stream"))
-            .unwrap_or(false);
-        let is_json = upstream_content_type
-            .as_deref()
-            .map(|value| value.to_ascii_lowercase().contains("application/json"))
-            .unwrap_or(false);
+
+        // 准备响应头
+        let mut headers = prepare_response_headers(upstream.headers(), trace_id);
+
+        // 分析Content-Type
+        let content_type_info = analyze_content_type(upstream_content_type.as_deref());
+        let is_sse = content_type_info.is_sse;
+        let is_json = content_type_info.is_json;
 
         if !is_stream {
             let upstream_body = upstream
