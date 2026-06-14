@@ -15,6 +15,8 @@
 - 清理conflict marker
 - 单独commit："修复: 清理rpc.rs中的conflict marker"
 
+**当前状态**：已看到提交 `b0ab427e 修复: 清理rpc.rs中的conflict marker`，此项无需重复处理。
+
 ### 问题2：测试模块导出缺失
 **文件**: `crates/service/src/gateway/observability/tests/request_log_tests.rs`
 **现象**: `should_skip_request_log` 函数未导出，导致其他测试无法引用
@@ -23,6 +25,8 @@
 - 如需导出，添加 `pub` 修饰符
 - 验证不会破坏现有测试
 - 单独commit："修复: 导出should_skip_request_log供测试使用"
+
+**当前状态**：尚未看到对应提交或 `opus-to-gpt.md` 结果，请优先处理此项。
 
 ## ⚠️ 约束条件
 

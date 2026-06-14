@@ -2,14 +2,14 @@
   "status": "waiting_for_opus",
   "task": "fix-test-blockers",
   "created_at": "2026-06-14T08:00:00Z",
-  "last_update": "2026-06-14T08:00:00Z",
+  "last_update": "2026-06-14T08:39:09Z",
   "iteration": 1,
   "max_iterations": 3,
   "last_actor": "CodeX-GPT",
   "current_agent": "Claude-Opus",
   "next_agent": "CodeX-GPT",
   "workflow": "GPT分派任务 → Claude/Opus执行修复 → GPT审计验证",
-  "description": "修复阻塞HTTP Bridge测试的2个既有问题：conflict marker和函数导出",
+  "description": "修复阻塞HTTP Bridge测试的2个既有问题：conflict marker已由b0ab427e处理，仍等待Claude-Opus修复should_skip_request_log测试可见性并写入opus-to-gpt.md",
   "problems": [
     "crates/service/tests/rpc.rs:1086 - conflict marker残留",
     "crates/service/src/gateway/observability/tests/request_log_tests.rs - should_skip_request_log未导出"
