@@ -1083,7 +1083,6 @@ fn rpc_app_settings_can_roundtrip_free_account_max_model() {
     );
 }
 
-<<<<<<< HEAD
 /// 函数 `rpc_account_list_active_filter_uses_backend_filtered_pagination`
 ///
 /// 作者: gaohongshun
@@ -1271,8 +1270,6 @@ fn rpc_aggregate_api_list_supports_backend_filters_and_pagination() {
     );
 }
 
-=======
->>>>>>> cf306b11 (修复未注册的插件)
 /// 函数 `rpc_account_delete_many_deletes_requested_accounts`
 ///
 /// 作者: gaohongshun
