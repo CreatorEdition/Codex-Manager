@@ -1,5 +1,8 @@
 use codexmanager_core::storage::{now_ts, RequestLog, RequestTokenStat, Storage};
 
+const SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS_ENV: &str =
+    "CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS";
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct RequestLogUsage {
     pub input_tokens: Option<i64>,
@@ -228,6 +231,40 @@ fn normalize_duration_ms(value: Option<u128>) -> Option<i64> {
     value.map(|duration| duration.min(i64::MAX as u128) as i64)
 }
 
+fn success_model_list_log_skip_enabled() -> bool {
+    std::env::var(SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS_ENV)
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off" | "no"
+            )
+        })
+        .unwrap_or(true)
+}
+
+fn is_model_list_path(path: &str) -> bool {
+    let path_only = path.split('?').next().unwrap_or(path).trim_end_matches('/');
+    path_only == "/v1/models"
+}
+
+fn should_skip_request_log(
+    request_path: &str,
+    method: &str,
+    success: bool,
+    error: Option<&str>,
+    has_token_usage: bool,
+) -> bool {
+    success_model_list_log_skip_enabled()
+        && success
+        && !has_token_usage
+        && error
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+        && method.eq_ignore_ascii_case("GET")
+        && is_model_list_path(request_path)
+}
+
 /// 函数 `is_inference_path`
 ///
 /// 作者: gaohongshun
@@ -443,6 +480,22 @@ pub(crate) fn write_request_log_with_attempts(
     let total_tokens = normalize_token(usage.total_tokens);
     let reasoning_output_tokens = normalize_token(usage.reasoning_output_tokens);
     let duration_ms = normalize_duration_ms(duration_ms);
+    let has_token_usage = [
+        input_tokens,
+        cached_input_tokens,
+        output_tokens,
+        total_tokens,
+        reasoning_output_tokens,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value > 0);
+    let success = status_code
+        .map(|status| (200..300).contains(&status))
+        .unwrap_or(false);
+    if should_skip_request_log(request_path, method, success, error, has_token_usage) {
+        return;
+    }
     let first_response_ms = usage.first_response_ms.map(|value| value.max(0));
     let created_at = now_ts();
     let estimated_cost_usd = crate::quota::model_pricing::estimate_cost_usd_for_log(
@@ -504,22 +557,7 @@ pub(crate) fn write_request_log_with_attempts(
         error,
         duration_ms,
     });
-    let success = status_code
-        .map(|status| (200..300).contains(&status))
-        .unwrap_or(false);
-    let input_zero_or_missing = input_tokens.unwrap_or(0) == 0;
-    let cached_zero_or_missing = cached_input_tokens.unwrap_or(0) == 0;
-    let output_zero_or_missing = output_tokens.unwrap_or(0) == 0;
-    let total_zero_or_missing = total_tokens.unwrap_or(0) == 0;
-    let reasoning_zero_or_missing = reasoning_output_tokens.unwrap_or(0) == 0;
-    if success
-        && is_inference_path(request_path)
-        && input_zero_or_missing
-        && cached_zero_or_missing
-        && output_zero_or_missing
-        && total_zero_or_missing
-        && reasoning_zero_or_missing
-    {
+    if success && is_inference_path(request_path) && !has_token_usage {
         log::warn!(
             "event=gateway_token_usage_missing path={} status={} account_id={} key_id={} model={}",
             request_path,
