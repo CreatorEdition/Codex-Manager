@@ -146,6 +146,41 @@ fn prepare_response_headers(
     headers
 }
 
+/// 结构体 `ContentTypeInfo`
+///
+/// Content-Type分析结果结构
+///
+/// # 字段
+/// - is_sse: 是否为SSE（Server-Sent Events）流
+/// - is_json: 是否为JSON格式
+struct ContentTypeInfo {
+    is_sse: bool,
+    is_json: bool,
+}
+
+/// 函数 `analyze_content_type`
+///
+/// 分析Content-Type头，判断响应类型
+///
+/// # 参数
+/// - content_type: 可选的Content-Type字符串
+///
+/// # 返回
+/// 返回包含分析结果的 ContentTypeInfo 结构体
+fn analyze_content_type(content_type: Option<&str>) -> ContentTypeInfo {
+    let lower = content_type.map(|v| v.to_ascii_lowercase());
+    ContentTypeInfo {
+        is_sse: lower
+            .as_deref()
+            .map(|v| v.starts_with("text/event-stream"))
+            .unwrap_or(false),
+        is_json: lower
+            .as_deref()
+            .map(|v| v.contains("application/json"))
+            .unwrap_or(false),
+    }
+}
+
 fn should_skip_streaming_manual_header(header: &Header) -> bool {
     header.field.equiv("connection")
         || header.field.equiv("content-length")
