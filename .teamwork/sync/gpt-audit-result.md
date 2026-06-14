@@ -1,39 +1,57 @@
-# GPT 审计结果：测试阻塞修复
+# GPT 复核结果：代码质量审查
 
-## 审计执行
+## 基本信息
 
-- 审计人：【CodeX-GPT】
-- 审计日期：2026-06-14
-- 审计范围：`b0ab427e`、`baa16ec0`、`49a948b4`
-- 审计方式：独立读取提交、代码、协作文件，并重新运行验证命令。
+- 复核方：【CodeX-GPT】
+- 被复核报告：`.teamwork/sync/opus-to-gpt.md`
+- 复核时间：2026-06-14T17:55:56Z
+- 任务类型：只审查，不修改代码
 
-## Commit 审计结果
+## 独立验证
 
-### `b0ab427e 修复: 清理rpc.rs中的conflict marker`
+### 编译警告
 
-- 结论：通过。
-- 说明：该提交清理了 `crates/service/tests/rpc.rs` 中的 conflict marker，解除测试编译阻塞之一。
+- 命令：`cargo check --workspace`
+- 结果：通过。
+- 实际 warning：13 条。
+  - `codexmanager-service`：12 条。
+  - `codexmanager-web`：1 条。
 
-### `baa16ec0 修复: 恢复模型列表请求日志跳过判断`
+### 关键问题确认
 
-- 结论：通过。
-- 说明：该提交补回 `should_skip_request_log`、环境变量开关和 `/v1/models` 路径判断，并让 `write_request_log_with_attempts` 在写入数据库前复用该 helper。
+- `crates/service/src/gateway/observability/http_bridge/delivery.rs:2391` 的 `ResponseAdapter::ResponsesFromAnthropicMessages` 分支确实 unreachable。
+- `crates/service/src/gateway/observability/maintenance.rs` 中维护调度相关常量、静态变量和函数确实处于未使用状态。
+- `crates/web/src/main.rs:372` 的 `author_content_url` 确实未使用。
 
-### `49a948b4 修复: 导出should_skip_request_log供测试使用`
+### 静态统计修正
 
-- 结论：通过。
-- 说明：该提交只将 `should_skip_request_log` 调整为 `pub(crate)`，允许 crate 内测试引用；没有暴露为公共 API，变更范围可控。
+- `unsafe` 命中：8 次；其中 6 次是真正 unsafe 调用，集中在 `crates/start/src/main.rs` 的 Windows Job Object API；另外 2 次是测试字符串内容。
+- `.unwrap()` 命中：28 次。
+- `crates/` 下 `tests/` 路径中的 Rust 测试文件：77 个。
 
 ## 对 Claude 报告的修正
 
-Claude 报告中“`cargo test -p codexmanager-service http_bridge::delivery` 无匹配测试”的说法不符合当前仓库状态。CodeX-GPT 重新运行该命令后，实际执行并通过了 18 个 `gateway::http_bridge::delivery` 测试。
+- Claude 报告称 total warnings 为 14，当前实测为 13。
+- Claude 报告称 unsafe 代码 7 处，当前检索命中 8 次；按语义拆分后是真正 unsafe 6 次、测试字符串 2 次。
+- Claude 报告称测试文件 78 个，当前实测为 77 个。
+- 对 unreachable pattern、maintenance dead code、unused variable、unwrap 后续审查建议的方向基本同意。
 
-## 独立验证结果
+## 风险排序
 
-- `cargo check -p codexmanager-service`：通过，仅既有 warning。
-- `cargo test -p codexmanager-service http_bridge::delivery -- --nocapture`：通过，18 passed。
-- `cargo test -p codexmanager-service --lib gateway::request_log::tests -- --nocapture`：通过，17 passed。
+### P1
 
-## 最终决策
+- 修复 `delivery.rs:2391` unreachable pattern。该项已有编译器直接证据，优先级最高。
 
-通过。测试阻塞因素已清除，当前状态可收口为 `completed`。
+### P2
+
+- 梳理 `maintenance.rs` 未使用维护调度代码：确认是重新接入、加说明保留，还是删除。
+- 审查生产路径中的 `.unwrap()`，尤其是协议适配和聚合 API 鉴权解析路径。
+
+### P3
+
+- 为 `crates/start/src/main.rs` 中 Windows API 的 unsafe 块补安全性说明。
+- 清理 `crates/web/src/main.rs:372` 未使用变量。
+
+## 最终结论
+
+通过复核。Claude 的质量审查报告方向可用，但统计需要以上修正。本轮任务按“只审查，不修改代码”收口，不直接提交业务代码改动。
