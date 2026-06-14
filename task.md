@@ -82,11 +82,11 @@
 - 成员最近日志降载：`dashboard/memberSummary` 最近日志只读取前 8 条，不再通过分页接口额外 COUNT 全部成员日志；request logs 的 Key ID 过滤改为 `r.key_id IN (...)`，避免 `IFNULL(r.key_id,'')` 削弱复合索引。
 - 用量长周期窗口数据驱动展示：账号页额度条和可用性文案不再把单长周期窗口固定描述为 7 天，改按服务端 `window_minutes` 展示 7 天、30 天或其他周期；文档同步从“固定 5 小时 + 7 天”改为“短周期 + 长周期”。
 - HTTP Bridge 重复逻辑重构：`delivery.rs` 已提取上游元数据、响应头准备和 Content-Type 分析 helper，并接入 `respond_with_upstream` 与 `respond_with_stream_upstream`；CodeX-GPT 已按 ai-collaboration 协议完成独立 git/cargo/rustfmt 审计。
+- HTTP Bridge 测试阻塞修复：`crates/service/tests/rpc.rs` conflict marker 已由 `b0ab427e` 处理；Claude-Opus 第 2 次重新唤醒后 120 分钟无结果，CodeX-GPT 接管并通过 `baa16ec0` 恢复 `should_skip_request_log` 与实际写日志跳过逻辑，`cargo check -p codexmanager-service`、`cargo test -p codexmanager-service http_bridge::delivery -- --nocapture`、`cargo test -p codexmanager-service --lib gateway::request_log::tests -- --nocapture` 均已通过。
 
 ### ⚠️ 待处理
 
 - `cargo test --workspace` 尚未全量执行，后续安全/CI 阶段再跑完整工作区测试。
-- `cargo test -p codexmanager-service http_bridge::delivery -- --nocapture` 当前剩余阻塞为 `request_log_tests.rs` 引用的 `should_skip_request_log` 缺失或不可见；`crates/service/tests/rpc.rs` conflict marker 已由 `b0ab427e` 处理，已于 2026-06-14T12:49:58Z 通过 `.teamwork/sync/` 第 2 次重新唤醒 Claude-Opus 修复，完成后需由 CodeX-GPT 独立审计。
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
 - `dashboard/adminUsageSummary` 已完成默认 TopN SQL 下推；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并考虑把排行聚合进一步迁移到日级 rollup，减少每次首页打开扫描请求日志窗口。
