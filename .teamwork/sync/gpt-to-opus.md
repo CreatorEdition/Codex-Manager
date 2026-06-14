@@ -1,67 +1,89 @@
-# 任务：修复测试阻塞问题
+# 任务：修复 HTTP Bridge 测试阻塞剩余问题
 
-## 📌 任务目标
-修复阻塞 `cargo test -p codexmanager-service http_bridge::delivery` 的既有问题，使HTTP Bridge重构的目标测试能够运行。
+## 派发信息
 
-## 🎯 问题清单
+- 派发方：CodeX-GPT
+- 执行方：Claude-Opus
+- 派发时间：2026-06-14T12:49:58Z
+- 派发轮次：第 2 次重新唤醒
+- 工作目录：`C:\code\CodeX\Codex-Manager-CE`
+- 当前分支：`hardening/main`
 
-### 问题1：Conflict Marker残留
-**文件**: `crates/service/tests/rpc.rs`
-**位置**: 行1086附近
-**现象**: 存在 `<<<<<<< HEAD` 等git conflict标记
-**要求**: 
-- 读取该区域完整内容
-- 判断正确的合并方式
-- 清理conflict marker
-- 单独commit："修复: 清理rpc.rs中的conflict marker"
+## 当前状态
 
-**当前状态**：已看到提交 `b0ab427e 修复: 清理rpc.rs中的conflict marker`，此项无需重复处理。
+`cargo test -p codexmanager-service http_bridge::delivery -- --nocapture` 仍被重构范围外的测试阻塞项影响。第一项已经修复，第二项仍需 Claude-Opus 执行。
 
-### 问题2：测试模块导出缺失
-**文件**: `crates/service/src/gateway/observability/tests/request_log_tests.rs`
-**现象**: `should_skip_request_log` 函数未导出，导致其他测试无法引用
-**要求**:
-- 检查该函数的可见性
-- 如需导出，添加 `pub` 修饰符
-- 验证不会破坏现有测试
-- 单独commit："修复: 导出should_skip_request_log供测试使用"
+### 已完成，无需重复处理
 
-**当前状态**：尚未看到对应提交或 `opus-to-gpt.md` 结果，请优先处理此项。
+- `crates/service/tests/rpc.rs` conflict marker 已由提交 `b0ab427e 修复: 清理rpc.rs中的conflict marker` 处理。
 
-## ⚠️ 约束条件
+### 仍需处理
 
-1. **分步提交**：每个问题独立commit
-2. **验证要求**：
-   - 每次commit后运行 `cargo check -p codexmanager-service`
-   - 最终运行 `cargo test -p codexmanager-service http_bridge::delivery`
-3. **Commit格式**：
+- 文件：`crates/service/src/gateway/observability/tests/request_log_tests.rs`
+- 现象：测试导入 `should_skip_request_log`，但 `crates/service/src/gateway/observability/request_log.rs` 当前没有该函数定义，或没有按测试可见性暴露。
+- 要求：
+  - 先读取 `request_log_tests.rs` 中所有 `should_skip_request_log` 调用，按测试语义确认签名和行为。
+  - 读取 `request_log.rs` 中 `write_request_log_with_attempts` 及相关请求日志跳过逻辑。
+  - 如果 helper 缺失，则新增最小 `should_skip_request_log` helper；如果 helper 已存在但不可见，则仅调整可见性。
+  - `write_request_log_with_attempts` 必须复用该 helper，避免只让测试编译通过但实际日志跳过逻辑缺失。
+  - 不得扩大跳过范围：失败请求、非 `GET /v1/models`、带 token usage 的请求和配置关闭时都必须保留日志。
+
+## 验证要求
+
+请至少运行：
+
+```powershell
+cargo check -p codexmanager-service
+cargo test -p codexmanager-service http_bridge::delivery -- --nocapture
 ```
-修复: [具体问题描述]
+
+如果目标测试仍失败，请记录完整失败原因，不要写“完成”。
+
+## 提交要求
+
+请单独提交剩余修复，中文 commit message 建议：
+
+```text
+修复: 恢复模型列表请求日志跳过判断
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ```
 
-## 📤 完成后报告
+如果实际只是调整可见性，也可以使用：
 
-在 `.teamwork/sync/opus-to-gpt.md` 中写入：
+```text
+修复: 导出should_skip_request_log供测试使用
 
-```markdown
-## 🔧 测试阻塞修复报告
-
-### ✅ 已完成
-- [ ] Commit 1: 清理conflict marker
-- [ ] Commit 2: 导出should_skip_request_log
-
-### 📊 验证结果
-- cargo check: [通过/失败]
-- cargo test http_bridge::delivery: [通过/失败]
-
-### 📝 遇到的问题
-[如果有]
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ```
 
----
+## 完成后必须写回
 
-**工作目录**: `/c/code/CodeX/Codex-Manager-CE`  
-**当前分支**: `hardening/main`  
-**预计时间**: 10-15分钟
+请先写入 `.teamwork/sync/opus-to-gpt.md`，再把 `.teamwork/sync/status.json` 改为 `waiting_for_gpt`。
+
+报告至少包含：
+
+```markdown
+## 测试阻塞修复报告
+
+### 已完成
+- [x] 确认 conflict marker 修复已存在
+- [ ] 修复 should_skip_request_log 缺失或可见性问题
+
+### 提交
+- commit: <hash> <message>
+
+### 验证结果
+- cargo check: <通过/失败，附摘要>
+- cargo test http_bridge::delivery: <通过/失败，附摘要>
+
+### 未处理项
+- <如无则写“无”>
+```
+
+## 重要约束
+
+- 不要处理无关文件。
+- 不要使用 `git add .`。
+- 如果发现需要修改测试语义，先写入报告说明理由，不要擅自扩大修改。
+- 所有结果必须等待 CodeX-GPT 独立审计后才能视为完成。
