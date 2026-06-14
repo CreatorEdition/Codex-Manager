@@ -61,6 +61,46 @@ fn first_upstream_header(headers: &reqwest::header::HeaderMap, names: &[&str]) -
     })
 }
 
+/// 结构体 `UpstreamMetadata`
+///
+/// 上游响应元数据结构，用于存储从上游响应头中提取的关键信息
+///
+/// # 字段
+/// - request_id: 上游请求ID
+/// - cf_ray: Cloudflare Ray ID
+/// - auth_error: 认证错误信息
+/// - identity_error_code: 身份错误代码
+/// - content_type: 内容类型
+struct UpstreamMetadata {
+    request_id: Option<String>,
+    cf_ray: Option<String>,
+    auth_error: Option<String>,
+    identity_error_code: Option<String>,
+    content_type: Option<String>,
+}
+
+/// 函数 `extract_upstream_metadata`
+///
+/// 从上游响应头中提取元数据信息
+///
+/// # 参数
+/// - headers: 上游响应头映射
+///
+/// # 返回
+/// 返回包含提取元数据的 UpstreamMetadata 结构体
+fn extract_upstream_metadata(headers: &reqwest::header::HeaderMap) -> UpstreamMetadata {
+    UpstreamMetadata {
+        request_id: first_upstream_header(headers, REQUEST_ID_HEADER_CANDIDATES),
+        cf_ray: first_upstream_header(headers, &[CF_RAY_HEADER_NAME]),
+        auth_error: first_upstream_header(headers, &[AUTH_ERROR_HEADER_NAME]),
+        identity_error_code: crate::gateway::extract_identity_error_code_from_headers(headers),
+        content_type: headers
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.to_string()),
+    }
+}
+
 fn should_skip_streaming_manual_header(header: &Header) -> bool {
     header.field.equiv("connection")
         || header.field.equiv("content-length")
