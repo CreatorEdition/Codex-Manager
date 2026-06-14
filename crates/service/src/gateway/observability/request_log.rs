@@ -247,7 +247,7 @@ fn is_model_list_path(path: &str) -> bool {
     path_only == "/v1/models"
 }
 
-fn should_skip_request_log(
+pub(crate) fn should_skip_request_log(
     request_path: &str,
     method: &str,
     success: bool,
