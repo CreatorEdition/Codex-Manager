@@ -1,65 +1,39 @@
-# GPT审计结果：HTTP Bridge重构
+# GPT 审计结果：测试阻塞修复
 
 ## 审计执行
 
-- 审计人：CodeX-GPT
+- 审计人：【CodeX-GPT】
 - 审计日期：2026-06-14
-- 审计方式：读取协作文件后，由 CodeX-GPT 独立执行 `git log`、`git show`、`git diff`、`cargo check`、`cargo test`、`rustfmt`
-- 审计范围：`0e222950`、`3400949f`、`f87458b7`、`731cf5fe`、`bc9896bc`
+- 审计范围：`b0ab427e`、`baa16ec0`、`49a948b4`
+- 审计方式：独立读取提交、代码、协作文件，并重新运行验证命令。
 
-## Commit审计结果
+## Commit 审计结果
 
-### Commit 1：`0e222950`
+### `b0ab427e 修复: 清理rpc.rs中的conflict marker`
 
-- 原子性：通过，仅添加 `UpstreamMetadata` 与 `extract_upstream_metadata()`
-- Message质量：通过，中文 `重构:` 前缀，含 `Co-Authored-By: Claude Opus 4.8`
-- 代码变更：通过，字段来源与原内联逻辑一致
+- 结论：通过。
+- 说明：该提交清理了 `crates/service/tests/rpc.rs` 中的 conflict marker，解除测试编译阻塞之一。
 
-### Commit 2：`3400949f`
+### `baa16ec0 修复: 恢复模型列表请求日志跳过判断`
 
-- 原子性：通过，仅添加响应头过滤和准备 helper
-- Message质量：通过，中文 `重构:` 前缀，含 `Co-Authored-By: Claude Opus 4.8`
-- 代码变更：通过，过滤规则仍为 `transfer-encoding`、`content-length`、`connection`，并保留 trace id 注入
+- 结论：通过。
+- 说明：该提交补回 `should_skip_request_log`、环境变量开关和 `/v1/models` 路径判断，并让 `write_request_log_with_attempts` 在写入数据库前复用该 helper。
 
-### Commit 3：`f87458b7`
+### `49a948b4 修复: 导出should_skip_request_log供测试使用`
 
-- 原子性：通过，仅添加 Content-Type 分析 helper
-- Message质量：通过，中文 `重构:` 前缀，含 `Co-Authored-By: Claude Opus 4.8`
-- 代码变更：通过，SSE 仍使用 `starts_with("text/event-stream")`，JSON 仍使用 `contains("application/json")`
+- 结论：通过。
+- 说明：该提交只将 `should_skip_request_log` 调整为 `pub(crate)`，允许 crate 内测试引用；没有暴露为公共 API，变更范围可控。
 
-### Commit 4：`731cf5fe`
+## 对 Claude 报告的修正
 
-- 原子性：通过，仅将 `respond_with_upstream()` 切到已提取 helper
-- Message质量：通过，中文 `重构:` 前缀，含 `Co-Authored-By: Claude Opus 4.8`
-- 代码变更：通过，未发现错误语义、响应体转换或 header 处理变化
-
-### Commit 5：`bc9896bc`
-
-- 原子性：通过，仅将 `respond_with_stream_upstream()` 切到已提取 helper
-- Message质量：通过，中文 `重构:` 前缀，含 `Co-Authored-By: Claude Opus 4.8`
-- 代码变更：通过，与非 stream 路径保持一致
+Claude 报告中“`cargo test -p codexmanager-service http_bridge::delivery` 无匹配测试”的说法不符合当前仓库状态。CodeX-GPT 重新运行该命令后，实际执行并通过了 18 个 `gateway::http_bridge::delivery` 测试。
 
 ## 独立验证结果
 
-- `cargo check -p codexmanager-service`：通过，仅有既有 warning。
-- `rustfmt --check crates/service/src/gateway/observability/http_bridge/delivery.rs`：通过。
-- `git diff --check 6c7a6481..HEAD -- crates/service/src/gateway/observability/http_bridge/delivery.rs`：通过。
-- `cargo test -p codexmanager-service http_bridge::delivery -- --nocapture`：未通过，阻塞来自重构范围外既有问题：
-  - `crates/service/tests/rpc.rs:1086` 起存在 conflict marker。
-  - `crates/service/src/gateway/observability/tests/request_log_tests.rs:2` 导入未导出的 `should_skip_request_log`。
+- `cargo check -p codexmanager-service`：通过，仅既有 warning。
+- `cargo test -p codexmanager-service http_bridge::delivery -- --nocapture`：通过，18 passed。
+- `cargo test -p codexmanager-service --lib gateway::request_log::tests -- --nocapture`：通过，17 passed。
 
 ## 最终决策
 
-### 通过
-
-理由：
-
-- 5 个 commit 都存在，顺序合理，且均只修改 `delivery.rs`。
-- 重构目标已达成：上游元数据、响应头准备、Content-Type 分析均已提取并接入两条核心路径。
-- 未发现行为改变、安全边界变化、header 过滤回退或新增敏感信息泄露。
-- 定向编译、`delivery.rs` 格式检查和 diff 空白检查均通过。
-
-## 后续建议
-
-- 本次 HTTP Bridge 重构可收口。
-- 另开任务修复 `crates/service/tests/rpc.rs` conflict marker 与 `request_log_tests.rs` 导入问题，恢复完整测试门禁。
+通过。测试阻塞因素已清除，当前状态可收口为 `completed`。
