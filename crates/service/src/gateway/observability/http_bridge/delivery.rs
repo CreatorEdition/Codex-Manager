@@ -101,6 +101,51 @@ fn extract_upstream_metadata(headers: &reqwest::header::HeaderMap) -> UpstreamMe
     }
 }
 
+/// 函数 `should_skip_response_header`
+///
+/// 判断响应头是否应该跳过（不转发给客户端）
+///
+/// # 参数
+/// - name: 响应头名称
+///
+/// # 返回
+/// 如果应该跳过返回 true，否则返回 false
+fn should_skip_response_header(name: &str) -> bool {
+    name.eq_ignore_ascii_case("transfer-encoding")
+        || name.eq_ignore_ascii_case("content-length")
+        || name.eq_ignore_ascii_case("connection")
+}
+
+/// 函数 `prepare_response_headers`
+///
+/// 准备响应头列表，过滤不需要的头并添加追踪ID
+///
+/// # 参数
+/// - upstream_headers: 上游响应头映射
+/// - trace_id: 可选的追踪ID
+///
+/// # 返回
+/// 返回准备好的响应头向量
+fn prepare_response_headers(
+    upstream_headers: &reqwest::header::HeaderMap,
+    trace_id: Option<&str>,
+) -> Vec<Header> {
+    let mut headers = Vec::new();
+    for (name, value) in upstream_headers.iter() {
+        let name_str = name.as_str();
+        if should_skip_response_header(name_str) {
+            continue;
+        }
+        if let Ok(header) = Header::from_bytes(name_str.as_bytes(), value.as_bytes()) {
+            headers.push(header);
+        }
+    }
+    if let Some(trace_id) = trace_id {
+        push_trace_id_header(&mut headers, trace_id);
+    }
+    headers
+}
+
 fn should_skip_streaming_manual_header(header: &Header) -> bool {
     header.field.equiv("connection")
         || header.field.equiv("content-length")
