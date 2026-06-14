@@ -1,33 +1,63 @@
-# 任务：HTTP Bridge 重复逻辑重构
+# 任务：修复测试阻塞问题
 
-## 任务目标
+## 📌 任务目标
+修复阻塞 `cargo test -p codexmanager-service http_bridge::delivery` 的既有问题，使HTTP Bridge重构的目标测试能够运行。
 
-对 `crates/service/src/gateway/observability/http_bridge/delivery.rs` 进行等价重构，消除 `respond_with_upstream` 与 `respond_with_stream_upstream` 中重复的元数据提取、响应头准备和 Content-Type 判断逻辑。
+## 🎯 问题清单
 
-## 执行范围
+### 问题1：Conflict Marker残留
+**文件**: `crates/service/tests/rpc.rs`
+**位置**: 行1086附近
+**现象**: 存在 `<<<<<<< HEAD` 等git conflict标记
+**要求**: 
+- 读取该区域完整内容
+- 判断正确的合并方式
+- 清理conflict marker
+- 单独commit："修复: 清理rpc.rs中的conflict marker"
 
-- 目标文件：`crates/service/src/gateway/observability/http_bridge/delivery.rs`
-- 允许修改：仅限重复逻辑的等价重构
-- 禁止修改：协议行为、响应体转换逻辑、错误语义、header 过滤策略、权限边界和无关文件
+### 问题2：测试模块导出缺失
+**文件**: `crates/service/src/gateway/observability/tests/request_log_tests.rs`
+**现象**: `should_skip_request_log` 函数未导出，导致其他测试无法引用
+**要求**:
+- 检查该函数的可见性
+- 如需导出，添加 `pub` 修饰符
+- 验证不会破坏现有测试
+- 单独commit："修复: 导出should_skip_request_log供测试使用"
 
-## 预期提交
+## ⚠️ 约束条件
 
-1. 添加 `UpstreamMetadata` 与 `extract_upstream_metadata()`。
-2. 添加 `should_skip_response_header()` 与 `prepare_response_headers()`。
-3. 添加 `ContentTypeInfo` 与 `analyze_content_type()`。
-4. 在 `respond_with_upstream()` 中使用上述 helper。
-5. 在 `respond_with_stream_upstream()` 中使用上述 helper。
+1. **分步提交**：每个问题独立commit
+2. **验证要求**：
+   - 每次commit后运行 `cargo check -p codexmanager-service`
+   - 最终运行 `cargo test -p codexmanager-service http_bridge::delivery`
+3. **Commit格式**：
+```
+修复: [具体问题描述]
 
-## 验收要求
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+```
 
-- 每个逻辑步骤单独中文 commit。
-- 完成后写入 `opus-to-gpt.md`，列出 commit、变更摘要和自检结果。
-- CodeX-GPT 必须独立使用 git diff / cargo / rustfmt 复核，不得直接采纳 Claude/Opus 结论。
+## 📤 完成后报告
 
-## 当前完成状态
+在 `.teamwork/sync/opus-to-gpt.md` 中写入：
 
-Claude Opus 已完成重构并生成 5 个 commit；CodeX-GPT 已完成独立审计。最终结论见：
+```markdown
+## 🔧 测试阻塞修复报告
 
-- `.teamwork/sync/opus-to-gpt.md`
-- `.teamwork/sync/gpt-audit-result.md`
-- `.teamwork/sync/status.json`
+### ✅ 已完成
+- [ ] Commit 1: 清理conflict marker
+- [ ] Commit 2: 导出should_skip_request_log
+
+### 📊 验证结果
+- cargo check: [通过/失败]
+- cargo test http_bridge::delivery: [通过/失败]
+
+### 📝 遇到的问题
+[如果有]
+```
+
+---
+
+**工作目录**: `/c/code/CodeX/Codex-Manager-CE`  
+**当前分支**: `hardening/main`  
+**预计时间**: 10-15分钟

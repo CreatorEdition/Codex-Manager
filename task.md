@@ -86,7 +86,7 @@
 ### ⚠️ 待处理
 
 - `cargo test --workspace` 尚未全量执行，后续安全/CI 阶段再跑完整工作区测试。
-- `cargo test -p codexmanager-service http_bridge::delivery -- --nocapture` 当前被既有 `crates/service/tests/rpc.rs` conflict marker 与 `request_log_tests.rs` 未导出 `should_skip_request_log` 阻塞，需单独修复后恢复目标测试。
+- `cargo test -p codexmanager-service http_bridge::delivery -- --nocapture` 当前被既有 `crates/service/tests/rpc.rs` conflict marker 与 `request_log_tests.rs` 未导出 `should_skip_request_log` 阻塞；已通过 `.teamwork/sync/` 分派给 Claude-Opus 修复，完成后需由 CodeX-GPT 独立审计。
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
 - `dashboard/adminUsageSummary` 已完成默认 TopN SQL 下推；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并考虑把排行聚合进一步迁移到日级 rollup，减少每次首页打开扫描请求日志窗口。
