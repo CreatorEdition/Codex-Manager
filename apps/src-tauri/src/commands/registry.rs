@@ -103,13 +103,11 @@ macro_rules! invoke_handler {
             crate::commands::quota::service_quota_source_models_set,
             crate::commands::quota::service_quota_capacity_template_update,
             crate::commands::quota::service_quota_account_capacity_override_update,
->>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
             crate::commands::quota::service_quota_refresh_sources,
             // request log
             crate::commands::requestlog::service_requestlog_list,
             crate::commands::requestlog::service_requestlog_summary,
             crate::commands::requestlog::service_requestlog_clear,
-<<<<<<< HEAD
             crate::commands::requestlog::service_requestlog_today_summary,
             // plugin
             crate::commands::plugin::service_plugin_catalog_list,
@@ -284,7 +282,6 @@ macro_rules! invoke_handler {
             crate::commands::apikey::service_apikey_update_model,
             crate::commands::apikey::service_apikey_delete,
             crate::commands::apikey::service_apikey_disable,
->>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
             crate::commands::apikey::service_apikey_enable,
             // system
             crate::commands::system::open_in_browser,
