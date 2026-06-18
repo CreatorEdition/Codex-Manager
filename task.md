@@ -106,3 +106,73 @@
 - 2026-06-19 架构审计新增：手动“刷新全部账号用量”路径 `refresh_usage_for_all_accounts()` 仍全量读取 accounts/tokens 后构造任务；后续应复用分页候选、批次预算和失败冷却机制，并在 UI 层改成异步任务进度，避免一次点击触发几千账号并发刷新。
 - 2026-06-19 架构审计新增：`quota/refreshSources` 后端要求全量刷新必须显式 `refreshAll=true`，但 Web transport 映射未透传 `refreshAll`，语义与桌面端不一致；后续修复时应同步补充 Web transport runtime test。
 - 2026-06-19 架构审计新增：模型来源同步函数在指定单来源时仍先 `list_accounts()` 或 `list_aggregate_apis()` 后过滤，聚合 API 模型发现会逐来源串行探测；后续应新增按 ID/active 状态读取路径，并把全量同步改为后台任务队列、失败冷却和进度记录。
+- 2026-06-19 架构审计新增（热路径全表扫描）：聚合 API 转发热路径 `resolve_aggregate_api_rotation_candidates()`（`crates/service/src/gateway/upstream/protocol/aggregate_api.rs:726`）每次请求都 `list_aggregate_apis()` 全量读取后在 Rust 层过滤 `status=active` 与 `provider_type`；高 RPS 下会随聚合 API 数量线性放大 CPU 与对象分配。后续应新增 `list_active_aggregate_apis_by_provider(provider_type)` storage 下推查询，把 status/provider 过滤交给 SQLite 并配合 `(status, provider_type)` 复合索引，必要时叠加候选缓存。
+
+## 2026-06-19 持续架构审计（CPU/缓存/查询路径专项）
+
+> 本节为持续审计累积清单，按"一次性下发优化"原则整理。所有项均为只读诊断结论，未改代码。优先级：P0=高频热路径/首页 CPU，P1=可观测/可缓存，P2=索引与长期治理。
+
+### A. 一次性输出统计、易致 CPU 飙升的入口（汇总）
+
+P0 级（首页/高频）：
+- `dashboard/adminUsageSummary`：首页管理员今日/区间消耗 + 用户/账号/聚合 API 排行，30 秒 stale，仍扫今日与区间窗口聚合（`crates/service/src/dashboard.rs:32`、底层 `summarize_request_token_stats_daily` 等 `request_token_stats.rs:750/817/983`）。
+- `startup/snapshot`：首页 active 时约 15 秒刷新，显式开 `includeUsageAggregate/includeTodaySummary/includeRecentLogs/includeApiModels`（`apps/src/hooks/useDashboardStats.ts:59`、`apps/src/lib/api/startup-snapshot.ts:8` STALE=15s）。
+- `account/usage/aggregate`：service 层仍 `list_accounts()` + `latest_usage_snapshots_by_account()` 后 Rust 计算，未接 storage 已有的 `usage_aggregate_summary()`（`crates/service/src/usage/usage_aggregate.rs:25` vs `crates/core/src/storage/usage.rs:377`）。
+
+P1 级：
+- `dashboard/memberSummary`：成员首页算今日 + 7 日趋势 + Key/Model breakdown（`crates/service/src/dashboard.rs:600`）。
+- `requestlog/summary`：日志页打开/筛选做 count + join 聚合（`crates/service/src/requestlog/requestlog_summary.rs:18`）。
+- `quota/modelUsage`、`quota/apiKeyUsage`、`quota/sourceList`、`apikey/usageStats`：多数已分页，但仍扫保留期内 token_stats，裸调用或 `includeModels` 仍重。
+
+### B. 前端统计 hook 叠加放大首页 CPU（P0，新发现）
+
+首页 `apps/src/app/page.tsx` 同时挂载三个独立统计 hook，各自触发后端重聚合：
+- `useDashboardStats()`（`page.tsx:1023`，STALE 15s）
+- `useDashboardAdminUsageSummary(...)`（`page.tsx:1070`，STALE 30s，`useDashboardAdminUsageSummary.ts:50`）
+- `useMemberDashboardSummary(true)`（`page.tsx:1476`，STALE 30s，`useMemberDashboardSummary.ts:38`）
+
+问题：三个 hook 的统计窗口高度重叠（今日/区间/账号），但分别打不同 RPC，导致首页打开瞬间触发 3 路独立聚合扫描。后续应合并为单一 `dashboard/adminOverview` 轻量端点或共享缓存，避免重复扫同一时间窗口。
+
+### C. 网关热路径全表扫描（P0，新发现）
+
+- 聚合 API 转发热路径 `resolve_aggregate_api_rotation_candidates()`（`crates/service/src/gateway/upstream/protocol/aggregate_api.rs:726`）每次请求 `list_aggregate_apis()` 全量读取后 Rust 层过滤 `status=active` + `provider_type`，随来源数量线性放大。应新增 `list_active_aggregate_apis_by_provider()` SQL 下推 + `(status, provider_type)` 复合索引，必要时叠加候选缓存（参考网关账号候选缓存 TTL 机制）。
+
+### D. 已结束日期缓存（closed-day daily rollup）缺失（P0，核心方案）
+
+现状：`request_token_stat_rollups` 主键仅 `(key_id, account_id, model)`，无日期/用户/来源/状态桶维度（`crates/core/src/storage/request_token_stats.rs:1094`），无法回答"某天/某区间"缓存查询。
+
+建议方案（一次性下发）：
+1. 新增 `request_token_stat_daily_rollups` 表：主键 `(day_start, key_id, account_id, source_kind, source_id, user_id, model, status_bucket)`，列含 input/cached/output/total/reasoning tokens、estimated_cost、request_count、success_count、error_count、source_rows、updated_at。
+2. 维护任务把"已结束自然日"的 `request_token_stats` 固化进日级表后再清理明细。
+3. 查询策略改为：历史已结束日读日级 rollup（命中即返回），当前日读 live `request_token_stats` 并加 30-60 秒短 TTL；区间 = 历史天缓存 + 今日 live 拼接。
+4. `dashboard/adminUsageSummary`、`memberSummary` 趋势、`requestlog` 今日摘要、`quota` 今日用量统一走该策略，避免反复全窗口聚合。
+
+### E. 错误聚合查询缺索引支撑（P1/P2，关联错误去重需求）
+
+现状：`request_logs` 已有 created_at / status_code / method / key_id / account_id / trace_id / actual_source 等多组复合索引（`request_logs.rs:49-815`），但无 `error`、`success` 字段索引。
+
+影响：用户要的"450 条压成 5 类"错误去重汇总，若新增 `requestlog/errorSummary` 按规范化 error code GROUP BY，当前需全表扫描 error 文本。
+
+建议：
+1. 写入时落规范化列 `error_code`（复用网关 `errors/mod.rs:65` 与 `usage_http.rs` 的归类逻辑），而非运行时正则匹配原文。
+2. 新增 `(error_code, created_at DESC)` 索引支撑错误聚合。
+3. `requestlog/errorSummary` 返回 `{error_code, count, last_seen, sample_message}`，日志页展示去重结果。
+
+### F. Token refresh 永久判死边界（P1，正确性 > 性能）
+
+现状已较完善：`classify_usage_refresh_error()`（`refresh/errors.rs:120`）已区分 timeout/connection/dns/token_refresh_*；`refresh_token_invalid:*` 账号已被轮询排除（`tokens.rs:101`）。
+
+风险点（确认）：`refresh_token_auth_error_reason_from_message()`（`usage_http.rs:419`）把所有未匹配的 401 fallback 成 `Unknown401` → `refresh_token_unknown_401` → 经 `refresh_token_invalid:` 前缀被 `tokens.rs:101` 永久排除轮询。服务端抖动/身份服务临时 5xx-as-401 会被误判永久失效。
+
+建议（一次性）：
+1. 永久无效类只保留：`reused` / `invalidated` / `expired` / `invalid_grant` / `app_session_terminated`。
+2. `unknown_401`、网络错误、5xx 改为临时失败：指数退避 + 有限探测次数，多次连续确认后才升级为永久。
+3. 拆分"事件去重窗口"（仍 6 小时去重写事件）与"刷新重试冷却"（临时类用指数退避而非统一 6 小时），避免抖动账号被一刀切冷却。
+
+### G. 待后续审计的维度（持续累积）
+
+- `quota/systemPool` 与带 includeSources 的 `quota/modelPools` 容量汇总仍可能全量扫聚合 API/账号/usage/tokens/subscriptions。
+- 手动"刷新全部账号用量"`refresh_usage_for_all_accounts()` 仍全量构造任务，应复用分页候选 + 批次预算 + 失败冷却 + 异步进度。
+- `quota/refreshSources` Web transport 未透传 `refreshAll`，与桌面端语义不一致。
+- 模型来源同步指定单来源时仍先 `list_accounts()/list_aggregate_apis()` 再过滤；应加按 ID/active 读取路径 + 后台队列。
+- 前置阻塞：当前分支 11 个前端文件存在 conflict marker（apikeys/logs/settings page、useAccounts/useApiKeys/useManagedModels、account-client、runtime-capabilities、i18n ko/ru），必须先逐文件按来源收敛，才能可靠验证前端性能效果。
