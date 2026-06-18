@@ -176,3 +176,64 @@ P1 级：
 - `quota/refreshSources` Web transport 未透传 `refreshAll`，与桌面端语义不一致。
 - 模型来源同步指定单来源时仍先 `list_accounts()/list_aggregate_apis()` 再过滤；应加按 ID/active 读取路径 + 后台队列。
 - 前置阻塞：当前分支 11 个前端文件存在 conflict marker（apikeys/logs/settings page、useAccounts/useApiKeys/useManagedModels、account-client、runtime-capabilities、i18n ko/ru），必须先逐文件按来源收敛，才能可靠验证前端性能效果。
+
+## 2026-06-19 持续架构审计（第二批：热路径查询 + 存储增长）
+
+### H. 网关请求路由校验全量加载模型目录（P0，新发现）
+
+`model_route_error()`（`crates/service/src/gateway/upstream/proxy.rs:155`）在请求转发路由校验时，用 `list_model_catalog_models("default")` 全量读取模型目录后 `.any(|item| item.slug == model)` 做线性查找，仅为判断单个 model 是否存在。该函数在 proxy.rs:664 和 1316 两处请求路径被调用，随模型目录规模线性放大 CPU 与内存分配。
+
+建议：新增 `model_catalog_model_exists(scope, slug)` 或 `find_model_catalog_model_by_slug()` storage 单查（带索引），替换全量加载 + Rust 线性查找。
+
+### I. dashboard 钱包查询 N+1（P1，新发现）
+
+`wallets_for_user_ids()`（`crates/service/src/dashboard.rs:416`）对每个 user_id 单独调用 `find_wallet_by_owner("user", user_id)`，在 dashboard.rs:323 和 389 两处被调用（管理员/成员仪表盘）。TopN 用户时虽有限，但用户列表场景会随用户数放大查询次数，且无批量查询函数。
+
+建议：新增 `find_wallets_by_owner_ids("user", &ids)` 批量 IN 查询，一次性返回 HashMap，消除 N+1。
+
+### J. usage_snapshots 无条件 append 写入致表膨胀（P0，新发现，关联 WAL/体积主因）
+
+`insert_usage_snapshot()`（`crates/core/src/storage/usage.rs:35`）每次用量刷新都无条件 INSERT 新行，不检查用量是否相对上一快照发生变化。调用点遍布 account_plan.rs、account_status.rs、gateway candidates.rs 多处。大账号池 + 高频轮询下，`usage_snapshots` 持续线性膨胀——这正是只读诊断中确认的 `usage_snapshots`/WAL 体积主因。
+
+建议（一次性）：
+1. 写入前比对该账号最新快照的关键字段（used_percent / window_minutes / secondary_* / credits_json）；值未变化时只更新 `captured_at`（UPDATE）或直接跳过，不再 INSERT 新行。
+2. 或引入"变化才落库"策略 + 定期采样保留（如每账号每小时至少保留 1 条用于趋势），其余相同值合并。
+3. 配合现有维护剪枝，显著降低 INSERT 次数与 WAL 写放大。
+
+### K. account_export token 查询 N+1（P2，非热路径但大库慢）
+
+`account_export.rs` 在 127/205/265 三处循环内对每个 account 单独 `find_token_by_account_id()`。导出非高频，但几千账号导出时会产生几千次单点查询。
+
+建议：导出路径复用批量 token 读取（如 `list_tokens()` 一次性载入后建 HashMap，或按账号 ID 分批 IN 查询），与列表装饰路径保持一致的批量模式。
+
+## 2026-06-19 持续架构审计（第三批：修正与正面确认）
+
+### J 项修正：usage_snapshots 真实生产写入路径
+
+复核确认 J 项（无条件 append）的**真实生产写入点**是 `store_usage_snapshot()`（`crates/service/src/usage/usage_snapshot_store.rs:95`），而非之前列举的 account_status.rs/candidates.rs（那些是测试 fixture）。
+
+精确现状：
+- `store_usage_snapshot()` 每次刷新无条件 `insert_usage_snapshot()`，随后 `prune_usage_snapshots_for_account(retain)` 按上限剪枝。
+- 问题：即使用量值未变，仍是"先 INSERT 再 prune"，高频轮询下 INSERT + DELETE 写放大叠加在 WAL 上。
+
+修正建议：在 `store_usage_snapshot()` 内，写入前比对该账号最新快照关键字段；值未变化时只 UPDATE `captured_at` 或跳过，避免 INSERT+prune 的写放大循环。这是比单纯调 prune 更治本的方案。
+
+### L. 正面确认：storage 连接池已完善（无需优化）
+
+`crates/service/src/storage/storage_helpers.rs` 已实现完整连接池：
+- `StoragePool` + `StorageBucket`（idle 复用 + open_count/opening_count 追踪）
+- 默认 32 连接上限 / 16 空闲上限，可由 `CODEXMANAGER_STORAGE_MAX_CONNECTIONS` / `_MAX_IDLE_CONNECTIONS` 覆盖
+- Condvar 等待空闲连接，Drop 时归还
+
+结论：144 处 `open_storage()` 调用并非每次新建 SQLite 连接，而是从池获取复用。此项**无需优化**，记录以避免后续重复审计。
+
+### M. 正面确认：events/request_logs 索引已充分（无需优化）
+
+- `events` 表已有 `idx_events_created_at` 和 `idx_events_type_account_created_at`（migration 070），覆盖 retention 剪枝与按类型/账号查询。
+- `request_logs` 已有 created_at / status_code / method / key_id / account_id / trace_id / actual_source 等 8+ 组复合索引。
+
+结论：这两张高频表的时间窗口与维度查询索引已充分。唯一缺口是 E 项指出的 `error_code` 聚合索引（错误去重需求专用）。
+
+### 审计方法论备注
+
+本轮持续审计聚焦"一次性输出统计 / 热路径全表扫描 / N+1 / 存储写放大"四类 CPU 与体积风险。已确认 storage 连接池、events/request_logs 索引、WAL/VACUUM 触发条件（仅手动 clear 时）均已合理，无需重复优化。后续审计可转向：聚合 API 余额刷新批次、插件调度器轮询、前端大列表虚拟化、JSON 序列化热点。
