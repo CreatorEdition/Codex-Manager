@@ -337,7 +337,7 @@ export type CheckUpdateRequest = {
 
 export function buildReleaseUrl(summary: UpdateCheckResult | null): string {
   if (!summary?.repo) {
-    return "https://github.com/qxcnm/Codex-Manager/releases";
+    return "https://github.com/CreatorEdition/Codex-Manager/releases";
   }
   const normalizedTag =
     summary.releaseTag ||

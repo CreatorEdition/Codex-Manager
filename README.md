@@ -10,7 +10,7 @@
   <a href="docs/en/README.md">English</a>|
   <a href="docs/ru/README.md">Русский</a>|
   <a href="docs/ko/README.md">한국어</a>|
-  <a href="https://github.com/qxcnm/Codex-Manager">GitHub 主仓库</a>
+  <a href="https://github.com/CreatorEdition/Codex-Manager">GitHub 主仓库</a>
 </p>
 
 <p align="center"><strong>本地桌面端 + 服务进程的 Codex 账号池管理器</strong></p>
