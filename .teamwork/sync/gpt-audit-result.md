@@ -1,57 +1,69 @@
-# GPT 复核结果：代码质量审查
+# GPT审计结果：hardening/main 合并到 main
 
-## 基本信息
+## 📊 审计执行
+- **审计人**: CodeX-GPT
+- **审计日期**: 2026-06-14
+- **审计方法**: git ls-remote 直查远程 + 提交来源核对
 
-- 复核方：【CodeX-GPT】
-- 被复核报告：`.teamwork/sync/opus-to-gpt.md`
-- 复核时间：2026-06-14T17:55:56Z
-- 任务类型：只审查，不修改代码
+## ✅ 审计项
 
-## 独立验证
+### 审计1：远程分支SHA一致性
+✅ **通过**
+```
+远程 main:            a10a82fe
+远程 hardening/main:  a10a82fe
+```
+两分支远程 SHA 完全相同，确认合并已推送成功。
 
-### 编译警告
+### 审计2：合并提交来源
+✅ **通过**
+- 2c43779c..a10a82fe 共 118 个提交
+- 全部来自 hardening/main
+- 无意外引入的外部提交
 
-- 命令：`cargo check --workspace`
-- 结果：通过。
-- 实际 warning：13 条。
-  - `codexmanager-service`：12 条。
-  - `codexmanager-web`：1 条。
+### 审计3：合并方式
+✅ **通过**
+- Fast-forward 合并，无 merge commit
+- 历史线性，符合任务要求
 
-### 关键问题确认
+### 审计4：工作区状态
+✅ **通过**
+- 仅协作文件(opus-to-gpt.md/status.json)有改动，属正常
+- 无代码文件被意外修改
 
-- `crates/service/src/gateway/observability/http_bridge/delivery.rs:2391` 的 `ResponseAdapter::ResponsesFromAnthropicMessages` 分支确实 unreachable。
-- `crates/service/src/gateway/observability/maintenance.rs` 中维护调度相关常量、静态变量和函数确实处于未使用状态。
-- `crates/web/src/main.rs:372` 的 `author_content_url` 确实未使用。
+### 审计5：当前分支
+✅ **通过**
+- 当前在 hardening/main（工作分支）
+- 符合任务要求（合并后切回）
 
-### 静态统计修正
+## 📝 最终决策
 
-- `unsafe` 命中：8 次；其中 6 次是真正 unsafe 调用，集中在 `crates/start/src/main.rs` 的 Windows Job Object API；另外 2 次是测试字符串内容。
-- `.unwrap()` 命中：28 次。
-- `crates/` 下 `tests/` 路径中的 Rust 测试文件：77 个。
+### ✅ 通过 - 合并成功
 
-## 对 Claude 报告的修正
+**理由**:
+1. ✅ 远程 main 与 hardening/main SHA 一致(a10a82fe)
+2. ✅ 118个提交全部来自 hardening/main，无污染
+3. ✅ Fast-forward 无 merge commit
+4. ✅ 工作区干净，无意外代码改动
+5. ✅ 已切回 hardening/main 工作分支
 
-- Claude 报告称 total warnings 为 14，当前实测为 13。
-- Claude 报告称 unsafe 代码 7 处，当前检索命中 8 次；按语义拆分后是真正 unsafe 6 次、测试字符串 2 次。
-- Claude 报告称测试文件 78 个，当前实测为 77 个。
-- 对 unreachable pattern、maintenance dead code、unused variable、unwrap 后续审查建议的方向基本同意。
+**与Claude报告一致性**: 100%
+- Claude报告的网络中断后重试，远程已确认成功
+- 所有验证数据一致
 
-## 风险排序
+## 🎯 结论
 
-### P1
+main 现已包含全部 fork 强化工作，可作为发布分支。
 
-- 修复 `delivery.rs:2391` unreachable pattern。该项已有编译器直接证据，优先级最高。
+**用户现在可以用 `main` 触发 GitHub Release workflow**，打出的包将包含全部改进。
 
-### P2
+### 触发参数（更新）
+```
+tag: v0.3.9
+ref: main          ← 现在 main 已是完整版
+prerelease: auto
+```
 
-- 梳理 `maintenance.rs` 未使用维护调度代码：确认是重新接入、加说明保留，还是删除。
-- 审查生产路径中的 `.unwrap()`，尤其是协议适配和聚合 API 鉴权解析路径。
-
-### P3
-
-- 为 `crates/start/src/main.rs` 中 Windows API 的 unsafe 块补安全性说明。
-- 清理 `crates/web/src/main.rs:372` 未使用变量。
-
-## 最终结论
-
-通过复核。Claude 的质量审查报告方向可用，但统计需要以上修正。本轮任务按“只审查，不修改代码”收口，不直接提交业务代码改动。
+---
+**审计人**: CodeX-GPT
+**审计结论**: ✅ 批准
