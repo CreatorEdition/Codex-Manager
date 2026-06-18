@@ -8,14 +8,18 @@ pub(in super::super) enum CandidateSkipReason {
 }
 
 fn account_source_ids_for_model(storage: &Storage, model: &str) -> Result<HashSet<String>, String> {
-    let mut account_source_ids = storage
+    let mappings = storage
         .list_enabled_model_source_mappings_for_platform(model)
-        .map_err(|err| format!("list model source mappings failed: {err}"))?
+        .map_err(|err| format!("list model source mappings failed: {err}"))?;
+    let has_aggregate_route = mappings
+        .iter()
+        .any(|mapping| mapping.source_kind == "aggregate_api");
+    let mut account_source_ids = mappings
         .into_iter()
         .filter(|mapping| mapping.source_kind == "openai_account")
         .map(|mapping| mapping.source_id)
         .collect::<HashSet<_>>();
-    if account_source_ids.is_empty() {
+    if account_source_ids.is_empty() && !has_aggregate_route {
         account_source_ids.extend(
             storage
                 .list_available_source_model_ids_by_upstream_model("openai_account", model)
@@ -186,12 +190,47 @@ pub(in super::super) fn candidate_skip_reason_for_proxy(
 #[cfg(test)]
 mod tests {
     use super::{
-        allow_openai_fallback_for_account, candidate_skip_reason_for_proxy,
-        free_account_model_override, CandidateSkipReason,
+        account_source_ids_for_model, allow_openai_fallback_for_account,
+        candidate_skip_reason_for_proxy, free_account_model_override, CandidateSkipReason,
     };
     use codexmanager_core::storage::{
-        now_ts, Account, ModelSourceModel, Storage, Token, UsageSnapshotRecord,
+        now_ts, Account, ModelSourceMapping, ModelSourceModel, Storage, Token, UsageSnapshotRecord,
     };
+
+    #[test]
+    fn account_source_ids_for_model_respects_aggregate_only_route() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+        storage
+            .upsert_model_source_mapping(&ModelSourceMapping {
+                id: "mapping-aggregate-exclusive".to_string(),
+                platform_model_slug: "vendor-exclusive".to_string(),
+                source_kind: "aggregate_api".to_string(),
+                source_id: "agg-exclusive".to_string(),
+                upstream_model: "vendor-exclusive".to_string(),
+                enabled: true,
+                priority: 0,
+                weight: 1,
+                billing_model_slug: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("seed aggregate mapping");
+        storage
+            .upsert_discovered_model_source_models(
+                "openai_account",
+                "acc-shadow",
+                &["vendor-exclusive".to_string()],
+                "synced",
+            )
+            .expect("seed account source model");
+
+        let ids = account_source_ids_for_model(&storage, "vendor-exclusive")
+            .expect("read account source ids");
+
+        assert!(ids.is_empty());
+    }
 
     /// 函数 `free_account_model_override_uses_configured_model_for_free_account`
     ///

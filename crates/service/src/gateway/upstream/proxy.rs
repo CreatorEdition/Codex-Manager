@@ -189,6 +189,12 @@ fn direct_upstream_model_matches_route(
     model: &str,
     execution_plan: super::executor::GatewayUpstreamExecutionPlan,
 ) -> Result<bool, String> {
+    let explicit_source_kinds = storage
+        .list_enabled_model_source_mappings_for_platform(model)
+        .map_err(|err| err.to_string())?
+        .into_iter()
+        .map(|mapping| mapping.source_kind)
+        .collect::<std::collections::HashSet<_>>();
     let matches_source_kind = |source_kind: &str| match execution_plan.route_kind {
         GatewayUpstreamRouteKind::AccountRotation => source_kind == "openai_account",
         GatewayUpstreamRouteKind::AggregateApi => source_kind == "aggregate_api",
@@ -198,6 +204,9 @@ fn direct_upstream_model_matches_route(
     };
     for source_kind in ["openai_account", "aggregate_api"] {
         if !matches_source_kind(source_kind) {
+            continue;
+        }
+        if !explicit_source_kinds.is_empty() && !explicit_source_kinds.contains(source_kind) {
             continue;
         }
         let ids = storage
@@ -1342,6 +1351,14 @@ mod tests {
                 updated_at: now,
             })
             .expect("seed aggregate mapping");
+        storage
+            .upsert_discovered_model_source_models(
+                "openai_account",
+                "acc-shadow-route",
+                &["vendor-account-route".to_string()],
+                "synced",
+            )
+            .expect("seed account source model");
 
         let err = model_route_error(
             &storage,

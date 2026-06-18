@@ -447,7 +447,12 @@ pub(crate) fn delete_managed_model_source_mapping(
     let source_id = normalize_required("sourceId", source_id)?;
     let upstream_model = normalize_required("upstreamModel", upstream_model)?;
     storage
-        .upsert_model_source_mapping_preference(&source_kind, &source_id, &upstream_model, "unlinked")
+        .upsert_model_source_mapping_preference(
+            &source_kind,
+            &source_id,
+            &upstream_model,
+            "unlinked",
+        )
         .map_err(|err| format!("save unlink preference failed: {err}"))?;
     storage
         .delete_model_source_mapping(&id)
@@ -866,13 +871,25 @@ fn auto_associate_source_models(
     source_id: &str,
     auto_create_platform_models: bool,
 ) -> Result<(), String> {
-    let existing_source_platform_mappings = storage
+    let all_mappings = storage
         .list_model_source_mappings(None)
-        .map_err(|err| format!("list model mappings failed: {err}"))?
-        .into_iter()
+        .map_err(|err| format!("list model mappings failed: {err}"))?;
+    let existing_source_platform_mappings = all_mappings
+        .iter()
         .filter(|mapping| mapping.source_kind == source_kind && mapping.source_id == source_id)
-        .map(|mapping| mapping.platform_model_slug)
+        .map(|mapping| mapping.platform_model_slug.clone())
         .collect::<HashSet<_>>();
+    let aggregate_routed_platform_models = if source_kind == ROUTING_SOURCE_KIND_OPENAI_ACCOUNT {
+        all_mappings
+            .iter()
+            .filter(|mapping| {
+                mapping.enabled && mapping.source_kind == ROUTING_SOURCE_KIND_AGGREGATE_API
+            })
+            .map(|mapping| mapping.platform_model_slug.clone())
+            .collect::<HashSet<_>>()
+    } else {
+        HashSet::new()
+    };
 
     let prefs: std::collections::HashMap<String, String> = storage
         .list_model_source_mapping_preferences(source_kind, source_id)
@@ -945,6 +962,11 @@ fn auto_associate_source_models(
     let now = now_ts();
     for source_model in &source_models {
         if !platform_slugs.contains(source_model.upstream_model.as_str()) {
+            continue;
+        }
+        if source_kind == ROUTING_SOURCE_KIND_OPENAI_ACCOUNT
+            && aggregate_routed_platform_models.contains(source_model.upstream_model.as_str())
+        {
             continue;
         }
         if existing_source_platform_mappings.contains(source_model.upstream_model.as_str()) {
@@ -3152,6 +3174,53 @@ mod tests {
         assert_eq!(mappings[0].source_kind, ROUTING_SOURCE_KIND_OPENAI_ACCOUNT);
         assert_eq!(mappings[0].source_id, "acc-auto");
         assert_eq!(mappings[0].upstream_model, "gpt-auto");
+    }
+
+    #[test]
+    fn account_pool_auto_association_keeps_aggregate_only_route_exclusive() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        insert_test_account(&storage, "acc-shared");
+        insert_test_aggregate_api(&storage, "agg-shared", "active");
+        seed_platform_catalog(&storage, &["vendor-shared"]);
+        storage
+            .upsert_discovered_model_source_models(
+                ROUTING_SOURCE_KIND_AGGREGATE_API,
+                "agg-shared",
+                &["vendor-shared".to_string()],
+                "synced",
+            )
+            .expect("seed aggregate source model");
+        auto_associate_source_models(
+            &storage,
+            ROUTING_SOURCE_KIND_AGGREGATE_API,
+            "agg-shared",
+            true,
+        )
+        .expect("associate aggregate route");
+        storage
+            .upsert_discovered_model_source_models(
+                ROUTING_SOURCE_KIND_OPENAI_ACCOUNT,
+                "acc-shared",
+                &["vendor-shared".to_string()],
+                "synced",
+            )
+            .expect("seed account source model");
+
+        auto_associate_source_models(
+            &storage,
+            ROUTING_SOURCE_KIND_OPENAI_ACCOUNT,
+            "acc-shared",
+            true,
+        )
+        .expect("associate account route");
+
+        let mappings = storage
+            .list_enabled_model_source_mappings_for_platform("vendor-shared")
+            .expect("list mappings");
+        assert_eq!(mappings.len(), 1);
+        assert_eq!(mappings[0].source_kind, ROUTING_SOURCE_KIND_AGGREGATE_API);
+        assert_eq!(mappings[0].source_id, "agg-shared");
     }
 
     #[test]
