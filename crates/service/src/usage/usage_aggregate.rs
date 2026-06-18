@@ -23,14 +23,9 @@ const ROUNDING_BIAS: i64 = 3;
 /// 返回函数执行结果
 pub(crate) fn read_usage_aggregate_summary() -> Result<UsageAggregateSummaryResult, String> {
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
-    let accounts = storage
-        .list_accounts()
-        .map_err(|err| format!("list accounts failed: {err}"))?;
-    let usage_items = storage
-        .latest_usage_snapshots_by_account()
-        .map_err(|err| format!("list usage snapshots failed: {err}"))?;
-
-    Ok(compute_usage_aggregate_summary(&accounts, &usage_items))
+    storage
+        .usage_aggregate_summary()
+        .map_err(|err| format!("usage aggregate summary failed: {err}"))
 }
 
 /// 函数 `compute_usage_aggregate_summary`
