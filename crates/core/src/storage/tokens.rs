@@ -98,7 +98,10 @@ impl Storage {
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=workspace_deactivated'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=deactivated_workspace'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_region_blocked'
-                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:%'
+                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:refresh_token_reused'
+                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:refresh_token_invalidated'
+                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:invalid_grant'
+                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:app_session_terminated'
                 )
              ORDER BY COALESCE(next_refresh_at, 0) ASC, account_id ASC
              LIMIT ?3",
@@ -441,6 +444,67 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(ids, vec!["acc-due".to_string(), "acc-restored".to_string()]);
+    }
+
+    /// 函数 `list_tokens_due_for_refresh_keeps_transient_unknown_401`
+    ///
+    /// 验证：`refresh_token_unknown_401` 属于临时类失败（可能是服务端抖动或
+    /// 身份服务临时异常），不应像 `refresh_token_reused` 等永久类那样被候选
+    /// 查询永久过滤；该账号仍应进入刷新候选，靠 `next_refresh_at` 退避保护。
+    #[test]
+    fn list_tokens_due_for_refresh_keeps_transient_unknown_401() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        // acc-permanent 为永久类（reused），必须被过滤；
+        // acc-transient 为临时类（unknown_401），必须保留进入候选。
+        for account_id in ["acc-permanent", "acc-transient"] {
+            storage
+                .insert_account(&sample_account(account_id, now))
+                .expect("insert account");
+            storage
+                .insert_token(&sample_token(account_id, now))
+                .expect("insert token");
+            storage
+                .update_token_refresh_schedule(account_id, None, Some(now - 1))
+                .expect("schedule token");
+        }
+
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-permanent".to_string()),
+                event_type: "account_status_update".to_string(),
+                message: "status=unavailable reason=refresh_token_invalid:refresh_token_reused"
+                    .to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert permanent invalid status");
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-transient".to_string()),
+                event_type: "account_status_update".to_string(),
+                message: "status=unavailable reason=refresh_token_invalid:refresh_token_unknown_401"
+                    .to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert transient unknown_401 status");
+
+        let ids = storage
+            .list_tokens_due_for_refresh(now, now, 10)
+            .expect("list due tokens")
+            .into_iter()
+            .map(|token| token.account_id)
+            .collect::<Vec<_>>();
+
+        assert!(
+            ids.contains(&"acc-transient".to_string()),
+            "unknown_401 账号应保留在刷新候选中，实际: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"acc-permanent".to_string()),
+            "永久无效账号应被过滤，实际: {ids:?}"
+        );
     }
 
     #[test]

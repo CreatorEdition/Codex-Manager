@@ -1124,7 +1124,10 @@ fn usage_refresh_status_reason_clause() -> &'static str {
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=workspace_deactivated'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=deactivated_workspace'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_region_blocked'
-            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:%'
+            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:refresh_token_reused'
+            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:refresh_token_invalidated'
+            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:invalid_grant'
+            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:app_session_terminated'
         )
     )"
 }
