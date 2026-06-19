@@ -461,3 +461,19 @@ Err(err) => {
 2. **错误代码去重汇总（450 条压成 5 类）** → 对应 **E（requestlog/errorSummary 按规范化 error code 聚合）**。
 3. **token 失败不应一直刷、区分吊销与服务端抖动** → 对应本批 **O + P**（分类冷却 + 指数退避），unknown_401 先按临时失败处理，永久无效仅限 reused/invalidated/expired/invalid_grant/app_session_terminated。
 
+
+## 2026-06-14 持续架构审计（第五批：JSON 重复 parse + 前端/SSE 正面确认）
+
+### ⚠️ 待处理（Q，本批新增）
+
+- **Q（P1 网关非流式响应 JSON 重复 parse）**：跨协议转换路径（ResponseAdapter != Passthrough）的非流式成功响应中，同一个 upstream body 被 `serde_json::from_slice::<Value>` 解析多次：① 提取 usage 时 parse 一次（`parse_usage_from_json` 前的 from_slice，或 `merge_usage_from_body_without_output_text` 内 parse）；② `convert_success_body_for_adapter()` 内部各 adapter 函数（`convert_responses_body_to_anthropic_messages` / `_to_gemini_generate_content` / `_to_chat_completions`）又各自 `from_slice` 一次；③ 错误路径还会 `extract_error_message_from_json_bytes` 再 parse。见 [delivery.rs:2058-2098](crates/service/src/gateway/observability/http_bridge/delivery.rs:2058) 与 [delivery.rs:865](crates/service/src/gateway/observability/http_bridge/delivery.rs:865)。大 body（长响应）下重复 parse 浪费 CPU。优化：在分支入口 parse 一次为 `Value`，把 `&Value` 传给 usage 提取与 adapter 转换函数（改签名 `body: &[u8]` → `value: &Value`），消除重复解析。影响范围仅 Claude/Gemini→Codex 等协议转换请求；Passthrough 直通路径不受影响（不解析）。
+
+### ✅ 正面确认（本批，记录避免重复审计）
+
+- **前端大列表无需虚拟化**：账号/日志/平台 Key 列表均走后端分页（A 项已下推装饰），单页渲染量小，未引入 react-window/virtual 库属合理选择，无需虚拟化。
+- **SSE 流式 flush 不应加 BufWriter**：`write_streaming_chunked_response`（[delivery.rs:196](crates/service/src/gateway/observability/http_bridge/delivery.rs:196)）每个 8KB chunk 后 `flush()` 是**流式实时性设计必需**——逐 token 输出依赖即时 flush 送达客户端。包裹 BufWriter 会缓冲延迟 token，破坏流式体验，故**不优化**。当前裸 `into_writer()` + 每 chunk flush 是正确权衡。
+
+### 审计方法论备注（第五批）
+
+本轮验证：JSON 序列化热点确有可优化项（Q，仅限协议转换路径），但前端虚拟化与 SSE 缓冲两项经评估属"当前实现已是正确权衡，不应优化"——记录正面结论与理由，防止后续被误列为待办。诚实区分"真优化点"与"看似可优化但实则有害"是持续审计的核心纪律。
+
