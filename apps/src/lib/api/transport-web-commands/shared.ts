@@ -6,6 +6,7 @@ export type WebCommandDescriptor = {
   rpcMethod?: string;
   mapParams?: (params?: InvokeParams) => InvokeParams;
   direct?: (params?: InvokeParams, options?: RequestOptions) => Promise<unknown>;
+  requestOptions?: RequestOptions;
 };
 
 export type WebRpcCaller = <T>(

@@ -6,7 +6,14 @@ export function createQuotaWebCommands(): Record<string, WebCommandDescriptor> {
     service_quota_model_usage: { rpcMethod: "quota/modelUsage" },
     service_quota_api_key_usage: { rpcMethod: "quota/apiKeyUsage" },
     service_quota_source_list: { rpcMethod: "quota/sourceList" },
-    service_quota_model_pools: { rpcMethod: "quota/modelPools" },
+    service_quota_model_pools: {
+      rpcMethod: "quota/modelPools",
+      requestOptions: {
+        timeoutMs: 30000,
+        retries: 0,
+        timeoutMessage: "RPC quota/modelPools 超时：模型池查询超过 30 秒",
+      },
+    },
     service_quota_system_pool: { rpcMethod: "quota/systemPool" },
     service_quota_capacity_config: { rpcMethod: "quota/capacityConfig" },
     service_quota_billing_rules: { rpcMethod: "quota/billingRules" },

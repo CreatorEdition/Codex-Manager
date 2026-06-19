@@ -77,7 +77,15 @@ export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<strin
       rpcMethod: "dashboard/adminUsageSummary",
       mapParams: (params) => {
         const source = asRecord(params) ?? {};
-        return { startTs: source.start_ts ?? source.startTs, endTs: source.end_ts ?? source.endTs };
+        const mapped: Record<string, unknown> = {
+          startTs: source.start_ts ?? source.startTs,
+          endTs: source.end_ts ?? source.endTs,
+        };
+        const rankingLimit = source.ranking_limit ?? source.rankingLimit;
+        if (rankingLimit !== undefined) {
+          mapped.rankingLimit = rankingLimit;
+        }
+        return mapped;
       },
     },
     service_dashboard_member_summary: {

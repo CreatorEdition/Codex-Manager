@@ -4,11 +4,32 @@ import { openExternalUrlDirect, openInBrowserDirect, showMainWindowDirect, unsup
 export function createMiscWebCommands(): Record<string, WebCommandDescriptor> {
   return {
     service_initialize: { rpcMethod: "initialize" },
-    service_startup_snapshot: { rpcMethod: "startup/snapshot" },
+    service_startup_snapshot: {
+      rpcMethod: "startup/snapshot",
+      requestOptions: {
+        timeoutMs: 30000,
+        retries: 0,
+        timeoutMessage: "RPC startup/snapshot 超时：启动快照查询超过 30 秒",
+      },
+    },
     app_settings_get: { rpcMethod: "appSettings/get" },
     app_settings_set: { rpcMethod: "appSettings/set", mapParams: (params) => params && typeof params.patch === "object" && params.patch !== null ? (params.patch as Record<string, unknown>) : {} },
-    service_requestlog_list: { rpcMethod: "requestlog/list" },
-    service_requestlog_summary: { rpcMethod: "requestlog/summary" },
+    service_requestlog_list: {
+      rpcMethod: "requestlog/list",
+      requestOptions: {
+        timeoutMs: 30000,
+        retries: 0,
+        timeoutMessage: "RPC requestlog/list 超时：请求日志查询超过 30 秒",
+      },
+    },
+    service_requestlog_summary: {
+      rpcMethod: "requestlog/summary",
+      requestOptions: {
+        timeoutMs: 30000,
+        retries: 0,
+        timeoutMessage: "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒",
+      },
+    },
     service_requestlog_clear: { rpcMethod: "requestlog/clear" },
     service_requestlog_today_summary: { rpcMethod: "requestlog/today_summary" },
     service_plugin_catalog_list: { rpcMethod: "plugin/catalog/list" },

@@ -107,13 +107,6 @@ test("createWebCommandMap 为账号预热命令提供 Web RPC 映射", () => {
   const warmup = commandMap.service_account_warmup;
   assert.deepEqual(warmup, {
     rpcMethod: "account/warmup",
-<<<<<<< HEAD
-  });
-});
-
-test("createWebCommandMap 为按状态清理账号提供 Web RPC 映射", () => {
-  const cleanup = commandMap.service_account_delete_by_statuses;
-=======
   });
 });
 
@@ -146,8 +139,6 @@ test("createWebCommandMap 为 Codex profile 管理提供 Web RPC 映射", () => 
 
 test("createWebCommandMap 为按状态清理账号提供 Web RPC 映射", () => {
   const cleanup = commandMap.service_account_delete_by_statuses;
-<<<<<<< HEAD
->>>>>>> 82970aaa (feat: add Codex CLI platform mode switching)
   assert.deepEqual(cleanup, {
     rpcMethod: "account/deleteByStatuses",
   });
@@ -208,52 +199,6 @@ test("createWebCommandMap 为管理员用量分析提供 Web RPC 映射", () => 
   );
 });
 
-=======
-  assert.deepEqual(cleanup, {
-    rpcMethod: "account/deleteByStatuses",
-  });
-});
-
-test("createWebCommandMap 为显示主窗口提供 Web 回退", async () => {
-  const previousWindow = globalThis.window;
-  const location = { href: "/tray-preview/" };
-  globalThis.window = { location };
-
-  try {
-    const showMainWindow = commandMap.app_show_main_window;
-    assert.ok(showMainWindow.direct);
-    assert.deepEqual(await showMainWindow.direct(), { ok: true });
-    assert.equal(location.href, "/");
-  } finally {
-    if (previousWindow === undefined) {
-      delete globalThis.window;
-    } else {
-      globalThis.window = previousWindow;
-    }
-  }
-});
-
-test("createWebCommandMap 为普通用户仪表盘汇总提供 Web RPC 映射", () => {
-  const summary = commandMap.service_dashboard_member_summary;
-  assert.equal(summary.rpcMethod, "dashboard/memberSummary");
-  assert.ok(summary.mapParams);
-  assert.deepEqual(
-    summary.mapParams({ user_id: "usr-1", day_start_ts: 100, day_end_ts: 200 }),
-    { userId: "usr-1", dayStartTs: 100, dayEndTs: 200 },
-  );
-});
-
-test("createWebCommandMap 为管理员用量分析提供 Web RPC 映射", () => {
-  const summary = commandMap.service_dashboard_admin_usage_summary;
-  assert.equal(summary.rpcMethod, "dashboard/adminUsageSummary");
-  assert.ok(summary.mapParams);
-  assert.deepEqual(summary.mapParams({ start_ts: 100, end_ts: 200 }), {
-    startTs: 100,
-    endTs: 200,
-  });
-});
-
->>>>>>> fccf5a63 (refactor frontend structure and gateway endpoint handling)
 test("createWebCommandMap 为模型来源映射命令提供 Web RPC 映射", () => {
   assert.deepEqual(commandMap.service_model_routing, {
     rpcMethod: "apikey/modelRouting",
