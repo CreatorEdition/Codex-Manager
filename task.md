@@ -237,3 +237,27 @@ P1 级：
 ### 审计方法论备注
 
 本轮持续审计聚焦"一次性输出统计 / 热路径全表扫描 / N+1 / 存储写放大"四类 CPU 与体积风险。已确认 storage 连接池、events/request_logs 索引、WAL/VACUUM 触发条件（仅手动 clear 时）均已合理，无需重复优化。后续审计可转向：聚合 API 余额刷新批次、插件调度器轮询、前端大列表虚拟化、JSON 序列化热点。
+
+## 2026-06-19 CodeX-GPT 独立复核 Claude 架构审计（B/C/E/F/H-M）
+
+> 结论：Claude 大部分性能诊断成立，但 B 项表述需修正，F 项在当前代码已部分修复但仍有 `refresh_token_expired` 永久类边界未闭环。以下为当前 `hardening/main` 只读复核结论和可执行修复路线。
+
+### 复核结论
+
+- B 首页统计 hook 叠加：⚠️ 部分确认。`apps/src/app/page.tsx` 确实在管理员首页同时调用 `useDashboardStats()`（约 15s stale）与 `useDashboardAdminUsageSummary()`（30s stale），会造成首页两路统计聚合叠加；但 `useMemberDashboardSummary(true)` 只在 `role === "member"` 时渲染，和 `AdminDashboard` 互斥，不是三路 hook 同屏同时挂载。修复应聚焦管理员首页的 `startup/snapshot` + `dashboard/adminUsageSummary` 两路合并或共享缓存，成员 summary 单独按成员路径优化。
+- C 聚合 API 网关热路径全表扫描：✅ 确认。`resolve_aggregate_api_rotation_candidates()` 仍调用 `list_aggregate_apis()` 全量读取，再在 Rust 层过滤 `status == "active"` 与 `provider_type`，并由 `proxy.rs` 的请求路由路径调用。修复应新增网关专用 storage 查询，如 `list_active_aggregate_apis_by_provider(provider_type)`，SQL 下推精确 active/provider 过滤，补 `(status, provider_type, sort, updated_at)` 或等价复合索引；不要直接复用管理页分页函数的 `status != disabled` 语义。
+- E 错误聚合索引缺口：✅ 确认。`request_logs` 表目前只有 `error TEXT`，索引覆盖 created_at/status/method/key/account/trace/actual_source 等维度，没有持久化 `error_code` 或 `(error_code, created_at)` 索引。服务层已有 `error_codes::code_for_message()`，修复时应在写 request log 时落库规范化 `error_code`，再新增 `requestlog/errorSummary` 按 `error_code + actual_source/account/key + 6小时窗口` 聚合，UI 展示 count、lastSeen、sampleMessage。
+- F Unknown401 永久判死边界：⚠️ 当前已部分修复。`usage_http.rs` 仍会把未匹配 401 fallback 为 `RefreshTokenAuthErrorReason::Unknown401`，但当前 `tokens.rs` / `accounts.rs` 已不再按通配 `refresh_token_invalid:%` 过滤，unknown_401 会继续进入候选并依赖 `next_refresh_at` 退避；这部分已闭环。残留问题是 `RefreshTokenAuthErrorReason::Expired` 会被写成 `refresh_token_invalid:refresh_token_expired`，但候选过滤没有把 expired 归入永久类；后续需明确业务语义，如确认 refresh token expired 不可恢复，应把 expired 加入永久过滤并补回归测试，否则要在文档中说明为何继续探测。
+- H 网关请求路由校验全量加载模型目录：✅ 确认。`model_route_error()` 为判断单个 model 是否存在，调用 `list_model_catalog_models("default")` 全量读取后 `.any(|item| item.slug == model)` 线性查找，且在请求转发路径调用。修复应新增 `model_catalog_model_exists(scope, slug)` 或 `find_model_catalog_model_by_slug(scope, slug)`，利用 `PRIMARY KEY(scope, slug)` 单查。
+- I dashboard 钱包查询 N+1：✅ 确认。`wallets_for_user_ids()` 对每个 user_id 单独 `find_wallet_by_owner("user", user_id)`，当前 storage 无批量 owner 查询。修复应新增 `find_wallets_by_owner_ids(owner_kind, ids)`，使用 `IN` 分批查询返回 HashMap；同时补 `(owner_kind, owner_id)` 唯一/普通索引验证。
+- J usage_snapshots 无条件 append 写放大：✅ 确认，且 Claude 的修正定位准确。真实生产写入点是 `store_usage_snapshot()`，每次刷新先 `insert_usage_snapshot()` 再 `prune_usage_snapshots_for_account()`；值未变化时仍产生 INSERT + DELETE/WAL 写放大。修复应在 `store_usage_snapshot()` 写入前读取该账号最新快照，比对 used_percent/window/resets/secondary/credits_json 等关键字段；无变化时只更新 `captured_at` 或按最小采样间隔保留一条趋势点。
+- K account_export token 查询 N+1：✅ 确认。`account_export.rs` 三个导出循环内逐账号 `find_token_by_account_id()`，大账号导出会退化为 N 次查询。修复应复用 `list_tokens_by_account_ids()` 批量取 token 后建 account_id -> token 映射，按导出账号分批避免 SQL 占位符过长。
+- L storage 连接池：✅ 确认无需优化。`storage_helpers.rs` 已有 `StoragePool`、idle 复用、Condvar 等待、默认 32 连接/16 idle 与环境变量覆盖；`open_storage()` 不是每次新建 SQLite 连接。
+- M events/request_logs 常用索引：✅ 确认基本充分。events 有 retention 索引，request_logs 有常用过滤索引；但这不覆盖 E 项的错误去重诉求，后续仍需专用 `error_code` 列与聚合索引。
+
+### 建议落地顺序
+
+1. P0 先修热路径与写放大：C 聚合 API 候选 SQL 下推、H 模型 slug 单查、J usage_snapshots 变化才落库。
+2. P0/P1 再修首页统计重复：按 B 的修正范围合并管理员首页两路聚合，避免误把成员 hook 当同屏负载。
+3. P1 完成错误去重闭环：E 新增 `error_code` 落库、索引与 `requestlog/errorSummary`；F 明确 expired 永久类语义并补测试。
+4. P1/P2 收尾 N+1：I 钱包批量查询、K 导出 token 批量查询。
