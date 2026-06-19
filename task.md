@@ -311,9 +311,9 @@ P1 级：
 
 - 上游读取用 `response.bytes_stream()` 逐块异步处理（transport.rs:402/527），非全量缓冲。
 - 下游 delivery 流式转发用 8KB 固定缓冲循环读写（delivery.rs:232-239，`STREAMING_CHUNK_READ_BUF_BYTES`），内存占用恒定。
-- `read_all_bytes()` 仅出现在测试代码。
+- 生产代码中 `read_all_bytes()` 仍用于非流式响应桥接、错误体或适配器处理；这不是 SSE/streaming 路径，不构成流式转发内存问题，但不能表述为“仅测试代码”。
 
-结论：网关流式链路内存占用恒定，设计正确，无需优化。
+结论：网关流式链路内存占用恒定，设计正确，无需针对 SSE 做内存优化。若后续出现非流式大响应内存峰值，应另设响应大小保护或非流式适配限制，不与本项混为一谈。
 
 ### S. 正面确认：runtime config 不重复解析（无需优化）
 
@@ -322,7 +322,7 @@ P1 级：
 ### 审计阶段性总结（A-S，共 19 类）
 
 按 CPU/体积/延迟三大风险归类，真正待优化的高价值项：
-- **P0**: B/C（用量分析无日级缓存）、J（usage_snapshots 写放大）、H（路由校验全量加载模型目录）、O（聚合 API 转发新建 client）、account/usage/aggregate 未接 SQL 下推
+- **P0**: D（用量分析无日级缓存）、C（聚合 API 网关热路径全表扫描）、J（usage_snapshots 写放大）、H（路由校验全量加载模型目录）、O（聚合 API 转发新建 client）、B（管理员首页两路统计聚合叠加）
 - **P1**: I（钱包 N+1）、N（调度器冗余全量查询）、E（错误去重摘要缺失）
 - **P2**: K（导出 token N+1）、P（余额轮询串行）
 
@@ -376,9 +376,9 @@ Err(err) => {
 ```
 
 - `schedule_token_refresh_failure_retry()`（mod.rs:780）使用**固定** `token_refresh_failure_cooldown_secs()`，默认 `DEFAULT_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS = 21600`（6 小时）。
-- **无指数退避、无错误类型分支**：网络错误、5xx、Unknown401、永久无效全部走同一条 6 小时冷却 + `mark_account_unavailable`。
+- **无指数退避、无错误类型分支**：网络错误、5xx、Unknown401、永久无效全部走同一条 6 小时冷却；但 `mark_account_unavailable_for_auth_error()` 只有在识别出 refresh-token / deactivation 等信号时才会真的改状态，普通网络错误或 5xx 通常不会标 `unavailable`。
 
-**与用户诉求的冲突**：用户明确指出"网络请求失败""服务端抖动一下之后 token 又能用"。当前实现下，一次瞬时网络抖动 = 账号 unavailable + 6 小时不再尝试刷新，严重过度反应。
+**与用户诉求的冲突**：用户明确指出"网络请求失败""服务端抖动一下之后 token 又能用"。当前实现下，一次普通网络抖动通常不会直接把账号标为 unavailable，但会让 token refresh 固定推迟 6 小时；Unknown401 等 refresh-token 401 则会额外把账号标 unavailable 并退出网关候选池，属于更严重的过度反应。
 
 **建议（与 T 项合并为一个 token 韧性补丁）**：
 1. 在失败分支按错误类型分流：
@@ -390,8 +390,26 @@ Err(err) => {
 ### Token 韧性补丁汇总（T + U 一次性下发）
 
 这两项是同一问题的两面，建议合并为一个补丁：
-- **根因**：失败处理不区分"永久无效"与"临时故障"，全部 unavailable + 6h 冷却。
+- **根因**：失败处理不区分"永久无效"与"临时故障"来计算重试间隔；所有失败都固定 6h 冷却，且 refresh-token 401 类错误会立即写 unavailable。
 - **目标形态**：永久无效快速退出服务池；临时故障保留在池中（或软降级）+ 指数退避重试 + 探测恢复。
 - **影响文件**：usage_http.rs（reason 分类已就绪）、account_status.rs（写状态分支）、refresh/mod.rs（失败退避）、tokens.rs（轮询排除已就绪）、storage（失败计数列）。
 
 至此 A-U 共 21 类，token 韧性（T/U）核实完成，可纳入下一个一次性优化包。
+
+## 2026-06-19 CodeX-GPT 独立复核第四至六批（N-U）
+
+### 复核结论
+
+- N 插件调度器冗余全量查询：✅ 确认。`run_due_tasks_once()` 已 SQL 下推读取 due tasks，但随后为计算 next sleep 又全量 `list_plugin_installs()` + `list_plugin_tasks(None)` 后 Rust 过滤。修复方向仍是新增 `min_next_run_at_for_enabled_tasks(now)` 一次性 SQL。
+- O 聚合 API 转发热路径新建 HTTP client：✅ 确认。`aggregate_api.rs` 请求转发路径直接 `fresh_upstream_client()`，而 `fresh_upstream_client()` 每次 `build_upstream_client()`。当前 `AggregateApi` 结构未见 per-source proxy 字段，优先改为复用全局 `upstream_client()`；若未来要支持源级代理，再做按源/代理分组 client 缓存。
+- P 聚合 API 余额轮询串行 HTTP：✅ 确认。`refresh_aggregate_api_balances_for_polling_cycle()` 对 due api_ids 串行调用 `refresh_aggregate_api_balance()`，且余额查询也用 fresh client。因批次默认 20 且非请求热路径，优先级低于 O；修复可用有界并发 + 复用 client。
+- Q 前端大列表：✅ 确认是低优先级建议。当前没有虚拟化库，但日志页默认 10、账号页默认 20，只有用户主动选 100/200/500 时才可能有明显 DOM 压力。
+- R 流式内存：⚠️ 已修正文案。流式路径确实逐块处理；但 `read_all_bytes()` 并非只在测试代码，生产非流式响应桥接也会用。结论应限定为“SSE/streaming 无需优化”，不要扩大成“所有响应都不全量缓冲”。
+- S runtime config 缓存：✅ 确认。`ensure_runtime_config_loaded()` 通过 `OnceLock::get_or_init` 首次加载，热路径重复调用不会重复解析 env/config。
+- T Unknown401 半排除：✅ 确认。Unknown401 会写成 `refresh_token_invalid:refresh_token_unknown_401` 并把账号置为 unavailable，网关候选过滤会跳过 unavailable；但 token/usage refresh 候选不再按 unknown_401 永久过滤，因此形成“网关不接客、后台仍探测”的半排除状态。
+- U token refresh 失败冷却：⚠️ 已修正文案。所有 token refresh 失败都会固定推迟 `next_refresh_at` 6 小时，这一点成立；但普通网络错误/5xx 通常不会真的标 unavailable。需要重点修的是按错误类型计算退避：临时故障短退避 + 指数增长，永久无效长冷却并退出服务池。
+
+### 额外校正
+
+- 第一批 A 项里 `account/usage/aggregate` “未接 SQL 下推”的历史诊断已被 commit `8c94c84c` 修复，后续汇总不应再把它列为 P0 待优化项；仍可保留“补 SQL/Rust 对照测试”的低优先级防回退建议。
+- 第五批阶段性总结原来把“B/C（用量分析无日级缓存）”写在一起不够准确：日级缓存是 D，管理员首页统计叠加是 B，聚合 API 热路径扫描是 C，后续下发时应按 B/C/D 三项分别实施。
