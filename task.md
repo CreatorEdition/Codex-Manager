@@ -535,3 +535,19 @@ Err(err) => {
 
 本批四个维度全部确认为良好设计——这是有价值的负面结论（确认无需优化），与发现优化点同等重要。请求装配链（Bytes Arc + rewrite 缓存 + header 预分配 + params 借用）整体内存效率良好。至此请求处理全链路（接入→分发→候选选择→body rewrite→header 装配→上游发送→响应转换→统计）已系统审计完毕。A–T 共 20 类待办优化点 + 多维度正面确认构成完整蓝图，可转入按优先级实施阶段。
 
+
+## 2026-06-14 持续架构审计（第九批：启动同步网络阻塞 + WebSocket/流式线程正面确认）
+
+### ⚠️ 待处理（U，本批新增）
+
+- **U（P1 服务启动主路径同步网络阻塞，最多 10 秒）**：`start_server()` 启动序列第 5 步 `sync_gateway_user_agent_version_from_codex_latest()` 在主线程**同步**发起网络请求到 npm registry（`fetch_codex_latest_version_from_url(CODEX_NPM_LATEST_URL)`，`.timeout(10s)`），阻塞服务直到网络返回或超时——npm registry 国内访问慢/不可达时，服务端口监听被白白拖延最多 10 秒。而紧接着第 6 步 `ensure_codex_latest_version_sync()` **已 spawn 名为 "codex-latest-version-sync" 的后台线程**（`codex_latest_version_sync_loop`）持续同步版本，使第 5 步的启动时同步拉取**冗余**。见 [lifecycle/startup.rs:76](crates/service/src/lifecycle/startup.rs:76) 与 [app_settings/gateway.rs:414](crates/service/src/app_settings/gateway.rs:414) 与 [codex_latest_sync.rs:11](crates/service/src/app_settings/codex_latest_sync.rs:11)。优化：删除第 5 步同步拉取（或改为仅读存储中已持久化的上次版本作为启动初值——`set_gateway_user_agent_version` 已持久化到 app_settings），网络拉取完全交给第 6 步后台线程异步首刷。可消除启动路径上最多 10 秒的网络阻塞，服务更快开始监听端口。Service 版/桌面端冷启动体验受益明显。
+
+### ✅ 正面确认（本批）
+
+- **WebSocket 上游属实验性默认关闭**：`USE_WEBSOCKET_UPSTREAM` 默认 false，由 `CODEXMANAGER_USE_WEBSOCKET_UPSTREAM` 显式开启，atomic 缓存配置；WS 握手是 OpenAI WS 端点"每请求一次握手"的请求-响应模式固有设计，非连接池模型；握手失败回退普通 HTTP（transport.rs:927 ws_early_result）。见 [runtime_config.rs:460](crates/service/src/gateway/core/runtime_config.rs:460)。非优化重点。
+- **流式 SSE pump 线程属同步服务器固有模型**：`UpstreamSseFramePump::from_reader` 每个流式响应 spawn 一个 blocking read + `sync_channel` 的 pump 线程，这是 tiny_http 同步 blocking 服务器 thread-per-request 模型的一致延伸（pump 线程数与请求线程同数量级，非额外放大），且已用 `BufReader` 缓冲 read_line 减少 syscall，并有 async stream transport 替代路径。见 [stream_readers/common.rs:92](crates/service/src/gateway/observability/http_bridge/stream_readers/common.rs:92)。架构层选择，非简单优化点。
+
+### 审计方法论备注（第九批）
+
+本批审计外围维度（WebSocket、流式线程、启动序列），发现启动主路径的同步网络阻塞（U 项）——这类"启动时同步拉取远端、却已有后台同步兜底"的冗余阻塞，是影响冷启动体验的隐蔽点，尤其在网络受限环境。WebSocket 与流式线程经确认为合理的架构选择。A–U 共 21 类优化点。
+
