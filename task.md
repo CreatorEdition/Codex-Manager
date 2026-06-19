@@ -551,3 +551,20 @@ Err(err) => {
 
 本批审计外围维度（WebSocket、流式线程、启动序列），发现启动主路径的同步网络阻塞（U 项）——这类"启动时同步拉取远端、却已有后台同步兜底"的冗余阻塞，是影响冷启动体验的隐蔽点，尤其在网络受限环境。WebSocket 与流式线程经确认为合理的架构选择。A–U 共 21 类优化点。
 
+
+## 2026-06-14 持续架构审计（第十批：批量导入无事务包裹 + 前端轮询/IPC正面确认）
+
+### ⚠️ 待处理（V，本批新增）
+
+- **V（P1 批量账号导入无事务包裹，O(N) 次写提交/fsync）**：`account/import` 的 `import_items_in_batches()` 虽有 `chunks(batch_size)` 的"批次"概念，但 batch 仅用于**进度上报**（`begin_batch`/`finish_batch`），实际写入仍逐个 `import_single_item_with_account_id()` → `insert_account()`，且 `insert_account` 是单条 `conn.execute(INSERT)` **自动提交**（无外部事务）。每个账号导入涉及 account + token + metadata + subscription 多次独立自提交写，SQLite WAL 模式下导入 N 账号产生 O(N) 次写提交与 WAL fsync。当前无批量事务 API（已确认无 `insert_accounts_batch`）。见 [account_import.rs:412](crates/service/src/account/account_import.rs:412) 与 [accounts.rs insert_account](crates/core/src/storage/accounts.rs:580)。优化：让每个 batch 的所有写操作包在一个 SQLite `transaction` 内一次 commit（storage 提供 `with_transaction` 闭包或批量 API，import_single_item 的多表写进同一事务）。可将 fsync 从 O(N) 降为 O(N/batch_size)，导入几百上千账号时显著提速。注意：事务须在同一连接（import 持有单个 StorageHandle 即可）；保留单条失败不影响其他账号的语义（可用 savepoint 或 batch 内收集失败项）。
+
+### ✅ 正面确认（本批）
+
+- **单账号删除已用事务**：`delete_account` 用 `conn.transaction()` 把 account_metadata/subscriptions/tokens/usage_snapshots/events/conversation_bindings/model_source_* 等多表删除包在一个事务原子提交。见 [accounts.rs:619](crates/core/src/storage/accounts.rs:619)。设计正确。
+- **前端轮询有页面/后台双门控**：platform-mode candidates 查询 `refetchInterval: isServiceReady && isPageActive ? 5_000 : false` + `refetchIntervalInBackground: false`，仅页面激活且服务就绪时 5s 刷新，后台标签页不轮询。日志列表 10s、首页快照等同样受 isPageActive 门控。见 [use-platform-mode-state.ts:99](apps/src/app/platform-mode/use-platform-mode-state.ts:99)。合理。
+- **桌面端 Tauri IPC 直连**：桌面端 `invoke("service_account_import", ...)` 直接调用 Tauri command（进程内 IPC，非网络往返），Web 模式走 HTTP /api/rpc；react-query 的 queryKey 天然去重相同 key 的并发请求。无多余序列化往返。见 [account-client.ts:401](apps/src/lib/api/account-client.ts:401)。
+
+### 审计方法论备注（第十批）
+
+本批审计前端轮询/IPC 与数据库批量写入，发现批量导入的 O(N) 自提交写（V 项）——"有批次概念但批次不用于事务边界"是 SQLite 应用的隐蔽性能点。单账号删除事务、前端轮询门控、Tauri IPC 直连均确认合理。V 项与既有的 J 项（usage_snapshots 写放大）同属 SQLite 写入优化族，可合并为"写入路径优化"实施批次。A–V 共 22 类优化点。
+
