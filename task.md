@@ -261,3 +261,71 @@ P1 级：
 2. P0/P1 再修首页统计重复：按 B 的修正范围合并管理员首页两路聚合，避免误把成员 hook 当同屏负载。
 3. P1 完成错误去重闭环：E 新增 `error_code` 落库、索引与 `requestlog/errorSummary`；F 明确 expired 永久类语义并补测试。
 4. P1/P2 收尾 N+1：I 钱包批量查询、K 导出 token 批量查询。
+
+## 2026-06-19 持续架构审计（第四批：HTTP客户端复用 + 调度器冗余查询）
+
+### N. 插件调度器计算下次唤醒时间时冗余全量查询（P1，新发现）
+
+`run_due_tasks_once()`（`crates/service/src/plugin/scheduler.rs:20`）已用 `list_due_plugin_tasks(now, 100)`（SQL 下推 JOIN + WHERE）取到期任务执行，但随后为计算下次 sleep 时间，又执行了：
+- `list_plugin_installs()` 全量加载所有安装
+- `list_plugin_tasks(None)` 全量加载所有任务
+
+再在 Rust 层 filter enabled + 求最小 next_run_at。这是冗余——每个调度 tick 都全量搬运 installs/tasks。
+
+建议：新增 `min_next_run_at_for_enabled_tasks(now)` SQL（复用 list_due 的 JOIN 条件，`SELECT MIN(next_run_at) WHERE enabled AND status='enabled' AND schedule_kind<>'manual' AND next_run_at > now`），一次查询得到下次唤醒时间，删除两处全量加载。
+
+### O. 聚合 API 转发热路径每次新建 HTTP 客户端（P0，新发现，重要）
+
+`gateway/upstream/protocol/aggregate_api.rs:857` 在**聚合 API 请求转发的核心执行函数**中调用 `fresh_upstream_client()`，每个聚合 API 请求都新建一个 reqwest Client。reqwest Client 内部维护连接池与 TLS 配置，新建会丢弃连接池、重做 TLS 握手，高 RPS 下显著抬高延迟与 CPU。
+
+对比证据（账号转发路径的正确做法）：
+- 账号转发首选缓存：`gateway/upstream/executor/codex.rs:40` 用 `upstream_client_for_account()`（按代理分组缓存复用，见 runtime_config.rs:187 的 `client_for_account` 池）。
+- 只在重试场景才用 fresh：`transport.rs:980/1067`。
+- 聚合 API 转发却**首次就用 fresh**，与账号路径不一致。
+
+建议：聚合 API 转发改用缓存 client（`upstream_client()` 或新增按聚合源代理分组的缓存版本）。reqwest Client clone 廉价（Arc 共享连接池），复用即可。仅在需要按源独立代理时回退 fresh。需先确认聚合源是否有 per-source 代理需求，若无则直接用全局缓存 `upstream_client()`。
+
+### P. 聚合 API 余额轮询批次内串行 HTTP（P2，新发现）
+
+`refresh_aggregate_api_balances_for_polling_cycle()`（`crates/service/src/usage/refresh/batch.rs:174`）取到 due 的聚合源后，在 `for api_id in api_ids` 循环内**串行**调用 `refresh_aggregate_api_balance()`，每个都是独立阻塞 HTTP 请求。批次上限默认 20，串行下单轮耗时 = Σ各源延迟，慢源会拖累整批。
+
+附加问题：每个 `refresh_aggregate_api_balance()`（aggregate_api.rs:3221）也用 `fresh_upstream_client()` 新建 client（与 O 同源问题，但非请求热路径，优先级低）。
+
+建议：余额轮询批次改为有界并发（如 `futures` 的 buffered/join_all 限制 4-8 并发，或线程池），并复用单个 client。注意尊重现有 success/failure 冷却窗口，避免对同源并发打满。
+
+### 审计进度小结
+
+至此 task.md 已记录 A-P 共 16 类架构优化点。第四批聚焦"HTTP 客户端复用"维度，发现聚合 API 转发热路径的 client 新建问题（O，P0），这是本轮最有价值的发现——直接影响每个聚合 API 请求的延迟。后续可审计：前端大列表虚拟化、SSE 流式处理内存占用、序列化热点。
+
+## 2026-06-19 持续架构审计（第五批：前端渲染 + 流式内存 + 序列化，正面确认为主）
+
+### Q. 前端大列表（低优先级建议，非缺陷）
+
+前端无虚拟化库（react-window/react-virtual），但已有后端分页兜底：
+- 日志页默认 pageSize=10，可选 5/10/20/50/100/200
+- 账号页可选 5/10/20/50/100/500
+
+结论：默认页很小，无虚拟化不构成问题。仅当用户主动选 200/500 时，无虚拟化的 DOM 渲染会有压力。低优先级建议：若大页常用，可对 ≥100 行表格引入 `@tanstack/react-virtual`。非必须。
+
+### R. 正面确认：SSE/流式转发已逐块处理（无需优化）
+
+- 上游读取用 `response.bytes_stream()` 逐块异步处理（transport.rs:402/527），非全量缓冲。
+- 下游 delivery 流式转发用 8KB 固定缓冲循环读写（delivery.rs:232-239，`STREAMING_CHUNK_READ_BUF_BYTES`），内存占用恒定。
+- `read_all_bytes()` 仅出现在测试代码。
+
+结论：网关流式链路内存占用恒定，设计正确，无需优化。
+
+### S. 正面确认：runtime config 不重复解析（无需优化）
+
+`ensure_runtime_config_loaded()`（runtime_config.rs）用 `OnceLock::get_or_init`，仅首次 `reload_from_env()`，后续调用是 no-op。网关热路径中大量调用此函数不会重复 parse config。无需优化。
+
+### 审计阶段性总结（A-S，共 19 类）
+
+按 CPU/体积/延迟三大风险归类，真正待优化的高价值项：
+- **P0**: B/C（用量分析无日级缓存）、J（usage_snapshots 写放大）、H（路由校验全量加载模型目录）、O（聚合 API 转发新建 client）、account/usage/aggregate 未接 SQL 下推
+- **P1**: I（钱包 N+1）、N（调度器冗余全量查询）、E（错误去重摘要缺失）
+- **P2**: K（导出 token N+1）、P（余额轮询串行）
+
+已确认无需优化（正面记录）：L（连接池）、M（核心表索引）、R（流式内存）、S（config 缓存）、WAL/VACUUM 触发条件。
+
+下一轮可审计方向：token refresh 退避策略细化（Unknown401 误判，对应用户关注点）、quota guard 缓存命中率、账号候选池重建频率。
