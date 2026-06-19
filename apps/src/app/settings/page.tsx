@@ -87,11 +87,8 @@ import {
   type CheckUpdateRequest,
   compareEnvOverrideItems,
   ensureModelForwardRuleRows,
-<<<<<<< HEAD
   formatFreeAccountModelLabel,
   inferServiceBindPreview,
-=======
->>>>>>> fccf5a63 (refactor frontend structure and gateway endpoint handling)
   matchesRecommendedWorkerSettings,
   normalizeEnvRiskLevel,
   normalizeWorkerRecommendation,
@@ -306,6 +303,10 @@ function AdminSettingsPage() {
   const [modelForwardRuleRowsDraft, setModelForwardRuleRowsDraft] = useState<
     ReturnType<typeof parseModelForwardRules> | null
   >(null);
+  const [
+    compactModelForwardRuleRowsDraft,
+    setCompactModelForwardRuleRowsDraft,
+  ] = useState<ReturnType<typeof parseModelForwardRules> | null>(null);
   const [lastUpdateCheck, setLastUpdateCheck] =
     useState<UpdateCheckResult | null>(null);
   const [updateDialogCheck, setUpdateDialogCheck] =
@@ -396,6 +397,10 @@ function AdminSettingsPage() {
   const modelForwardRuleRows = ensureModelForwardRuleRows(
     modelForwardRuleRowsDraft ??
       parseModelForwardRules(snapshot?.modelForwardRules || ""),
+  );
+  const compactModelForwardRuleRows = ensureModelForwardRuleRows(
+    compactModelForwardRuleRowsDraft ??
+      parseModelForwardRules(snapshot?.compactModelForwardRules || ""),
   );
   usePageTransitionReady(
     "/settings/",
@@ -751,6 +756,37 @@ function AdminSettingsPage() {
         modelForwardRules: nextSerialized,
       })
       .then(() => setModelForwardRuleRowsDraft(null))
+      .catch(() => undefined);
+  };
+  const updateCompactModelForwardRuleRows = (
+    updater: (rows: ReturnType<typeof parseModelForwardRules>) => ReturnType<
+      typeof parseModelForwardRules
+    >,
+  ) => {
+    const sourceRows =
+      compactModelForwardRuleRowsDraft ??
+      parseModelForwardRules(snapshot?.compactModelForwardRules || "");
+    setCompactModelForwardRuleRowsDraft(
+      updater(ensureModelForwardRuleRows(sourceRows)),
+    );
+  };
+  const commitCompactModelForwardRulesDraft = () => {
+    if (compactModelForwardRuleRowsDraft == null) return;
+    const nextSerialized = serializeModelForwardRules(
+      compactModelForwardRuleRowsDraft,
+    );
+    if (
+      nextSerialized.trim() ===
+      (snapshot?.compactModelForwardRules || "").trim()
+    ) {
+      setCompactModelForwardRuleRowsDraft(null);
+      return;
+    }
+    void updateSettings
+      .mutateAsync({
+        compactModelForwardRules: nextSerialized,
+      })
+      .then(() => setCompactModelForwardRuleRowsDraft(null))
       .catch(() => undefined);
   };
   const transportInputValues = {
@@ -1416,685 +1452,6 @@ function AdminSettingsPage() {
         </TabsContent>
 
         <TabsContent value="gateway" className="space-y-4">
-<<<<<<< HEAD
-          <Card className="glass-card shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">{t("网关策略")}</CardTitle>
-              <CardDescription>{t("配置账号选路和请求头处理方式")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-2">
-                <Label>{t("账号选路策略")}</Label>
-                <Select
-                  value={snapshot.routeStrategy || "ordered"}
-                  onValueChange={(value) =>
-                    updateSettings.mutate({ routeStrategy: value || "ordered" })
-                  }
-                >
-                  <SelectTrigger className="w-full md:w-[300px]">
-                    <SelectValue placeholder={t("选择策略")}>
-                      {(value) => {
-                        const nextValue = String(value || "").trim();
-                        if (!nextValue) return t("选择策略");
-                        return t(ROUTE_STRATEGY_LABELS[nextValue] || nextValue);
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                    <SelectItem value="ordered">{t("顺序优先 (Ordered)")}</SelectItem>
-                    <SelectItem value="balanced">
-                      {t("均衡轮询 (Balanced)")}
-                    </SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground">
-                  {t(
-                    "顺序优先：按账号候选顺序优先尝试，默认只会在头部小窗口内按健康度做轻微换头；均衡轮询：按“平台密钥 + 模型”维度严格轮询可用账号，默认不做健康度换头。",
-                  )}
-                </p>
-              </div>
-
-              <div className="grid gap-4 border-t pt-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-primary" />
-                      <Label>{t("额度保护")}</Label>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">
-                      {t("低于保留百分比的账号会从网关路由和远端模型刷新候选中跳过。")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={snapshot.quotaGuard.enabled}
-                    onCheckedChange={(checked) =>
-                      updateSettings.mutate({
-                        quotaGuard: {
-                          ...snapshot.quotaGuard,
-                          enabled: checked,
-                        },
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="grid gap-2">
-                    <Label>{t("5 小时窗口保留 (%)")}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={quotaGuardInputValues.primaryMinRemainingPercent}
-                      onChange={(event) =>
-                        setQuotaGuardDraft((current) => ({
-                          ...current,
-                          primaryMinRemainingPercent: event.target.value,
-                        }))
-                      }
-                      onBlur={() =>
-                        saveQuotaGuardField("primaryMinRemainingPercent")
-                      }
-                      disabled={!snapshot.quotaGuard.enabled}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>{t("周窗口保留 (%)")}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={quotaGuardInputValues.secondaryMinRemainingPercent}
-                      onChange={(event) =>
-                        setQuotaGuardDraft((current) => ({
-                          ...current,
-                          secondaryMinRemainingPercent: event.target.value,
-                        }))
-                      }
-                      onBlur={() =>
-                        saveQuotaGuardField("secondaryMinRemainingPercent")
-                      }
-                      disabled={!snapshot.quotaGuard.enabled}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
-                    <div className="space-y-1">
-                      <Label>{t("全部低额度时兜底")}</Label>
-                      <p className="text-[10px] text-muted-foreground">
-                        {t("关闭后如果所有账号都低于阈值，网关会返回无可用账号。")}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={snapshot.quotaGuard.allowAllLowQuotaFallback}
-                      onCheckedChange={(checked) =>
-                        updateSettings.mutate({
-                          quotaGuard: {
-                            ...snapshot.quotaGuard,
-                            allowAllLowQuotaFallback: checked,
-                          },
-                        })
-                      }
-                      disabled={!snapshot.quotaGuard.enabled}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>{t("Free 账号使用模型")}</Label>
-                <Select
-                  value={snapshot.freeAccountMaxModel || "auto"}
-                  onValueChange={(value) =>
-                    updateSettings.mutate({
-                      freeAccountMaxModel: value || "auto",
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-full md:w-[300px]">
-                    <SelectValue placeholder={t("选择 free 账号使用模型")}>
-                      {(value) =>
-                        t(formatFreeAccountModelLabel(String(value || "")))
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                    {(snapshot.freeAccountMaxModelOptions?.length
-                      ? snapshot.freeAccountMaxModelOptions
-                      : DEFAULT_FREE_ACCOUNT_MAX_MODEL_OPTIONS
-                    ).map((model) => (
-                      <SelectItem key={model} value={model}>
-                        {t(formatFreeAccountModelLabel(model))}
-                      </SelectItem>
-                    ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground">
-                  {t(
-                    "设为“跟随请求”时，不会额外改写 free / 单长周期窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。",
-                  )}
-                </p>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>{t("模型转发规则")}</Label>
-                <ModelForwardRulesEditor
-                  rows={modelForwardRuleRows}
-                  sourcePlaceholder={t("例如：spark*")}
-                  targetPlaceholder={t("例如：gpt-5.4-openai-compact")}
-                  sourceLabel={t("源模型")}
-                  targetLabel={t("目标模型")}
-                  addButtonLabel={t("新增规则")}
-                  deleteButtonLabel={t("删除条目")}
-                  onRowsChange={(updater) =>
-                    updateModelForwardRuleRows((rows) =>
-                      ensureModelForwardRuleRows(updater(rows)),
-                    )
-                  }
-                  onCommit={commitModelForwardRulesDraft}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  {t("左边匹配请求模型，右边填写转发目标；支持")} <code>*</code>{" "}
-                  {t("通配。平台 Key 没有强绑模型时，会先按这里把请求模型改写，再进入账号路由。")}
-                </p>
-              </div>
-
-              <div className="grid gap-2 border-t pt-6">
-                <Label>{t("上游 Originator")}</Label>
-                <Input
-                  className="h-10 max-w-md font-mono"
-                  value={gatewayOriginatorInput}
-                  onChange={(event) =>
-                    setGatewayOriginatorDraft(event.target.value)
-                  }
-                  onBlur={() => {
-                    if (gatewayOriginatorDraft == null) return;
-                    if (
-                      gatewayOriginatorInput ===
-                      (snapshot.gatewayOriginator || gatewayOriginatorDefault)
-                    ) {
-                      setGatewayOriginatorDraft(null);
-                      return;
-                    }
-                    void updateSettings
-                      .mutateAsync({
-                        gatewayOriginator: gatewayOriginatorInput,
-                      })
-                      .then(() => setGatewayOriginatorDraft(null))
-                      .catch(() => undefined);
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  {t("对齐官方 Codex 的上游 Originator。默认值为")}{" "}
-                  <code>{gatewayOriginatorDefault}</code>
-                  {t("，会同步影响登录和网关上游请求头。")}
-                </p>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>{t("区域驻留要求")}</Label>
-                <Select
-                  value={
-                    (snapshot.gatewayResidencyRequirement ?? "") ||
-                    EMPTY_RESIDENCY_OPTION
-                  }
-                  onValueChange={(value) =>
-                    updateSettings.mutate({
-                      gatewayResidencyRequirement:
-                        value === EMPTY_RESIDENCY_OPTION ? "" : (value ?? ""),
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-full md:w-[300px]">
-                  <SelectValue placeholder={t("选择地域约束")}>
-                      {(value) => {
-                        const nextValue =
-                          String(value || "") === EMPTY_RESIDENCY_OPTION
-                            ? ""
-                            : String(value || "");
-                        return (
-                          t(RESIDENCY_REQUIREMENT_LABELS[nextValue] || nextValue)
-                        );
-                      }}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                    {(snapshot.gatewayResidencyRequirementOptions?.length
-                      ? snapshot.gatewayResidencyRequirementOptions
-                      : ["", "us"]
-                    ).map((value) => (
-                      <SelectItem
-                        key={value || EMPTY_RESIDENCY_OPTION}
-                        value={value || EMPTY_RESIDENCY_OPTION}
-                      >
-                        {t(RESIDENCY_REQUIREMENT_LABELS[value] || value)}
-                      </SelectItem>
-                    ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground">
-                  {t("对齐官方 Codex 的")}{" "}
-                  <code>x-openai-internal-codex-residency</code>
-                  {t("头。")}
-                  {t("当前只支持留空或")} <code>us</code>
-                  {t("。")}
-                </p>
-              </div>
-
-              <div className="grid gap-2 pt-2">
-                <Label>{t("上游代理 (Proxy)")}</Label>
-                <Input
-                  placeholder="http://127.0.0.1:7890"
-                  className="h-10 max-w-md font-mono"
-                  value={upstreamProxyInput}
-                  onChange={(event) =>
-                    setUpstreamProxyDraft(event.target.value)
-                  }
-                  onBlur={() => {
-                    if (upstreamProxyDraft == null) return;
-                    if (
-                      upstreamProxyInput === (snapshot.upstreamProxyUrl || "")
-                    ) {
-                      setUpstreamProxyDraft(null);
-                      return;
-                    }
-                    void updateSettings
-                      .mutateAsync({ upstreamProxyUrl: upstreamProxyInput })
-                      .then(() => setUpstreamProxyDraft(null))
-                      .catch(() => undefined);
-                  }}
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  {t("支持 http/https/socks5，留空表示直连。")}
-                </p>
-              </div>
-
-              <div className="grid gap-4 border-t pt-6 md:grid-cols-3">
-                <div className="grid gap-2">
-                  <Label>{t("SSE 保活间隔 (ms)")}</Label>
-                  <Input
-                    type="number"
-                    value={transportInputValues.sseKeepaliveIntervalMs}
-                    onChange={(event) =>
-                      setTransportDraft((current) => ({
-                        ...current,
-                        sseKeepaliveIntervalMs: event.target.value,
-                      }))
-                    }
-                    onBlur={() =>
-                      saveTransportField("sseKeepaliveIntervalMs", 1)
-                    }
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>{t("上游总超时 (ms，0 为关闭)")}</Label>
-                  <Input
-                    type="number"
-                    value={transportInputValues.upstreamTotalTimeoutMs}
-                    onChange={(event) =>
-                      setTransportDraft((current) => ({
-                        ...current,
-                        upstreamTotalTimeoutMs: event.target.value,
-                      }))
-                    }
-                    onBlur={() =>
-                      saveTransportField("upstreamTotalTimeoutMs", 0)
-                    }
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>{t("上游流式空闲超时 (ms)")}</Label>
-                  <Input
-                    type="number"
-                    value={transportInputValues.upstreamStreamTimeoutMs}
-                    onChange={(event) =>
-                      setTransportDraft((current) => ({
-                        ...current,
-                        upstreamStreamTimeoutMs: event.target.value,
-                      }))
-                    }
-                    onBlur={() =>
-                      saveTransportField("upstreamStreamTimeoutMs", 0)
-                    }
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="tasks" className="space-y-4">
-          <Card className="glass-card shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">{t("后台任务线程")}</CardTitle>
-              <CardDescription>{t("管理自动轮询和保活任务；")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {[
-                {
-                  label: "用量轮询线程",
-                  enabledKey: "usagePollingEnabled",
-                  intervalKey: "usagePollIntervalSecs",
-                },
-                {
-                  label: "网关保活线程",
-                  enabledKey: "gatewayKeepaliveEnabled",
-                  intervalKey: "gatewayKeepaliveIntervalSecs",
-                },
-                {
-                  label: "令牌刷新轮询",
-                  enabledKey: "tokenRefreshPollingEnabled",
-                  intervalKey: "tokenRefreshPollIntervalSecs",
-                },
-              ].map((task) => (
-                <div
-                  key={task.enabledKey}
-                  className="flex items-center justify-between gap-4 rounded-lg bg-accent/20 p-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <Switch
-                      checked={
-                        snapshot.backgroundTasks[
-                          task.enabledKey as keyof BackgroundTaskSettings
-                        ] as boolean
-                      }
-                      onCheckedChange={(value) =>
-                        updateBackgroundTasks({
-                          [task.enabledKey]: value,
-                        } as Partial<BackgroundTaskSettings>)
-                      }
-                    />
-                    <Label>{t(task.label)}</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      {t("间隔(秒)")}
-                    </span>
-                    <Input
-                      className="h-8 w-20"
-                      type="number"
-                      value={
-                        backgroundTaskDraft[task.intervalKey] ||
-                        stringifyNumber(
-                          snapshot.backgroundTasks[
-                            task.intervalKey as keyof BackgroundTaskSettings
-                          ] as number,
-                        )
-                      }
-                      onChange={(event) =>
-                        setBackgroundTaskDraft((current) => ({
-                          ...current,
-                          [task.intervalKey]: event.target.value,
-                        }))
-                      }
-                      onBlur={() =>
-                        saveBackgroundTaskField(
-                          task.intervalKey as keyof BackgroundTaskSettings,
-                          1,
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-              ))}
-              <div className="grid gap-3 rounded-lg bg-accent/20 p-3 lg:grid-cols-[minmax(180px,240px)_minmax(180px,1fr)] lg:items-end">
-                <div className="flex items-center gap-3 lg:self-center">
-                  <Switch
-                    checked={snapshot.backgroundTasks.warmupCronEnabled}
-                    onCheckedChange={(value) => {
-                      const expression = String(
-                        backgroundTaskDraft.warmupCronExpression ??
-                          snapshot.backgroundTasks.warmupCronExpression,
-                      ).trim();
-                      if (value && !expression) {
-                        toast.error(t("请先填写 Cron 表达式"));
-                        return;
-                      }
-                      updateBackgroundTasks({
-                        warmupCronEnabled: value,
-                        ...(value ? { warmupCronExpression: expression } : {}),
-                      });
-                    }}
-                  />
-                  <Label>{t("定时账号预热")}</Label>
-                </div>
-                <div className="grid gap-1.5">
-                  <Label>{t("Cron 表达式")}</Label>
-                  <Input
-                    className="h-8 font-mono"
-                    value={
-                      backgroundTaskDraft.warmupCronExpression ??
-                      snapshot.backgroundTasks.warmupCronExpression
-                    }
-                    onChange={(event) =>
-                      setBackgroundTaskDraft((current) => ({
-                        ...current,
-                        warmupCronExpression: event.target.value,
-                      }))
-                    }
-                    onBlur={() =>
-                      saveBackgroundTaskTextField("warmupCronExpression")
-                    }
-                    placeholder="0 0 * * *|5 5 * * *|10 10 * * *"
-                  />
-                </div>
-                <div className="text-xs text-muted-foreground lg:col-span-2">
-                  <span>
-                    {snapshot.backgroundTasks.warmupCronEnabled
-                      ? t("定时账号预热已启用")
-                      : t("定时账号预热未启用。多个计划用 | 分隔。")}
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="glass-card shadow-sm">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <SettingsIcon className="h-4 w-4 text-primary" />
-                <CardTitle className="text-base">{t("运行模式")}</CardTitle>
-              </div>
-              <CardDescription>
-                {t(
-                  "普通用户选择一个模式即可，系统会自动按档位调整并发。需要更细的控制时，再打开高级参数。",
-                )}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Card size="sm">
-                <CardContent>
-                <div className="grid gap-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)] lg:items-end">
-                  <div className="space-y-2">
-                    <Label>{t("运行模式")}</Label>
-                    <Select
-                      value={activeWorkerModeValue}
-                      onValueChange={(value) => {
-                        const selectedPreset = WORKER_PRESETS.find(
-                          (preset) => preset.key === value,
-                        );
-                        if (!selectedPreset) {
-                          return;
-                        }
-                        if (selectedPreset.key === "recommended") {
-                          deriveConcurrencyRecommendation.mutate();
-                          return;
-                        }
-                        applyWorkerPreset(selectedPreset);
-                      }}
-                    >
-                      <SelectTrigger
-                        className="h-10 w-full bg-background/80"
-                        disabled={deriveConcurrencyRecommendation.isPending}
-                      >
-                        <SelectValue placeholder={t("选择运行模式")}>
-                          {(value) => {
-                            const selectedPreset = WORKER_PRESETS.find(
-                              (preset) =>
-                                preset.key === String(value || "").trim(),
-                            );
-                            return selectedPreset
-                              ? t(selectedPreset.simpleLabel)
-                              : t("自定义（来自高级参数）");
-                          }}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                    <SelectGroup>
-                        {WORKER_PRESETS.map((preset) => (
-                          <SelectItem key={preset.key} value={preset.key}>
-                            {t(preset.simpleLabel)}
-                          </SelectItem>
-                        ))}
-                        {!activeWorkerPreset ? (
-                          <SelectItem value={CUSTOM_WORKER_MODE_VALUE} disabled>
-                            {t("自定义（来自高级参数）")}
-                          </SelectItem>
-                        ) : null}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex min-h-10 flex-wrap items-center gap-2 lg:justify-start lg:self-end">
-                    <span className="text-sm font-medium">{t("当前档位")}</span>
-                    <Badge
-                      variant={activeWorkerPreset ? "default" : "secondary"}
-                      className="h-5 px-2"
-                    >
-                      {activeWorkerPreset
-                        ? t(activeWorkerPreset.simpleLabel)
-                        : t("自定义")}
-                    </Badge>
-                  </div>
-                </div>
-
-                <Separator className="my-4" />
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <p className="text-xs leading-6 text-muted-foreground">
-                    {activeWorkerSummary}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-fit gap-2 px-2"
-                    onClick={() => setWorkerAdvancedDialogOpen(true)}
-                  >
-                    <SettingsIcon className="h-4 w-4" />
-                    {t("高级参数")}
-                  </Button>
-                </div>
-                </CardContent>
-              </Card>
-            </CardContent>
-          </Card>
-          <Dialog
-            open={workerAdvancedDialogOpen}
-            onOpenChange={setWorkerAdvancedDialogOpen}
-          >
-            <DialogContent className="glass-card sm:max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>{t("高级参数")}</DialogTitle>
-                <DialogDescription>
-                  {t(
-                    "只有在你明确知道这些参数含义时再调整。改动会直接影响并发和资源占用。",
-                  )}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {[
-                  {
-                    label: "后台巡检并发",
-                    helper:
-                      "控制用量刷新、后台轮询这些任务同时跑多少个。",
-                    key: "usageRefreshWorkers",
-                  },
-                  {
-                    label: "普通请求自动并发",
-                    helper:
-                      "普通 HTTP 请求的自动并发倍率，越大越快，也越吃资源。",
-                    key: "httpWorkerFactor",
-                  },
-                  {
-                    label: "普通请求最低保底",
-                    helper:
-                      "普通 HTTP 请求至少保留多少个处理线程，防止太冷清。",
-                    key: "httpWorkerMin",
-                  },
-                  {
-                    label: "流式请求自动并发",
-                    helper:
-                      "流式请求的自动并发倍率，流式响应多时会更明显。",
-                    key: "httpStreamWorkerFactor",
-                  },
-                  {
-                    label: "流式请求最低保底",
-                    helper:
-                      "流式请求至少保留多少个处理线程，保证长连接不卡住。",
-                    key: "httpStreamWorkerMin",
-                  },
-                  {
-                    label: "单账号并发上限",
-                    helper:
-                      "同一账号同时能处理多少个请求。满了以后会优先换下一个账号；填 0 表示关闭上限。",
-                    key: "accountMaxInflight",
-                  },
-                ].map((worker) => (
-                  <div key={worker.key} className="grid gap-1.5">
-                    <Label className="text-xs">{t(worker.label)}</Label>
-                    <p className="text-[11px] leading-5 text-muted-foreground">
-                      {t(worker.helper)}
-                    </p>
-                    <Input
-                      type="number"
-                      min={worker.key === "accountMaxInflight" ? 0 : 1}
-                      className="h-9"
-                      value={
-                        backgroundTaskDraft[worker.key] ??
-                        stringifyNumber(
-                          worker.key === "accountMaxInflight"
-                            ? snapshot.accountMaxInflight
-                            : (snapshot.backgroundTasks[
-                                worker.key as keyof BackgroundTaskSettings
-                              ] as number),
-                        )
-                      }
-                      onChange={(event) =>
-                        setBackgroundTaskDraft((current) => ({
-                          ...current,
-                          [worker.key]: event.target.value,
-                        }))
-                      }
-                      onBlur={() =>
-                        worker.key === "accountMaxInflight"
-                          ? saveAccountMaxInflightField(0)
-                          : saveBackgroundTaskField(
-                              worker.key as keyof BackgroundTaskSettings,
-                              1,
-                            )
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-              <DialogFooter className="gap-2 sm:gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setWorkerAdvancedDialogOpen(false)}
-                >
-                  {t("关闭")}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-=======
           <GatewayTabContent
             t={t}
             snapshot={snapshot}
@@ -2141,7 +1498,6 @@ function AdminSettingsPage() {
             saveAccountMaxInflightField={saveAccountMaxInflightField}
             onInvalidWarmupCron={() => toast.error(t("请先填写 Cron 表达式"))}
           />
->>>>>>> fccf5a63 (refactor frontend structure and gateway endpoint handling)
         </TabsContent>
         <TabsContent value="env" className="space-y-4">
           <EnvTabContent
