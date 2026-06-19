@@ -568,3 +568,19 @@ Err(err) => {
 
 本批审计前端轮询/IPC 与数据库批量写入，发现批量导入的 O(N) 自提交写（V 项）——"有批次概念但批次不用于事务边界"是 SQLite 应用的隐蔽性能点。单账号删除事务、前端轮询门控、Tauri IPC 直连均确认合理。V 项与既有的 J 项（usage_snapshots 写放大）同属 SQLite 写入优化族，可合并为"写入路径优化"实施批次。A–V 共 22 类优化点。
 
+
+## 2026-06-14 持续架构审计（第十一批：H项实施强化 + 路由查询索引正面确认）
+
+### 🔑 H 项实施强化（关键补充，降低实施成本至近零）
+
+复核确认 H 项（`model_route_error` 全量加载模型目录线性查找）的优化**实施成本极低、零索引开销**：`model_catalog_models` 表**主键即 `(scope, slug)`**（见 [047_model_catalog_models.sql:44](crates/core/migrations/047_model_catalog_models.sql:44)）。当前 [proxy.rs:155](crates/service/src/gateway/upstream/proxy.rs:155) 做 `list_model_catalog_models("default")` 全量加载 + `.any(|item| item.slug == model)` 线性查找，但完全可用主键单查 `SELECT 1 FROM model_catalog_models WHERE scope=?1 AND slug=?2 LIMIT 1` 直接命中（O(log n) 索引查找，无需新增任何索引——主键即索引）。实施：仅需在 [model_options.rs:204](crates/core/src/storage/model_options.rs:204) 附近新增 `model_catalog_model_exists(scope, slug) -> bool` 单查函数，替换 proxy.rs 的全量加载 + 线性 any。这是 P0 热路径优化中性价比最高的一项——改动集中、零索引成本、每请求省一次全表加载。
+
+### ✅ 正面确认（本批：路由相关查询索引均充分）
+
+- **conversation_bindings 主键完美匹配热路径查询**：`get_conversation_binding(platform_key_hash, conversation_id)` 的 WHERE 条件正好命中表主键 `PRIMARY KEY (platform_key_hash, conversation_id)`，O(log n) 直查；另有 `idx_..._account_id(account_id, updated_at DESC)` 与 `idx_..._last_used_at` 支撑反查与剪枝。`delete_stale_conversation_bindings` 未在 service 热路径调用（无每请求清理开销）。见 [conversation_bindings.rs:19](crates/core/src/storage/conversation_bindings.rs:19) 与 [034_conversation_bindings.sql](crates/core/migrations/034_conversation_bindings.sql:1)。
+- **model_source_mappings 复合索引优秀**：热路径 `list_enabled_model_source_mappings_for_platform` 的 `WHERE platform_model_slug=?1 AND enabled=1 ORDER BY priority DESC` 被 `idx_model_source_mappings_platform(platform_model_slug, enabled, priority DESC)` 完整覆盖——查询条件 + 排序首列均在索引内，无需回表排序。`list_available_source_model_ids_by_upstream_model` 用 `idx_model_source_models_upstream_model`。见 [058_model_source_mappings.sql:36](crates/core/migrations/058_model_source_mappings.sql:36)。
+
+### 审计方法论备注（第十一批）
+
+本批审计路由相关查询（conversation 绑定、模型源映射、模型目录）的索引覆盖度，确认 conversation_bindings 与 model_source_mappings 索引设计优秀（条件+排序全覆盖），唯一缺口是 H 项的 model_catalog 全量加载——而其主键 `(scope, slug)` 使修复零索引成本。这印证了"索引设计整体良好，个别热路径未用上已有主键"的模式。H 项实施细节已明确，可优先落地。A–V 共 22 类（本批无新增字母项，强化 H 项实施路径）。
+
