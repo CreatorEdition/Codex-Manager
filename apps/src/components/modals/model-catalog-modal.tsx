@@ -24,7 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ManagedModelPayload } from "@/lib/api/account-client";
+import { ManagedModelPayload, ModelPriceRuleUpsertPayload } from "@/lib/api/account-client";
+import type { ModelPriceRuleEntry } from "@/lib/api/account-client";
 import { useI18n } from "@/lib/i18n/provider";
 import { ManagedModelInfo } from "@/types";
 
@@ -37,6 +38,8 @@ interface ModelCatalogModalProps {
   nextSortIndex: number;
   isSaving?: boolean;
   onSave: (payload: ManagedModelPayload) => Promise<ManagedModelInfo | null>;
+  onSavePriceRule?: (payload: ModelPriceRuleUpsertPayload) => Promise<void>;
+  priceRule?: ModelPriceRuleEntry | null;
 }
 
 interface ModelCatalogDraft {
@@ -51,6 +54,9 @@ interface ModelCatalogDraft {
   visibility: string;
   defaultReasoningLevel: string;
   advancedJson: string;
+  inputPricePer1m: string;
+  cachedInputPricePer1m: string;
+  outputPricePer1m: string;
 }
 
 const EDITABLE_ADVANCED_KEYS = [
@@ -208,6 +214,7 @@ function buildAdvancedJson(model: ManagedModelInfo | null | undefined): string {
 function buildDraft(
   model: ManagedModelInfo | null | undefined,
   nextSortIndex: number,
+  priceRule?: ModelPriceRuleEntry | null,
 ): ModelCatalogDraft {
   return {
     slug: model?.slug || "",
@@ -221,6 +228,9 @@ function buildDraft(
     visibility: normalizeVisibilityValue(model?.visibility),
     defaultReasoningLevel: model?.defaultReasoningLevel || "",
     advancedJson: buildAdvancedJson(model),
+    inputPricePer1m: priceRule?.inputPricePer1m != null ? String(priceRule.inputPricePer1m) : "",
+    cachedInputPricePer1m: priceRule?.cachedInputPricePer1m != null ? String(priceRule.cachedInputPricePer1m) : "",
+    outputPricePer1m: priceRule?.outputPricePer1m != null ? String(priceRule.outputPricePer1m) : "",
   };
 }
 
@@ -277,21 +287,47 @@ export function ModelCatalogModal({
   nextSortIndex,
   isSaving = false,
   onSave,
+  onSavePriceRule,
+  priceRule,
 }: ModelCatalogModalProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState<ModelCatalogDraft>(() =>
-    buildDraft(model, nextSortIndex),
+    buildDraft(model, nextSortIndex, priceRule),
   );
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [savingPrice, setSavingPrice] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     const frameId = window.requestAnimationFrame(() => {
-      setDraft(buildDraft(model, nextSortIndex));
+      setDraft(buildDraft(model, nextSortIndex, priceRule));
+      setPriceError(null);
+      setSavingPrice(false);
     });
     return () => {
       window.cancelAnimationFrame(frameId);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, nextSortIndex, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraft((prev) => ({
+      ...prev,
+      inputPricePer1m:
+        priceRule?.inputPricePer1m != null
+          ? String(priceRule.inputPricePer1m)
+          : "",
+      cachedInputPricePer1m:
+        priceRule?.cachedInputPricePer1m != null
+          ? String(priceRule.cachedInputPricePer1m)
+          : "",
+      outputPricePer1m:
+        priceRule?.outputPricePer1m != null
+          ? String(priceRule.outputPricePer1m)
+          : "",
+    }));
+  }, [priceRule, open]);
 
   const title = useMemo(
     () => (model ? t("编辑模型") : t("新增模型")),
@@ -308,12 +344,8 @@ export function ModelCatalogModal({
   const handleSave = async () => {
     const slug = draft.slug.trim();
     if (!slug) {
-<<<<<<< HEAD
-      throw new Error("模型 slug 不能为空");
-=======
       setPriceError(t("模型 slug 不能为空"));
       return;
->>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
     }
 
     const advancedFields = parseJsonObject(draft.advancedJson, t("高级 JSON"), t);
@@ -333,8 +365,6 @@ export function ModelCatalogModal({
       updatedAt: model?.updatedAt ?? 0,
     };
 
-<<<<<<< HEAD
-=======
     const ip = draft.inputPricePer1m.trim();
     const cp = draft.cachedInputPricePer1m.trim();
     const op = draft.outputPricePer1m.trim();
@@ -360,7 +390,6 @@ export function ModelCatalogModal({
       }
     }
 
->>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
     const saved = await onSave({
       previousSlug: model?.slug || null,
       sourceKind: nextModel.sourceKind,
@@ -369,8 +398,6 @@ export function ModelCatalogModal({
       model: nextModel,
     });
     if (saved) {
-<<<<<<< HEAD
-=======
       if (onSavePriceRule && slug && hasUserInput) {
         try {
           setSavingPrice(true);
@@ -396,7 +423,6 @@ export function ModelCatalogModal({
         }
         setSavingPrice(false);
       }
->>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
       onOpenChange(false);
     }
   };
@@ -578,6 +604,60 @@ export function ModelCatalogModal({
             </div>
 
             <div className="space-y-2">
+              <Label className="text-sm font-medium">{t("Token 价格 (USD / 1M tokens)")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t("零表示不计费，价格将用于请求成本估算。")}
+              </p>
+              {priceError ? (
+                <p className="text-xs text-destructive">{priceError}</p>
+              ) : null}
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="price-input">{t("输入价格")}</Label>
+                <Input
+                  id="price-input"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  value={draft.inputPricePer1m}
+                  onChange={(event) =>
+                    updateDraft("inputPricePer1m", event.target.value)
+                  }
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="price-cached">{t("缓存输入价格")}</Label>
+                <Input
+                  id="price-cached"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  value={draft.cachedInputPricePer1m}
+                  onChange={(event) =>
+                    updateDraft("cachedInputPricePer1m", event.target.value)
+                  }
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="price-output">{t("输出价格")}</Label>
+                <Input
+                  id="price-output"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  value={draft.outputPricePer1m}
+                  onChange={(event) =>
+                    updateDraft("outputPricePer1m", event.target.value)
+                  }
+                  placeholder="0"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="model-advanced-json">{t("高级 JSON")}</Label>
               <Textarea
                 id="model-advanced-json"
@@ -609,7 +689,7 @@ export function ModelCatalogModal({
               onClick={() => {
                 void handleSave();
               }}
-              disabled={isSaving}
+              disabled={isSaving || savingPrice}
             >
               {isSaving ? t("保存中...") : t("保存模型")}
             </Button>
