@@ -3,19 +3,13 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-<<<<<<< HEAD
 import { accountClient, AccountListParams } from "@/lib/api/account-client";
-=======
-import { accountClient } from "@/lib/api/account-client";
 import { CODEX_PROFILE_CANDIDATES_QUERY_KEY } from "@/lib/api/codex-profile-client";
->>>>>>> 82970aaa (feat: add Codex CLI platform mode switching)
 import { attachUsagesToAccounts } from "@/lib/api/normalize";
-import { serviceClient } from "@/lib/api/service-client";
 import {
   buildStartupSnapshotQueryKey,
   STARTUP_SNAPSHOT_PROFILE_PREFETCH,
   STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
-  STARTUP_SNAPSHOT_STALE_TIME,
 } from "@/lib/api/startup-snapshot";
 import { getAppErrorMessage } from "@/lib/api/transport";
 import { listenUsageRefreshCompleted } from "@/lib/api/usage-refresh-events";
@@ -202,7 +196,6 @@ export function useAccounts(params?: AccountListParams) {
     backgroundTasks.usagePollIntervalSecs,
   );
   const usageListFingerprintRef = useRef<string | null>(null);
-<<<<<<< HEAD
   const startupSnapshot =
     queryClient.getQueryData<StartupSnapshot>(
       buildStartupSnapshotQueryKey(
@@ -222,6 +215,12 @@ export function useAccounts(params?: AccountListParams) {
   const startupAccounts = startupSnapshot?.accounts || [];
   const startupUsages = startupSnapshot?.usageSnapshots || [];
   const hasStartupAccountSnapshot = startupAccounts.length > 0;
+  // 显式清空账号（如按状态删除）时允许列表为空通过，避免被启动快照占位回填覆盖。
+  const allowEmptyAccountListRef = useRef(false);
+  const startupAccountList = useMemo(
+    () => buildAccountListResultFromSnapshot(startupAccounts),
+    [startupAccounts],
+  );
   const normalizedListParams = normalizeAccountListParams(params);
   const canUseStartupAccountPlaceholder =
     normalizedListParams.page === 1 &&
@@ -236,36 +235,6 @@ export function useAccounts(params?: AccountListParams) {
         pageSize: normalizedListParams.pageSize,
       }
     : undefined;
-=======
-  const allowEmptyAccountListRef = useRef(false);
-  const startupSnapshotQueryKey = buildStartupSnapshotQueryKey(
-    serviceStatus.addr,
-    STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
-    localDayRange.dayStartTs,
-  );
-  const startupSnapshotQuery = useQuery({
-    queryKey: startupSnapshotQueryKey,
-    queryFn: () =>
-      serviceClient.getStartupSnapshot({
-        requestLogLimit: STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT,
-        dayStartTs: localDayRange.dayStartTs,
-        dayEndTs: localDayRange.dayEndTs,
-      }),
-    enabled: areAccountQueriesEnabled,
-    retry: 1,
-    staleTime: STARTUP_SNAPSHOT_STALE_TIME,
-  });
-  const startupSnapshot =
-    startupSnapshotQuery.data ||
-    queryClient.getQueryData<StartupSnapshot>(startupSnapshotQueryKey);
-  const startupAccounts = startupSnapshot?.accounts || [];
-  const startupUsages = startupSnapshot?.usageSnapshots || [];
-  const hasStartupAccountSnapshot = startupAccounts.length > 0;
-  const startupAccountList = useMemo(
-    () => buildAccountListResultFromSnapshot(startupAccounts),
-    [startupAccounts],
-  );
->>>>>>> cf306b11 (修复未注册的插件)
 
   /**
    * 函数 `ensureServiceReady`
@@ -290,13 +259,9 @@ export function useAccounts(params?: AccountListParams) {
 
   // 账号实体列表只在显式账号操作/手动刷新时更新；用量轮询通过 usage/list 合并展示，避免临时空读覆盖账号池。
   const accountsQuery = useQuery({
-<<<<<<< HEAD
     queryKey: ["accounts", "list", normalizedListParams],
-    queryFn: () => accountClient.list(normalizedListParams),
-=======
-    queryKey: ["accounts", "list"],
     queryFn: async () => {
-      const data = await accountClient.list();
+      const data = await accountClient.list(normalizedListParams);
       if (data.items.length > 0) {
         allowEmptyAccountListRef.current = false;
         return data;
@@ -305,22 +270,23 @@ export function useAccounts(params?: AccountListParams) {
         allowEmptyAccountListRef.current = false;
         return data;
       }
+      // account/list 在启动竞态下可能瞬时返回空；若首屏占位仍有账号则保留占位，避免误清空。
       if (
-        startupAccountList &&
-        startupAccountList.items.length > 0
+        canUseStartupAccountPlaceholder &&
+        startupAccountPage &&
+        startupAccountPage.items.length > 0
       ) {
         console.warn(
-          "account/list returned empty while startup snapshot still has accounts; keeping startup account list",
+          "account/list returned empty while startup snapshot still has accounts; keeping startup account page",
           {
-            startupCount: startupAccountList.items.length,
-            startupTotal: startupAccountList.total,
+            startupCount: startupAccountPage.items.length,
+            startupTotal: startupAccountPage.total,
           },
         );
-        return startupAccountList;
+        return startupAccountPage;
       }
       return data;
     },
->>>>>>> cf306b11 (修复未注册的插件)
     enabled: areAccountQueriesEnabled,
     retry: 1,
     staleTime: Infinity,
@@ -330,12 +296,9 @@ export function useAccounts(params?: AccountListParams) {
       queryClient.getQueryData<AccountListResult>(["accounts", "list"]) ||
       startupAccountList,
     placeholderData: (previousData): AccountListResult | undefined =>
-<<<<<<< HEAD
+    placeholderData: (previousData): AccountListResult | undefined =>
       previousData ||
       (startupAccountPage?.items.length ? startupAccountPage : undefined),
-=======
-      previousData || startupAccountList,
->>>>>>> cf306b11 (修复未注册的插件)
   });
   const visibleAccountIds = useMemo(
     () => (accountsQuery.data?.items || startupAccountPage?.items || [])
@@ -880,14 +843,10 @@ export function useAccounts(params?: AccountListParams) {
     accounts,
     accountListResult,
     planTypes,
-<<<<<<< HEAD
     total: totalAccounts,
     totalAccounts,
     accountPage: accountListResult.page,
     accountPageSize: accountListResult.pageSize,
-=======
-    total: visibleAccountList?.total || accounts.length,
->>>>>>> cf306b11 (修复未注册的插件)
     isLoading:
       isServiceReady &&
       !(canUseStartupAccountPlaceholder && hasStartupAccountSnapshot) &&
