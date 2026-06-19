@@ -329,3 +329,69 @@ P1 级：
 已确认无需优化（正面记录）：L（连接池）、M（核心表索引）、R（流式内存）、S（config 缓存）、WAL/VACUUM 触发条件。
 
 下一轮可审计方向：token refresh 退避策略细化（Unknown401 误判，对应用户关注点）、quota guard 缓存命中率、账号候选池重建频率。
+
+## 2026-06-19 持续架构审计（第六批：token refresh 退避策略 — 对应用户关注点）
+
+### T. Unknown401 处理半排除矛盾（P1，新发现，对应用户"服务端抖动不应永久判死"关注点）
+
+完整链路核对结果：
+
+1. **归类**（usage_http.rs:453）：任何无法细分的 401 fallback 到 `Unknown401`，code = `refresh_token_unknown_401`。
+
+2. **写账号状态**（account_status.rs:421/456）：所有 `RefreshToken(reason)` 信号（**含 Unknown401**）一律写成 `refresh_token_invalid:{code}` 并 `set_account_unavailable_with_reason()` → 账号变 `unavailable`。
+
+3. **token 轮询排除**（tokens.rs:95）：排除列表只含 4 种永久无效（reused/invalidated/invalid_grant/app_session_terminated）+ 3 种 deactivated/region_blocked。**Unknown401 和 Expired 不在排除列表**。
+
+**矛盾现状**：Unknown401 账号处于"半排除"状态——
+- token 刷新**仍继续**（好：符合"临时失败可恢复"）
+- 但账号已被标 `unavailable`，网关候选选择会跳过它，**不再接收新请求**
+
+**风险**：服务端抖动（瞬时 401）会让账号立即变 unavailable 退出服务池，即使下一次刷新成功也需要等状态恢复逻辑（若有）才能重新接客。对用户描述的"抖动一下之后 token 又能用"场景，这是过度反应。
+
+**建议**（一次性，配合用户意图）：
+1. 区分 Unknown401 与确定永久无效：Unknown401 不立即标 `unavailable`，改为"软失败计数 + 指数退避重试"，连续 N 次（如 3 次）Unknown401 才升级为 unavailable。
+2. 或新增 `refresh_token_soft_fail:unknown_401` 临时状态，网关候选**不跳过**该状态账号（仍可接客），只在用量刷新层退避；连续失败才转 `refresh_token_invalid:`。
+3. 永久无效集合明确锁定：仅 reused/invalidated/expired/invalid_grant/app_session_terminated；network/5xx/Unknown401 全部走临时退避路径。
+
+### U. 待核对：网络错误与 5xx 的退避是否与永久失败混用同一 6 小时窗口
+
+用户关注点之一："网络请求失败 / 流传输故障"这类瞬时错误。需进一步核对 refresh/mod.rs:772 的 next_refresh_at 推迟逻辑，确认 network error / 5xx 是否也被统一推迟 6 小时（与永久失败同等冷却）。若是，应改为指数退避（如 1min→5min→30min）+ 少量探测，而非一刀切 6 小时。本项标记为下一轮重点核对。
+
+### 审计进度（A-U，共 21 类）
+
+第六批切入用户最关心的 token refresh 韧性问题，发现 Unknown401 "半排除"矛盾（T，P1）——这直接对应用户"服务端抖动不应永久判死"的诉求。U 项（网络/5xx 退避粒度）留待下一轮核对 refresh/mod.rs 退避实现细节。
+
+## 2026-06-19 持续架构审计（第六批补充：U 项已核实）
+
+### U 项核实结论：所有 refresh 失败一刀切 6 小时冷却，无错误分类（P1，确认）
+
+核对 `run_token_refresh_task()`（refresh/mod.rs:912）失败分支，证据如下：
+
+```rust
+Err(err) => {
+    let _ = mark_account_unavailable_for_auth_error(storage, &token.account_id, &err);
+    schedule_token_refresh_failure_retry(storage, &token.account_id, now_ts());
+    // ...
+}
+```
+
+- `schedule_token_refresh_failure_retry()`（mod.rs:780）使用**固定** `token_refresh_failure_cooldown_secs()`，默认 `DEFAULT_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS = 21600`（6 小时）。
+- **无指数退避、无错误类型分支**：网络错误、5xx、Unknown401、永久无效全部走同一条 6 小时冷却 + `mark_account_unavailable`。
+
+**与用户诉求的冲突**：用户明确指出"网络请求失败""服务端抖动一下之后 token 又能用"。当前实现下，一次瞬时网络抖动 = 账号 unavailable + 6 小时不再尝试刷新，严重过度反应。
+
+**建议（与 T 项合并为一个 token 韧性补丁）**：
+1. 在失败分支按错误类型分流：
+   - 永久无效（reused/invalidated/expired/invalid_grant/app_session_terminated）→ 标 unavailable + 长冷却（保持现状）。
+   - 网络错误 / 5xx / Unknown401 → **不标 unavailable**，走指数退避（如 60s→300s→1800s→3600s，上限 6h），连续 N 次才升级。
+2. `schedule_token_refresh_failure_retry` 增加 `attempt_count` 参数，按失败次数计算退避间隔。
+3. 需要 storage 记录连续失败次数（可复用 token 表新增列或 events 计数）。
+
+### Token 韧性补丁汇总（T + U 一次性下发）
+
+这两项是同一问题的两面，建议合并为一个补丁：
+- **根因**：失败处理不区分"永久无效"与"临时故障"，全部 unavailable + 6h 冷却。
+- **目标形态**：永久无效快速退出服务池；临时故障保留在池中（或软降级）+ 指数退避重试 + 探测恢复。
+- **影响文件**：usage_http.rs（reason 分类已就绪）、account_status.rs（写状态分支）、refresh/mod.rs（失败退避）、tokens.rs（轮询排除已就绪）、storage（失败计数列）。
+
+至此 A-U 共 21 类，token 韧性（T/U）核实完成，可纳入下一个一次性优化包。
