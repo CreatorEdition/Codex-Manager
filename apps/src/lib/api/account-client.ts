@@ -171,6 +171,33 @@ export interface ManagedModelPayload {
   model: ManagedModelInfo | ModelInfo;
 }
 
+export interface ModelPriceRuleEntry {
+  id: string;
+  provider: string;
+  modelPattern: string;
+  matchType: string;
+  inputPricePer1m: number | null;
+  cachedInputPricePer1m: number | null;
+  outputPricePer1m: number | null;
+  enabled: boolean;
+  priority: number;
+  source: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ModelPriceRuleUpsertPayload {
+  id?: string | null;
+  provider?: string | null;
+  modelPattern: string;
+  matchType?: string | null;
+  inputPricePer1m?: number | null;
+  cachedInputPricePer1m?: number | null;
+  outputPricePer1m?: number | null;
+  enabled?: boolean | null;
+  priority?: number | null;
+}
+
 export interface ManagedModelSourceSyncPayload {
   sourceKind: string;
   sourceId?: string | null;
@@ -381,16 +408,11 @@ async function importAccountContents(contents: string[]): Promise<AccountImportR
 }
 
 export const accountClient = {
-<<<<<<< HEAD
   async list(params?: AccountListParams): Promise<AccountListResult> {
     const result = await invoke<unknown>(
       "service_account_list",
       withAddr(params ? { ...params } : {}),
     );
-=======
-  async list(): Promise<AccountListResult> {
-    const result = await invoke<unknown>("service_account_list", withAddr());
->>>>>>> cf306b11 (修复未注册的插件)
     return normalizeAccountList(result);
   },
   async lookupAccounts(ids: string[]) {
@@ -1045,13 +1067,6 @@ export const accountClient = {
     );
     return normalizeManagedModelCatalog(result);
   },
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-  },
->>>>>>> ee8d443a (Add explicit stale remote model pruning action)
-=======
->>>>>>> dfd5dfe1 (fix: resolve account client merge conflict for stale model prune)
   async readApiKeySecret(keyId: string): Promise<string> {
     const result = await invoke<unknown>(
       "service_apikey_read_secret",

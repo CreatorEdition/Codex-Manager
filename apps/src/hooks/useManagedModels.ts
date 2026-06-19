@@ -9,6 +9,7 @@ import {
   ManagedModelSourceMappingPayload,
   ManagedModelSourceModelPayload,
   ManagedModelSourceSyncPayload,
+  ModelPriceRuleUpsertPayload,
 } from "@/lib/api/account-client";
 import { serviceClient } from "@/lib/api/service-client";
 import {
@@ -430,8 +431,6 @@ export function useManagedModels() {
       if (!ensureServiceReady("保存模型")) return null;
       return saveMutation.mutateAsync(params);
     },
-<<<<<<< HEAD
-=======
     saveModelPriceRule: async (params: ModelPriceRuleUpsertPayload) => {
       if (!ensureServiceReady("保存模型价格")) {
         throw new Error(t("服务未就绪，无法保存模型价格"));
@@ -442,7 +441,6 @@ export function useManagedModels() {
       if (!ensureServiceReady("读取模型价格")) return null;
       return accountClient.readModelPriceRule(modelPattern);
     },
->>>>>>> 49d70518 (Improve i18n, theme, gateway, and sponsors)
     deleteModel: async (slug: string) => {
       if (!ensureServiceReady("删除模型")) return false;
       await deleteMutation.mutateAsync(slug);
