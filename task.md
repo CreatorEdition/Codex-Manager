@@ -443,3 +443,21 @@ Err(err) => {
 唯一缺口是命中时的深拷贝（V 项）。缓存策略设计正确。
 
 至此 A-V 共 22 类架构优化点。V 项（Arc 化候选缓存）是低改动高收益的热路径优化，建议纳入优化包。
+
+## 2026-06-14 持续架构审计（第四批：调度器与失败退避）
+
+### ⚠️ 待处理（N-P，本批新增）
+
+- **N（P1 调度器冗余全量）**：插件调度器 `run_due_tasks_once()` 已用 `list_due_plugin_tasks(now, 100)` SQL 下推取到期任务，但随后又调 `list_plugin_installs()` 全量 + `list_plugin_tasks(None)` 全量，仅为计算下次 sleep 秒数，见 [scheduler.rs](crates/service/src/plugin/scheduler.rs:39) 与 [plugins.rs:303](crates/core/src/storage/plugins.rs:303)。优化：新增 SQL 直接查 `MIN(next_run_at)`（限 enabled + 非 manual + 已安装插件），避免每个调度 tick 把全部 installs/tasks 搬入内存。当前无该 SQL（已确认），需新增 `next_plugin_task_due_at()`。
+
+- **O（P0 失败冷却不分类，用户重点关注）**：`schedule_token_refresh_failure_retry()` 对所有 token refresh 失败统一施加固定冷却（默认 6 小时 `DEFAULT_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS`），不区分错误性质，见 [refresh/mod.rs:780](crates/service/src/usage/refresh/mod.rs:780)。问题：永久失败（refresh_token_reused/invalidated/expired/invalid_grant）应长冷却或判死；临时失败（网络错误、5xx、Unknown401 服务端抖动）应短退避 + 探测，不应一律压 6 小时。关键：调用处 [refresh/mod.rs:935](crates/service/src/usage/refresh/mod.rs:935) 已持有 `err` 文本，且 [usage_http.rs](crates/service/src/usage/usage_http.rs:369) 已有 `classify_refresh_token_auth_error_reason()` 分类函数可直接复用，修复成本低——只需把分类结果传入冷却调度并按类别分流。
+
+- **P（P1 无指数退避）**：token refresh 失败无连续失败计数与指数退避，每次失败都重置为固定冷却。`tokens` 表已有 `last_refresh_attempt_at` 列但无 `consecutive_failure_count`（已确认无退避字段），见 [tokens.rs:174](crates/core/src/storage/tokens.rs:174)。优化：新增连续失败计数列，临时失败按 `base * 2^min(n, cap)` 指数退避（如 1min→2min→4min→…→上限 30min），成功即清零；与 O 项配合实现"抖动快速恢复、持续失败逐步退避、永久失败判死"三级策略。
+
+### 📌 用户原始诉求对照（来自本轮对话）
+
+用户明确要求两类优化，对照 task.md 已记录项：
+1. **用量分析/区间消耗已结束日期缓存** → 对应 **A（日级 rollup 缓存）** + **B（account/usage/aggregate 接回 SQL 下推）** + 本批确认的首页 P0 入口（dashboard/adminUsageSummary、startup/snapshot）。
+2. **错误代码去重汇总（450 条压成 5 类）** → 对应 **E（requestlog/errorSummary 按规范化 error code 聚合）**。
+3. **token 失败不应一直刷、区分吊销与服务端抖动** → 对应本批 **O + P**（分类冷却 + 指数退避），unknown_401 先按临时失败处理，永久无效仅限 reused/invalidated/expired/invalid_grant/app_session_terminated。
+
