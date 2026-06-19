@@ -495,3 +495,20 @@ Err(err) => {
 
 本轮确认账号候选池已有缓存 + quota guard 分流（合理），token 无加解密开销（明文存储，安全另议），迁移版本控制机制正确。真实性能优化仅 R（启动查询批量化，P2 低优先级）；S 为需观察的潜在写放大。至此热路径核心（网关请求转发、账号选择、用量刷新、统计聚合）已系统审计完毕，A–S 共 19 类构成完整优化蓝图。
 
+
+## 2026-06-14 持续架构审计（第七批：候选缓存深拷贝 + HTTP客户端/env正面确认）
+
+### ⚠️ 待处理（T，本批新增）
+
+- **T（P1 网关候选缓存命中深拷贝整列表）**：`read_candidate_cache()` 缓存命中时执行 `cached.candidates.clone()`，深拷贝整个候选列表 `Vec<(Account, Token)>`——每个网关请求都克隆全部候选账号（Account+Token 均含多个 String 字段）。大账号池（几千账号）下，虽然缓存已避免 DB 查询，但缓存命中后的全列表深拷贝本身就是每请求的 CPU + 堆分配开销。此外 `collect_gateway_candidates_with_low_quota_mode` 在 uncached 路径还会 `write_candidate_cache(mode, candidates.clone())` 再深拷贝一份给缓存。见 [selection.rs:103](crates/service/src/gateway/routing/selection.rs:103) 与 [selection.rs:347](crates/service/src/gateway/routing/selection.rs:347)。优化：缓存内部存 `Arc<Vec<(Account, Token)>>`，命中时 clone Arc（仅原子计数 +1 的浅拷贝），`collect_gateway_candidates*` 返回 `Arc<...>`，调用方改为只读遍历。可消除每请求的全列表深拷贝，大账号池下收益显著。需适配调用方（确认均为只读选择，不 mutate 候选）。
+
+### ✅ 正面确认（本批）
+
+- **上游 HTTP 客户端已池化复用**：`upstream_client_for_account()` 从 `UPSTREAM_CLIENT_POOL`（OnceLock<RwLock<>>）取缓存 Client，clone 为 Arc 浅拷贝（reqwest::Client 内部 Arc），连接池配置 `pool_max_idle_per_host(32)` + `tcp_keepalive(30s)` + `pool_idle_timeout(90s)`，见 [runtime_config.rs:331](crates/service/src/gateway/core/runtime_config.rs:331)。`fresh_*_for_account()` 新建 Client 仅用于**首次失败后的重试分支**（transport.rs:980/1067），故意绕过可能损坏的池化连接，属正确设计。HTTP 客户端复用无需优化。
+- **热路径 env::var 已 atomic 缓存**：route_strategy 经 `reload_from_env()` 读 env 后存 `ROUTE_MODE`（AtomicUsize），运行时读 atomic；quota guard config 经 `current_quota_guard_config()` 缓存。运行时不重复读环境变量，见 [route_hint.rs:711](crates/service/src/gateway/routing/route_hint.rs:711) 与 [selection.rs:607](crates/service/src/gateway/routing/selection.rs:607)。无需优化。
+- **热路径日志参数惰性求值**：gateway 路径 `log::trace!/debug!` 未内联 json 序列化或 format 昂贵构造；Rust log 宏在级别未启用时不构造参数。trace body preview 受 `trace_body_preview_max_bytes` 配置门控。无需优化。
+
+### 审计方法论备注（第七批）
+
+本轮在"已池化/已缓存"的表象下深挖，发现候选缓存虽避免了 DB 查询，但命中后的**全列表深拷贝**是被忽略的每请求开销（T 项）——这类"缓存了数据源但没缓存拷贝成本"的模式值得警惕。同时确认 HTTP 客户端池化、env atomic 缓存、日志惰性三项已正确。A–T 共 20 类优化点。
+
