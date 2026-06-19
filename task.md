@@ -413,3 +413,33 @@ Err(err) => {
 
 - 第一批 A 项里 `account/usage/aggregate` “未接 SQL 下推”的历史诊断已被 commit `8c94c84c` 修复，后续汇总不应再把它列为 P0 待优化项；仍可保留“补 SQL/Rust 对照测试”的低优先级防回退建议。
 - 第五批阶段性总结原来把“B/C（用量分析无日级缓存）”写在一起不够准确：日级缓存是 D，管理员首页统计叠加是 B，聚合 API 热路径扫描是 C，后续下发时应按 B/C/D 三项分别实施。
+
+## 2026-06-19 持续架构审计（第七批：候选缓存 clone 成本）
+
+### V. 候选池缓存命中时深拷贝整个账号池（P1，新发现）
+
+`read_candidate_cache()`（selection.rs:323）缓存命中时返回 `Some(cached.candidates.clone())`——深拷贝整个 `Vec<(Account, Token)>`。Account/Token 含多个 String 字段（id、tokens、metadata 等），几千账号时每次缓存命中都 clone 几千个账号的全部字段。
+
+虽然缓存本身（5s TTL）已大幅降低 `collect_gateway_candidates_uncached` 的 DB 扫描频率（V 项不否定缓存价值），但**每次请求命中缓存仍付一次全池深拷贝**。高 RPS（如 100 req/s）+ 大账号池（如 3000 账号）下，每秒 100 次 × 3000 账号深拷贝 = 可观的内存分配与 CPU。
+
+证据链：
+- selection.rs:118 `write_candidate_cache(low_quota_mode, candidates.clone())` — 写入时 clone（一次性，可接受）
+- selection.rs:348 `Some(cached.candidates.clone())` — **每次命中都 clone（热路径，问题所在）**
+
+**建议**：
+1. 缓存改存 `Arc<Vec<(Account, Token)>>`，命中时 clone Arc（仅引用计数 +1，O(1)），调用方按需读取。
+2. 若调用方需要可变筛选，可在 Arc 基础上做惰性过滤迭代器，避免立即全量 clone。
+3. 注意：write 时的 clone 可一并改为构造 Arc，消除写入深拷贝。
+
+预期收益：高 RPS 大账号池下，候选选择路径的内存分配从 O(请求数 × 账号数) 降到 O(缓存重建次数 × 账号数)。
+
+### 正面确认：候选缓存机制本身已完善
+
+- 5s TTL（`DEFAULT_CANDIDATE_CACHE_TTL_MS`，可由 `CODEXMANAGER_CANDIDATE_CACHE_TTL_MS` 覆盖）
+- 按 `low_quota_mode` 分键
+- 账号状态变化主动 `invalidate_candidate_cache` / `clear_candidate_cache`
+- 锁中毒降级处理（poisoned → 丢缓存继续）
+
+唯一缺口是命中时的深拷贝（V 项）。缓存策略设计正确。
+
+至此 A-V 共 22 类架构优化点。V 项（Arc 化候选缓存）是低改动高收益的热路径优化，建议纳入优化包。
