@@ -2,12 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-<<<<<<< HEAD
 import { accountClient, ApiKeyListParams } from "@/lib/api/account-client";
-=======
-import { accountClient } from "@/lib/api/account-client";
 import { CODEX_PROFILE_CANDIDATES_QUERY_KEY } from "@/lib/api/codex-profile-client";
->>>>>>> 82970aaa (feat: add Codex CLI platform mode switching)
 import {
   buildStartupSnapshotQueryKey,
   STARTUP_SNAPSHOT_PROFILE_PREFETCH,
