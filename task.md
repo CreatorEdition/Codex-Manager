@@ -477,3 +477,21 @@ Err(err) => {
 
 本轮验证：JSON 序列化热点确有可优化项（Q，仅限协议转换路径），但前端虚拟化与 SSE 缓冲两项经评估属"当前实现已是正确权衡，不应优化"——记录正面结论与理由，防止后续被误列为待办。诚实区分"真优化点"与"看似可优化但实则有害"是持续审计的核心纪律。
 
+
+## 2026-06-14 持续架构审计（第六批：迁移启动查询 + 候选回写 + 加密/迁移正面确认）
+
+### ⚠️ 待处理（R-S，本批新增）
+
+- **R（P2 启动迁移 69 次单点查询）**：`Storage::init()` 顺序调用 **69 个**迁移（`apply_sql_migration` / `apply_sql_or_compat_migration`），每个迁移启动时都执行一次 `has_migration(version)` 单点 `SELECT 1 FROM schema_migrations WHERE version=?`，即每次启动 69 次 DB 往返（即使全部已应用），见 [mod.rs:772](crates/core/src/storage/mod.rs:772) 与 [mod.rs has_migration](crates/core/src/storage/mod.rs:1418)。优化：init 开头一次 `SELECT version FROM schema_migrations` 载入 `HashSet<String>`，`has_migration` 改为内存查找，把 69 次查询降为 1 次。桌面端频繁启动 / Service 版重启场景受益，改动成本低、无兼容风险。
+
+- **S（P3 候选收集读路径 lazy backfill 写入）**：`collect_gateway_candidates_uncached()` 遍历候选时，对元数据需修补的账号执行 `storage.insert_account(&candidate_account)` 回写（lazy backfill），见 [selection.rs:133](crates/service/src/gateway/routing/selection.rs:133)。仅缓存未命中（TTL 5s 或状态变化）时触发，且 backfill 一次后应稳定。风险：若 `patch_account_meta_in_place` 判断逻辑使元数据反复"变化"，则每次缓存失效都写库。建议：加只读断言/计数监控，确认 backfill 收敛为一次性；若发现反复写入，修正判断逻辑使其幂等。优先级低，先观察。
+
+### ✅ 正面确认（本批）
+
+- **迁移版本控制正确**：`apply_sql_migration` 先 `has_migration` 跳过已应用迁移，仅对新迁移执行 SQL；索引/表统一用 `CREATE ... IF NOT EXISTS`。机制正确，唯一可优化的是 R 项的查询次数（非机制问题）。
+- **token 无应用层加解密开销**：token 在 SQLite 明文存储，无 AES/ChaCha 等加解密，故请求热路径无加解密 CPU 成本。注：明文存储属**安全**范畴，security-ci-audit 进度已标注"敏感存储涉数据兼容与恢复路径，应单独排期"，非本轮性能审计目标。
+
+### 审计方法论备注（第六批）
+
+本轮确认账号候选池已有缓存 + quota guard 分流（合理），token 无加解密开销（明文存储，安全另议），迁移版本控制机制正确。真实性能优化仅 R（启动查询批量化，P2 低优先级）；S 为需观察的潜在写放大。至此热路径核心（网关请求转发、账号选择、用量刷新、统计聚合）已系统审计完毕，A–S 共 19 类构成完整优化蓝图。
+
