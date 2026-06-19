@@ -512,3 +512,26 @@ Err(err) => {
 
 本轮在"已池化/已缓存"的表象下深挖，发现候选缓存虽避免了 DB 查询，但命中后的**全列表深拷贝**是被忽略的每请求开销（T 项）——这类"缓存了数据源但没缓存拷贝成本"的模式值得警惕。同时确认 HTTP 客户端池化、env atomic 缓存、日志惰性三项已正确。A–T 共 20 类优化点。
 
+
+## 2026-06-14 持续架构审计（第八批：请求装配/RPC分发——全维度正面确认）
+
+本批审计 proxy_pipeline 请求体拷贝、header 装配、正则编译、RPC 分发四个维度，**均已是良好设计，无新增待办优化点**。诚实记录正面确认，避免后续重复审计或误改。
+
+### ✅ 正面确认（本批）
+
+- **请求体用 Bytes（Arc 引用计数）+ rewrite 结果缓存**：`candidate_state.rs` 的 `rewrite_body_for_model` 中 `body.clone()` 是 `Bytes` 浅拷贝（Arc 计数+1，非深拷贝）；`body.to_vec()` 深拷贝仅发生在首次 rewrite，且结果按 cache_key 存入 `rewritten_bodies` HashMap（`entry().or_insert_with()`），同一候选多次重试不重复 rewrite。见 [candidate_state.rs:120](crates/service/src/gateway/upstream/proxy_pipeline/candidate_state.rs:120)。设计良好。
+
+- **header 装配预分配且无重复解析**：`build_codex_upstream_headers` 用 `Vec::with_capacity(16)` 预分配，纯字符串 push，无正则/重复解析。见 [codex_headers.rs:113](crates/service/src/gateway/upstream/headers/codex_headers.rs:113)。
+
+- **项目无热路径正则编译**：gateway/core/service 路径均无 `Regex::new`（项目不依赖 regex crate 做请求解析），用手写字符串匹配（`starts_with`/`==`/`split`），无"每请求重新编译正则"反模式，也就不需要 OnceLock/lazy_static 缓存正则。
+
+- **RPC 分发链 + params 借用均高效**：主分发 `handle_request_with_actor` 是 16 模块线性 `try_handle` 链，但每个 `try_handle` 首先 `match req.method.as_str()`，不匹配立即 `_ => return None`（仅一次字符串比较，无反序列化/无 DB），16 次 match 对每请求是纳秒级。各模块命中分支用 `req.params.as_ref().and_then(...)` **借用**提取字段，全仓 0 处 `req.params.clone()`，大 params（import/export/批量）也不深拷贝整个 Value。见 [rpc_dispatch/mod.rs:249](crates/service/src/rpc_dispatch/mod.rs:249) 与 [account.rs:136](crates/service/src/rpc_dispatch/account.rs:136)。
+
+### 🟢 极低优先级观察（暂不列待办）
+
+- RPC 主分发模块顺序：高频的 `startup/snapshot`（首页 ~15s 刷新）由 `startup::try_handle` 处理，排在分发链第 10 位，每次需先过 9 个模块的 method match。但每次 match 仅纳秒级字符串比较，把高频 namespace 提前的收益极小（纳秒级），不值得改动顺序破坏可读性。仅记录，不列优化。
+
+### 审计方法论备注（第八批）
+
+本批四个维度全部确认为良好设计——这是有价值的负面结论（确认无需优化），与发现优化点同等重要。请求装配链（Bytes Arc + rewrite 缓存 + header 预分配 + params 借用）整体内存效率良好。至此请求处理全链路（接入→分发→候选选择→body rewrite→header 装配→上游发送→响应转换→统计）已系统审计完毕。A–T 共 20 类待办优化点 + 多维度正面确认构成完整蓝图，可转入按优先级实施阶段。
+
