@@ -952,3 +952,8 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - ✅ HHH 正面确认：`TRACE_ERROR_TRACES` / `TRACE_PENDING_LINES` 有配对清理。`log_request_final`（每请求终点）无条件调用 `clear_trace_state`，同时清理 pending lines 与 error trace；中途 `mark_trace_has_error`（多处）最终都由 final 清理，无界增长风险低。见 [trace_log.rs (line 1350)](crates/service/src/gateway/observability/trace_log.rs:1350)。
 - ⚠️ III（P3，与 FFF 同源）：唯一残留缺口是请求中途 panic 未走 `log_request_final` 时，该 trace_id 的 pending lines / error 标记不被清理。低频边际点，可在 final 路径用 RAII guard 兜底确保清理。
+
+### 第二十批审计（网关头部构建分配）
+
+- **JJJ（P3）**：`build_codex_upstream_headers`（codex_headers.rs:113）每请求为静态头名（Authorization/Accept/User-Agent/originator/Content-Type 等）重复 `.to_string()` 堆分配，返回 `Vec<(String,String)>`。Vec::with_capacity(16) 已预分配且头数有界，分配规模小；静态键理论上可用 `&'static str` 或 `Cow`，但受 reqwest builder 接口与下游统一处理约束，收益边际。仅高 RPS 下作为微优化候选。
+- **正面确认 KKK**：头部构建逻辑正确——动态值（auth_token/account_id/各 incoming_* 头）经 trim+空值过滤后才透传，`with_capacity(16)` 避免 Vec 扩容，user_agent/originator 经 resolve 缓存身份；无重复构建、无每请求重建静态表。
