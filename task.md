@@ -602,3 +602,22 @@ Err(err) => {
 
 本批系统审计 observability/日志写入路径（请求日志事务、索引、写入时序、trace 落盘），确认高频成功路径设计优秀：单事务两表写、索引充分、日志在 respond 之后写（不阻塞客户端）、trace 默认零文件 IO。唯一改进点是错误路径的写日志/响应时序（W，P3 低频）。这印证 observability 子系统已高度优化。A–W 共 23 类优化点（W 为 P3 低优先级）。
 
+
+## 2026-06-14 持续架构审计（第十三批：静态资源缓存头缺失 + Rhai AST重编译 + 内嵌资源正面确认）
+
+### ⚠️ 待处理（X-Y，本批新增）
+
+- **X（P2 Web 静态资源缺长缓存头，每次刷新重下载 bundle）**：`serve_embedded_path` 对 HTML 文档正确设 `Cache-Control: no-store, no-cache, must-revalidate`（入口要最新），但对**非 HTML 静态资源（带 content-hash 的 JS/CSS/字体/图片）完全未设 Cache-Control / ETag / max-age**（已 grep 确认 ui_assets.rs 无 max-age/immutable/etag）。前端构建（Vite/Next）产物文件名含 content hash 属**不可变资源**，本应设 `Cache-Control: public, max-age=31536000, immutable` 让浏览器永久强缓存。当前缺失导致 Web 模式（codexmanager-web 浏览器访问）下每次打开/刷新页面，浏览器只能启发式缓存或发条件请求，可能重新下载全部 JS/CSS bundle（数 MB），增加加载延迟与服务端静态资源请求量。见 [ui_assets.rs:121](crates/web/src/ui_assets.rs:121) 与 [ui_assets.rs:175](crates/web/src/ui_assets.rs:175)。优化：在 serve_embedded_path 对非 HTML 资源（或文件名匹配 hash 模式的资源）追加 `Cache-Control: public, max-age=31536000, immutable`；HTML 保持 no-store。桌面端 Tauri 本地加载不受影响，Web 模式收益明显。
+
+- **Y（P3 插件 Rhai 脚本每次执行重编译 AST）**：`execute_plugin_script` 每次任务执行都 `Engine::new()` + 注册全部 fn + `engine.compile(&plugin.script_body)` 重新编译脚本为 AST。见 [runtime.rs:180](crates/service/src/plugin/runtime.rs:180)。插件是低频调度任务（按 interval_seconds，通常分钟/小时级），重编译开销在低频下可接受，故 P3。优化（可选）：缓存 `(plugin_id, script_body_hash) → AST`（Rhai AST 与 Engine 分离，可复用），仅当脚本变更才重编译；注意注册 fn 依赖 permissions 快照，Engine 本身不缓存、仅缓存 AST。仅高频执行插件时才有意义，先记录。
+
+### ✅ 正面确认（本批）
+
+- **Web 静态资源编译期内嵌，零磁盘 IO**：`include_dir!("$OUT_DIR/codexmanager-web-dist")` 把前端 dist 编译进二进制，`read_asset_bytes` 返回 `&'static [u8]`（指向二进制内存），运行时不读磁盘。见 [embedded_ui.rs:5](crates/web/src/embedded_ui.rs:5)。
+- **HTML 文档正确禁缓存**：HTML 入口设 `no-store, no-cache, must-revalidate` + Pragma + Expires，确保前端版本更新后浏览器拿到最新入口（再由入口引用 hashed 资源）。见 [ui_assets.rs:175](crates/web/src/ui_assets.rs:175)。设计正确，X 项是其互补（HTML 不缓存 + 静态资源强缓存才是完整方案）。
+- **路径遍历防护**：`serve_embedded_path` 拒绝含 `..` 的路径（`raw.contains("..")` → BAD_REQUEST）。见 [ui_assets.rs:123](crates/web/src/ui_assets.rs:123)。
+
+### 审计方法论备注（第十三批）
+
+本批审计插件 Rhai 执行与 Web 静态资源服务，发现静态资源缓存头缺失（X，P2，Web 模式前端加载）与 Rhai AST 重编译（Y，P3，低频）。内嵌资源、HTML 禁缓存、路径遍历防护均确认良好。X 项与 HTML no-store 互补——构成"入口不缓存 + 不可变资源强缓存"的标准前端缓存策略，当前只做了前半。A–Y 共 25 类优化点。
+
