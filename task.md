@@ -906,3 +906,10 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 #### ✅ 第十二批正面确认
 - **QQ** 无明文 token 日志：未发现 `log::*!` 直接打印 access_token/refresh_token/password/api_key；id_token 仅用于 claims 解析与导入导出数据处理，非日志输出。
 - **RR** auth 流程 URL 已脱敏：OAuth token 交换等 auth_tokens 路径的请求错误均经 `redact_sensitive_error_url` 处理后才转字符串。
+
+### 2026-06-14 持续架构审计第十三批（缓存失效风暴）
+
+- **SS（P1，缓存失效风暴 thundering herd）**：候选账号缓存重建无 single-flight 保护。`collect_gateway_candidates_with_low_quota_mode()`（见 [selection.rs:109](crates/service/src/gateway/routing/selection.rs:109)）在 `read_candidate_cache` 未命中后直接 `collect_gateway_candidates_uncached()` 查 DB 重建并写回，无并发去重。缓存失效有两个触发源：TTL（默认 5s，`DEFAULT_CANDIDATE_CACHE_TTL_MS`）到期；账号状态更新调 `invalidate_candidate_cache()`（见 [account_status.rs:64](crates/service/src/account/account_status.rs:64)，用量刷新/请求成败/token refresh 多场景触发）。高 RPS（如 Codex CLI 高频）下，每次失效瞬间所有并发请求同时 read-miss → 各自执行 `list_gateway_candidates()`（accounts+tokens）+ `load_usage_snapshots_for_candidates()`（usage snapshots）多表重建，造成 DB 查询风暴与 CPU 峰值。建议：single-flight（重建 Mutex/原子门，同一时刻仅一个请求重建，其余等待新值）+ stale-while-revalidate（失效后短暂复用旧值直到新值就绪），把 N 次并发重建降为 1 次。
+
+#### ✅ 第十三批正面确认
+- **TT** 候选缓存 TTL 已合理：默认 5s（前期已从 500ms 上调），账号状态变化主动失效，读写用 atomic TTL + 锁保护缓存本身；唯一缺口是失效后的重建并发去重（SS）。
