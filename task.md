@@ -913,3 +913,13 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 #### ✅ 第十三批正面确认
 - **TT** 候选缓存 TTL 已合理：默认 5s（前期已从 500ms 上调），账号状态变化主动失效，读写用 atomic TTL + 锁保护缓存本身；唯一缺口是失效后的重建并发去重（SS）。
+
+### 2026-06-14 持续架构审计第十四批（SSE 流式背压 — 全面正面确认）
+
+本批审计流式响应是否存在内存累积/无界堆积，结论：**背压实现教科书级，无可优化项**，三层防护均到位，记录以避免后续误判此关键路径为问题点。
+
+#### ✅ 正面确认
+- **UU** Passthrough 流式边读边写边 flush：`write_streaming_chunked_response`（见 [delivery.rs:234](crates/service/src/gateway/observability/http_bridge/delivery.rs:234)）用固定 8KB buffer 循环 read→write_all→flush，chunked 编码，不累积全量 body。
+- **VV** 适配器转换逐帧推进不累积：`AnthropicSseReader`/`GeminiSseReader`/`ChatCompletionsFromResponsesSseReader` 的 `read()`（见 [anthropic.rs:617](crates/service/src/gateway/observability/http_bridge/stream_readers/anthropic.rs:617)）从 `out_cursor` 拉字节，读空才 `next_chunk()` 取下一上游帧并 `out_cursor = Cursor::new(next)` 替换（旧帧释放），内存只持当前帧 + 单帧转换输出。
+- **WW** 上游 pump 有界 channel 形成背压：`UpstreamSseFramePump::from_reader`（见 [common.rs](crates/service/src/gateway/observability/http_bridge/stream_readers/common.rs:87)）用 `mpsc::sync_channel(UPSTREAM_SSE_FRAME_CHANNEL_CAPACITY)`，pump 线程 send 帧到有界 channel，消费者慢时 send 阻塞，天然背压防止内存堆积。
+- **XX** read_all_bytes 仅非流式：delivery.rs 中所有 `read_all_bytes()` 调用均在 `if !is_stream` 分支（非流式才整体读入做 usage 解析/错误提取），流式分支走逐帧 reader。
