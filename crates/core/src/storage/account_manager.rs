@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rusqlite::{params, params_from_iter, OptionalExtension, Result, Row};
+use rusqlite::{params, params_from_iter, types::Value, OptionalExtension, Result, Row};
 
 use super::{
     now_ts, sqlite_placeholders, sqlite_text_params, ApiKeyOwner, AppProject, AppUser,
@@ -367,6 +367,55 @@ impl Storage {
                 map_app_wallet,
             )
             .optional()
+    }
+
+    /// 按 owner_id 批量查询同一 owner_kind 下的钱包，一次 IN 查询消除 N+1。
+    ///
+    /// 行为与逐个调用 `find_wallet_by_owner` 完全等价：返回的 HashMap 仅包含
+    /// 实际存在的钱包，key 为 owner_id。owner_ids 为空时直接返回空表，不发 SQL。
+    /// 受 SQLite 占位符上限约束，按 500 一批分批查询。
+    pub fn find_wallets_by_owner_ids(
+        &self,
+        owner_kind: &str,
+        owner_ids: &[String],
+    ) -> Result<HashMap<String, AppWallet>> {
+        // 去重，避免重复 id 浪费占位符
+        let mut ids = owner_ids
+            .iter()
+            .map(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<String>>();
+        ids.sort();
+        ids.dedup();
+
+        let mut wallets = HashMap::new();
+        if ids.is_empty() {
+            return Ok(wallets);
+        }
+
+        // SQLite 单条语句占位符上限默认 999，留足余量按 500 分批
+        const BATCH_SIZE: usize = 500;
+        for chunk in ids.chunks(BATCH_SIZE) {
+            let placeholders = sqlite_placeholders(chunk.len());
+            let sql = format!(
+                "SELECT id, owner_kind, owner_id, balance_credit_micros, frozen_credit_micros,
+                        status, created_at, updated_at
+                 FROM app_wallets
+                 WHERE owner_kind = ? AND owner_id IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql)?;
+            // 参数顺序：owner_kind 在前，随后是本批 owner_id
+            let mut params = Vec::with_capacity(chunk.len() + 1);
+            params.push(Value::Text(owner_kind.to_string()));
+            params.extend(sqlite_text_params(chunk));
+            let mut rows = stmt.query(params_from_iter(params.iter()))?;
+            while let Some(row) = rows.next()? {
+                let wallet = map_app_wallet(row)?;
+                wallets.insert(wallet.owner_id.clone(), wallet);
+            }
+        }
+        Ok(wallets)
     }
 
     pub fn list_wallets(&self) -> Result<Vec<AppWallet>> {

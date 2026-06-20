@@ -417,16 +417,10 @@ fn wallets_for_user_ids(
     storage: &codexmanager_core::storage::Storage,
     user_ids: &[String],
 ) -> Result<HashMap<String, codexmanager_core::storage::AppWallet>, String> {
-    let mut wallets = HashMap::new();
-    for user_id in user_ids {
-        if let Some(wallet) = storage
-            .find_wallet_by_owner("user", user_id)
-            .map_err(|err| format!("read app wallet failed: {err}"))?
-        {
-            wallets.insert(wallet.owner_id.clone(), wallet);
-        }
-    }
-    Ok(wallets)
+    // 一次批量 IN 查询替代逐个 user_id 单查，消除 N+1
+    storage
+        .find_wallets_by_owner_ids("user", user_ids)
+        .map_err(|err| format!("read app wallet failed: {err}"))
 }
 
 fn account_source_metadata(

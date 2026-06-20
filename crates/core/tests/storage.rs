@@ -2645,3 +2645,50 @@ fn storage_can_roundtrip_api_key_quota_limit_and_usage() {
         None
     );
 }
+
+/// 函数 `find_wallets_by_owner_ids_batches_and_isolates_owner_kind`
+///
+/// 作者: Claude-Opus
+///
+/// 时间: 2026-06-21
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn find_wallets_by_owner_ids_batches_and_isolates_owner_kind() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    // 准备 user 钱包 alice / bob（bob 不在查询列表里，验证部分命中）
+    storage
+        .ensure_wallet_for_owner("wallet-alice", "user", "alice")
+        .expect("ensure alice wallet");
+    storage
+        .ensure_wallet_for_owner("wallet-bob", "user", "bob")
+        .expect("ensure bob wallet");
+    // 同名 owner_id 但 owner_kind=project，验证 owner_kind 隔离
+    storage
+        .ensure_wallet_for_owner("wallet-alice-project", "project", "alice")
+        .expect("ensure project wallet");
+
+    // 空输入返回空表
+    let empty = storage
+        .find_wallets_by_owner_ids("user", &[])
+        .expect("empty owner ids");
+    assert!(empty.is_empty());
+
+    // 多 id 命中部分：alice 存在、carol 不存在 -> 只返回 alice
+    let ids = vec!["alice".to_string(), "carol".to_string()];
+    let wallets = storage
+        .find_wallets_by_owner_ids("user", &ids)
+        .expect("batch lookup");
+    assert_eq!(wallets.len(), 1);
+    let alice = wallets.get("alice").expect("alice wallet present");
+    // 必须命中 user 钱包，而非同名 project 钱包（owner_kind 隔离）
+    assert_eq!(alice.id, "wallet-alice");
+    assert_eq!(alice.owner_kind, "user");
+    assert!(!wallets.contains_key("carol"));
+}
