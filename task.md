@@ -942,3 +942,8 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - ✅ DDD 来源排行查询健康：`summarize_request_token_stats_source_ranking_between` 外层 `WHERE r.created_at` 裸列走 request_logs created_at 索引先缩小时间窗口，`source_id_expr` 是 request_logs 列的 CASE 表达式（actual_source_kind/actual_source_id/account_id/initial_aggregate_api_id），GROUP BY 表达式为聚合归类固有成本，无 BBB 那样的全表扫子查询。见 [request_token_stats.rs:140](crates/core/src/storage/request_token_stats.rs:140)。
 - ✅ EEE 成员 by_key_ids 聚合走索引：`summarize_request_token_stats_by_key_ids` 两路 UNION——`request_token_stats WHERE key_id IN(..)` 走 `idx_request_token_stats_key_id_created_at`，`request_token_stat_rollups WHERE key_id IN(..)` 走主键前缀 `(key_id,account_id,model)` + 独立 `idx_..key_id`，GROUP BY 在已过滤小子集上。见 [request_token_stats.rs:414](crates/core/src/storage/request_token_stats.rs:414)。
 - 📌 索引维度小结：dashboard CPU 三大根因已定位齐全——D（缺 daily cache，缓存层）、YY（COALESCE 致 created_at 索引失效，聚合查询层）、BBB（账单流水缺 request_log_id 索引，owner 子查询层）。其余排行/聚合查询索引命中良好，索引层深挖收敛。建议 D/YY/BBB 合并为"dashboard 聚合性能"专题实施。
+
+### 第十八批：锁健壮性（裸 lock unwrap vs 容错封装）
+
+- ⚠️ FFF（P3，健壮性）：流式 usage_collector 有 4 处裸 `.lock().expect("usage lock")`，见 [anthropic.rs:714](crates/service/src/gateway/observability/http_bridge/stream_readers/anthropic.rs:714)、[responses_from_anthropic.rs:682/716/750](crates/service/src/gateway/observability/http_bridge/stream_readers/responses_from_anthropic.rs:682)。项目已有 `lock_utils::read_recover/write_recover` poison 容错封装却未在此复用；若持锁线程 panic 致锁中毒，后续同 collector 的 expect 会连锁 panic。建议改用容错读取或 `lock().unwrap_or_else(|e| e.into_inner())` 模式。
+- ✅ GGG：除上述 4 处外，gateway/storage 共享状态锁已普遍走 `read_recover/write_recover` 容错封装（见 lock_utils.rs），poison 不致全局崩溃。
