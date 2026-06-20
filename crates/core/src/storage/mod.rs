@@ -1099,6 +1099,11 @@ impl Storage {
         self.apply_compat_migration("071_observability_retention_compaction", |s| {
             s.prepare_observability_storage_for_existing_databases()
         })?;
+        self.apply_sql_or_compat_migration(
+            "072_tokens_consecutive_failure_count",
+            include_str!("../../migrations/072_tokens_consecutive_failure_count.sql"),
+            |s| s.ensure_token_consecutive_failure_count_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_supplier_model_tables()?;

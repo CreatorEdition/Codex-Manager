@@ -92,6 +92,31 @@ impl RefreshTokenAuthErrorReason {
             Self::Unknown401 => REFRESH_TOKEN_UNKNOWN_MESSAGE,
         }
     }
+
+    /// 函数 `is_permanent`
+    ///
+    /// 中文注释：判定该 refresh-token 鉴权失败原因是否为“永久无效”。
+    /// 永久无效（Reused/Invalidated/Expired/InvalidGrant/AppSessionTerminated）意味着
+    /// 当前 refresh token 已不可能再换出有效 access token，账号需重新登录；
+    /// 这类失败应施加长冷却并退出服务池，避免反复进入轮询。
+    /// 而 `Unknown401` 归为非永久（临时），因为它可能源于服务端抖动或身份服务
+    /// 临时异常，应走短退避 + 指数增长重试，多次确认后才升级。
+    ///
+    /// # 参数
+    /// - self: 失败原因枚举值
+    ///
+    /// # 返回
+    /// 永久无效返回 true，临时失败返回 false
+    pub(crate) fn is_permanent(self) -> bool {
+        match self {
+            Self::Expired
+            | Self::Reused
+            | Self::Invalidated
+            | Self::InvalidGrant
+            | Self::AppSessionTerminated => true,
+            Self::Unknown401 => false,
+        }
+    }
 }
 #[derive(serde::Deserialize)]
 pub(crate) struct RefreshTokenResponse {

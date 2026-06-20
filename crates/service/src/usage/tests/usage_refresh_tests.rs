@@ -1,10 +1,11 @@
 use super::{
     clear_pending_usage_refresh_tasks_for_tests, enqueue_usage_refresh_with_worker,
     next_usage_poll_cursor, notify_usage_refresh_completed, reset_usage_poll_cursor_for_tests,
-    resolve_token_refresh_issuer, run_token_refresh_task, set_usage_refresh_completed_handler,
-    should_retry_usage_refresh_with_token, subscribe_usage_refresh_completed,
-    token_refresh_access_exp_cutoff, token_refresh_due_cutoff, token_refresh_failure_cooldown_secs,
-    token_refresh_schedule, usage_poll_batch_indices,
+    resolve_token_refresh_issuer, run_token_refresh_task, schedule_token_refresh_failure_retry,
+    set_usage_refresh_completed_handler, should_retry_usage_refresh_with_token,
+    subscribe_usage_refresh_completed, token_refresh_access_exp_cutoff, token_refresh_due_cutoff,
+    token_refresh_failure_cooldown_secs, token_refresh_schedule,
+    token_refresh_transient_backoff_secs, usage_poll_batch_indices,
 };
 use crate::usage_scheduler::DEFAULT_USAGE_POLL_INTERVAL_SECS;
 use codexmanager_core::storage::{now_ts, Account, Storage, Token};
@@ -329,6 +330,173 @@ fn default_token_refresh_failure_cooldown_covers_usage_poll_interval() {
     if let Some(previous) = previous {
         std::env::set_var("CODEXMANAGER_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS", previous);
     }
+}
+
+/// 函数 `transient_backoff_follows_exponential_sequence`
+///
+/// 中文注释：验证临时类失败 per-account 指数退避数列（默认 base=60s、封顶 1800s）：
+/// n=1→60、n=2→120、n=3→240、n=4→480、n=5→960、n=6→1800（首次封顶）、n>=7 维持 1800。
+/// 同时校验 n<=0 按首次（base）处理。
+#[test]
+fn transient_backoff_follows_exponential_sequence() {
+    let _guard = crate::test_env_guard();
+    for key in [
+        "CODEXMANAGER_TOKEN_REFRESH_TRANSIENT_BACKOFF_BASE_SECS",
+        "CODEXMANAGER_TOKEN_REFRESH_TRANSIENT_BACKOFF_MAX_SECS",
+    ] {
+        std::env::remove_var(key);
+    }
+
+    // 默认 base=60、cap=1800：60,120,240,480,960,1800(封顶),1800...
+    let expected = [
+        (1_i64, 60_u64),
+        (2, 120),
+        (3, 240),
+        (4, 480),
+        (5, 960),
+        (6, 1_800),
+        (7, 1_800),
+        (20, 1_800),
+    ];
+    for (failure_count, want) in expected {
+        assert_eq!(
+            token_refresh_transient_backoff_secs(failure_count),
+            want,
+            "failure_count={failure_count} 的退避应为 {want}s"
+        );
+    }
+    // n<=0 视为首次，取 base。
+    assert_eq!(token_refresh_transient_backoff_secs(0), 60);
+    assert_eq!(token_refresh_transient_backoff_secs(-5), 60);
+}
+
+/// 函数 `schedule_failure_retry_transient_uses_exponential_backoff`
+///
+/// 中文注释：临时失败（网络错误，分类器返回 None）应递增连续失败计数并按指数退避写
+/// `next_refresh_at`，而非一刀切 6 小时。连续两次失败后计数应为 2，退避应为 120s。
+#[test]
+fn schedule_failure_retry_transient_uses_exponential_backoff() {
+    let _guard = crate::test_env_guard();
+    for key in [
+        "CODEXMANAGER_TOKEN_REFRESH_TRANSIENT_BACKOFF_BASE_SECS",
+        "CODEXMANAGER_TOKEN_REFRESH_TRANSIENT_BACKOFF_MAX_SECS",
+    ] {
+        std::env::remove_var(key);
+    }
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init");
+    let now = now_ts();
+    let account_id = "acc-transient-backoff";
+    insert_account_and_token(&storage, account_id, now);
+
+    // 网络类错误：分类器返回 None，视为临时失败。
+    let transient_err = "refresh token network error: connection reset by peer";
+
+    schedule_token_refresh_failure_retry(&storage, account_id, now, transient_err);
+    assert_eq!(
+        storage
+            .token_consecutive_failure_count(account_id)
+            .expect("read count"),
+        1
+    );
+    assert_eq!(read_next_refresh_at(&storage, account_id), Some(now + 60));
+
+    schedule_token_refresh_failure_retry(&storage, account_id, now, transient_err);
+    assert_eq!(
+        storage
+            .token_consecutive_failure_count(account_id)
+            .expect("read count"),
+        2
+    );
+    assert_eq!(read_next_refresh_at(&storage, account_id), Some(now + 120));
+}
+
+/// 函数 `schedule_failure_retry_permanent_uses_long_cooldown`
+///
+/// 中文注释：永久无效失败（reused 等）应施加长冷却（默认 6 小时），且不依赖失败计数、
+/// 反而把计数清零；与临时失败的短退避形成明确分流。
+#[test]
+fn schedule_failure_retry_permanent_uses_long_cooldown() {
+    let _guard = crate::test_env_guard();
+    std::env::remove_var("CODEXMANAGER_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS");
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init");
+    let now = now_ts();
+    let account_id = "acc-permanent-cooldown";
+    insert_account_and_token(&storage, account_id, now);
+
+    // 先制造一次临时失败，确认计数被永久失败清零。
+    schedule_token_refresh_failure_retry(
+        &storage,
+        account_id,
+        now,
+        "refresh token network error: timeout",
+    );
+    assert_eq!(
+        storage
+            .token_consecutive_failure_count(account_id)
+            .expect("read count"),
+        1
+    );
+
+    // 永久无效：refresh token reused。使用生产路径真实错误串格式
+    // （format_refresh_token_status_error 会前缀 "refresh token failed with status 401: "），
+    // 否则消息分类器无法识别为 401 类，会误判为临时失败。
+    let permanent_err = "refresh token failed with status 401: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.";
+    schedule_token_refresh_failure_retry(&storage, account_id, now, permanent_err);
+
+    let cooldown = token_refresh_failure_cooldown_secs() as i64;
+    assert_eq!(
+        read_next_refresh_at(&storage, account_id),
+        Some(now + cooldown),
+        "永久失败应施加长冷却"
+    );
+    assert_eq!(
+        storage
+            .token_consecutive_failure_count(account_id)
+            .expect("read count"),
+        0,
+        "永久失败应清零连续失败计数"
+    );
+}
+
+/// 函数 `insert_account_and_token`
+///
+/// 中文注释：测试辅助——插入账号与对应 token，便于失败退避用例复用。
+fn insert_account_and_token(storage: &Storage, account_id: &str, now: i64) {
+    storage
+        .insert_account(&Account {
+            id: account_id.to_string(),
+            label: account_id.to_string(),
+            issuer: "issuer".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        })
+        .expect("insert account");
+    storage
+        .insert_token(&Token {
+            account_id: account_id.to_string(),
+            id_token: "id".to_string(),
+            access_token: "access".to_string(),
+            refresh_token: "refresh".to_string(),
+            api_key_access_token: None,
+            last_refresh: now,
+        })
+        .expect("insert token");
+}
+
+/// 函数 `read_next_refresh_at`
+///
+/// 中文注释：测试辅助——读取 tokens.next_refresh_at，用于断言退避写入结果。
+fn read_next_refresh_at(storage: &Storage, account_id: &str) -> Option<i64> {
+    storage
+        .token_next_refresh_at(account_id)
+        .expect("read next_refresh_at")
 }
 
 /// 函数 `due_cutoff_covers_boundary_when_poll_interval_matches_refresh_ahead`

@@ -1,4 +1,4 @@
-use rusqlite::{params_from_iter, Result, Row};
+use rusqlite::{params_from_iter, OptionalExtension, Result, Row};
 
 use super::{sqlite_placeholders, sqlite_text_params, Storage, Token};
 
@@ -156,6 +156,92 @@ impl Storage {
             (next_refresh_at, account_id),
         )?;
         Ok(())
+    }
+
+    /// 函数 `increment_token_consecutive_failure_count`
+    ///
+    /// 中文注释：将指定账号的连续刷新失败计数自增 1，并返回自增后的最新值。
+    /// 用于临时故障（网络/5xx/超时/Unknown401）的 per-account 指数退避：
+    /// 调用方据返回值计算 `next_refresh_at = now + base * 2^min(n-1, cap)`。
+    /// 使用 SQLite 原子 `count = count + 1` 写法避免“读-改-写”竞态。
+    ///
+    /// # 参数
+    /// - account_id: 账号 ID
+    ///
+    /// # 返回
+    /// 自增后的连续失败计数
+    pub fn increment_token_consecutive_failure_count(&self, account_id: &str) -> Result<i64> {
+        self.conn.execute(
+            "UPDATE tokens
+             SET consecutive_failure_count = consecutive_failure_count + 1
+             WHERE account_id = ?1",
+            (account_id,),
+        )?;
+        self.token_consecutive_failure_count(account_id)
+    }
+
+    /// 函数 `reset_token_consecutive_failure_count`
+    ///
+    /// 中文注释：将指定账号的连续刷新失败计数清零。任意一次刷新成功后调用，
+    /// 使下次失败重新从最短退避起步。对不存在的账号是无副作用的空更新。
+    ///
+    /// # 参数
+    /// - account_id: 账号 ID
+    ///
+    /// # 返回
+    /// 无
+    pub fn reset_token_consecutive_failure_count(&self, account_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE tokens
+             SET consecutive_failure_count = 0
+             WHERE account_id = ?1",
+            (account_id,),
+        )?;
+        Ok(())
+    }
+
+    /// 函数 `token_consecutive_failure_count`
+    ///
+    /// 中文注释：读取指定账号当前的连续刷新失败计数。账号不存在时返回 0，
+    /// 以便调用方按“尚无失败”处理。
+    ///
+    /// # 参数
+    /// - account_id: 账号 ID
+    ///
+    /// # 返回
+    /// 当前连续失败计数（不存在则为 0）
+    pub fn token_consecutive_failure_count(&self, account_id: &str) -> Result<i64> {
+        let value = self
+            .conn
+            .query_row(
+                "SELECT consecutive_failure_count FROM tokens WHERE account_id = ?1",
+                [account_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        Ok(value.unwrap_or(0))
+    }
+
+    /// 函数 `token_next_refresh_at`
+    ///
+    /// 中文注释：读取指定账号当前的 `next_refresh_at`（下次刷新计划时间戳，秒）。
+    /// 账号不存在或该列为 NULL 时返回 None。主要供失败退避逻辑的测试与诊断使用。
+    ///
+    /// # 参数
+    /// - account_id: 账号 ID
+    ///
+    /// # 返回
+    /// 下次刷新计划时间戳；不存在或未设置返回 None
+    pub fn token_next_refresh_at(&self, account_id: &str) -> Result<Option<i64>> {
+        let value = self
+            .conn
+            .query_row(
+                "SELECT next_refresh_at FROM tokens WHERE account_id = ?1",
+                [account_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .optional()?;
+        Ok(value.flatten())
     }
 
     /// 函数 `touch_token_refresh_attempt`
@@ -321,6 +407,26 @@ impl Storage {
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tokens_next_refresh_at ON tokens(next_refresh_at)",
             [],
+        )?;
+        Ok(())
+    }
+
+    /// 函数 `ensure_token_consecutive_failure_count_column`
+    ///
+    /// 中文注释：兼容旧库的回退路径。当 072 迁移 SQL 因历史库已存在该列而冲突时，
+    /// 通过 `ensure_column` 幂等补列，避免迁移在“重复列”上失败。
+    /// SQLite ADD COLUMN 携带 NOT NULL 时必须带 DEFAULT，故此处默认 0。
+    ///
+    /// # 参数
+    /// - super: 参数 super
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub(super) fn ensure_token_consecutive_failure_count_column(&self) -> Result<()> {
+        self.ensure_column(
+            "tokens",
+            "consecutive_failure_count",
+            "INTEGER NOT NULL DEFAULT 0",
         )?;
         Ok(())
     }

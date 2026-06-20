@@ -440,6 +440,31 @@ fn refresh_token_auth_error_reason_from_message_tracks_canonical_messages() {
     );
 }
 
+/// 函数 `refresh_token_auth_error_reason_is_permanent_classifies_correctly`
+///
+/// 中文注释：验证 `is_permanent` 分类——永久无效类（reused/invalidated/expired/
+/// invalid_grant/app_session_terminated）返回 true；Unknown401 属临时类返回 false。
+/// 这是 O 项失败分流冷却的核心判定。
+#[test]
+fn refresh_token_auth_error_reason_is_permanent_classifies_correctly() {
+    use super::RefreshTokenAuthErrorReason::*;
+    // 永久无效：全部应判定为 true。
+    for reason in [
+        Expired,
+        Reused,
+        Invalidated,
+        InvalidGrant,
+        AppSessionTerminated,
+    ] {
+        assert!(reason.is_permanent(), "{reason:?} 应被判定为永久无效");
+    }
+    // 临时类：Unknown401 应判定为 false（非永久）。
+    assert!(
+        !Unknown401.is_permanent(),
+        "Unknown401 属临时失败，不应被判定为永久"
+    );
+}
+
 /// 函数 `usage_http_default_headers_follow_gateway_runtime_profile`
 ///
 /// 作者: gaohongshun

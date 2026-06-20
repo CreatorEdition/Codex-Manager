@@ -14,7 +14,9 @@ use crate::usage_account_meta::{
     build_workspace_map_from_accounts, clean_header_value, derive_account_meta, patch_account_meta,
     patch_account_meta_cached, workspace_header_for_account,
 };
-use crate::usage_http::{fetch_account_subscription, fetch_usage_snapshot};
+use crate::usage_http::{
+    fetch_account_subscription, fetch_usage_snapshot, refresh_token_auth_error_reason_from_message,
+};
 use crate::usage_keepalive::{is_keepalive_error_ignorable, run_gateway_keepalive_once};
 use crate::usage_scheduler::{
     parse_interval_secs, DEFAULT_GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_SECS,
@@ -71,6 +73,12 @@ const ENV_WARMUP_CRON_EXPRESSION: &str = "CODEXMANAGER_WARMUP_CRON_EXPRESSION";
 const ENV_TOKEN_REFRESH_BATCH_LIMIT: &str = "CODEXMANAGER_TOKEN_REFRESH_BATCH_LIMIT";
 const ENV_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS: &str =
     "CODEXMANAGER_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS";
+// 中文注释：临时类失败（网络/5xx/超时/Unknown401）的 per-account 指数退避基数与封顶 env 覆盖键，
+// 命名沿用既有 CODEXMANAGER_TOKEN_REFRESH_* 前缀风格。
+const ENV_TOKEN_REFRESH_TRANSIENT_BACKOFF_BASE_SECS: &str =
+    "CODEXMANAGER_TOKEN_REFRESH_TRANSIENT_BACKOFF_BASE_SECS";
+const ENV_TOKEN_REFRESH_TRANSIENT_BACKOFF_MAX_SECS: &str =
+    "CODEXMANAGER_TOKEN_REFRESH_TRANSIENT_BACKOFF_MAX_SECS";
 const COMMON_POLL_JITTER_ENV: &str = "CODEXMANAGER_POLL_JITTER_SECS";
 const COMMON_POLL_FAILURE_BACKOFF_MAX_ENV: &str = "CODEXMANAGER_POLL_FAILURE_BACKOFF_MAX_SECS";
 const USAGE_POLL_JITTER_ENV: &str = "CODEXMANAGER_USAGE_POLL_JITTER_SECS";
@@ -94,6 +102,11 @@ const DEFAULT_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 60;
 const MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 10;
 const TOKEN_REFRESH_FAILURE_BACKOFF_MAX_SECS: u64 = 300;
 const DEFAULT_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS: u64 = 21_600;
+// 中文注释：临时类失败 per-account 指数退避默认参数。
+// base=60s（1 分钟）起步，按 base * 2^min(n-1, cap_exp) 增长；
+// 封顶 1800s（30 分钟），避免临时抖动账号被一刀切压 6 小时。
+const DEFAULT_TOKEN_REFRESH_TRANSIENT_BACKOFF_BASE_SECS: u64 = 60;
+const DEFAULT_TOKEN_REFRESH_TRANSIENT_BACKOFF_MAX_SECS: u64 = 1_800;
 const TOKEN_REFRESH_LOOKAHEAD_BUFFER_SECS: u64 = 60;
 const TOKEN_REFRESH_FALLBACK_AGE_SECS: i64 = 2700;
 const DEFAULT_TOKEN_REFRESH_BATCH_LIMIT: usize = 2048;
@@ -777,9 +790,92 @@ fn token_refresh_failure_cooldown_secs() -> u64 {
         .max(MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS)
 }
 
-fn schedule_token_refresh_failure_retry(storage: &Storage, account_id: &str, now: i64) {
-    let cooldown = i64::try_from(token_refresh_failure_cooldown_secs()).unwrap_or(i64::MAX);
-    let next_refresh_at = now.saturating_add(cooldown);
+/// 函数 `token_refresh_transient_backoff_base_secs`
+///
+/// 中文注释：读取临时类失败指数退避的基数（秒），支持 env 覆盖；
+/// 下限收敛到 `MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS`，避免比轮询间隔还短导致空转。
+fn token_refresh_transient_backoff_base_secs() -> u64 {
+    std::env::var(ENV_TOKEN_REFRESH_TRANSIENT_BACKOFF_BASE_SECS)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(DEFAULT_TOKEN_REFRESH_TRANSIENT_BACKOFF_BASE_SECS)
+        .max(MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS)
+}
+
+/// 函数 `token_refresh_transient_backoff_max_secs`
+///
+/// 中文注释：读取临时类失败指数退避的封顶（秒），支持 env 覆盖；
+/// 封顶不得小于基数，否则退避无法增长。
+fn token_refresh_transient_backoff_max_secs() -> u64 {
+    let base = token_refresh_transient_backoff_base_secs();
+    std::env::var(ENV_TOKEN_REFRESH_TRANSIENT_BACKOFF_MAX_SECS)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(DEFAULT_TOKEN_REFRESH_TRANSIENT_BACKOFF_MAX_SECS)
+        .max(base)
+}
+
+/// 函数 `token_refresh_transient_backoff_secs`
+///
+/// 中文注释：按连续失败次数计算 per-account 指数退避秒数。
+/// 数列：第 1 次失败（failure_count=1）= base，之后每多失败一次翻倍，封顶 max。
+/// 即 `min(base * 2^(failure_count-1), max)`；failure_count<=0 视为首次（base）。
+/// 使用饱和位移避免溢出。
+///
+/// # 参数
+/// - failure_count: 连续失败次数（递增后的最新值）
+///
+/// # 返回
+/// 本次退避秒数
+fn token_refresh_transient_backoff_secs(failure_count: i64) -> u64 {
+    let base = token_refresh_transient_backoff_base_secs();
+    let max = token_refresh_transient_backoff_max_secs();
+    // 中文注释：failure_count=1 对应指数 0（即 base），故减 1；非正数按首次处理。
+    let exponent = failure_count.max(1).saturating_sub(1).min(63) as u32;
+    let scaled = base.checked_shl(exponent).unwrap_or(u64::MAX);
+    scaled.min(max)
+}
+
+/// 函数 `schedule_token_refresh_failure_retry`
+///
+/// 中文注释：按失败性质分流计算 token 刷新的下次重试时间（per-account，写 tokens.next_refresh_at）。
+/// - 永久无效（reused/invalidated/expired/invalid_grant/app_session_terminated）：
+///   施加长冷却（`token_refresh_failure_cooldown_secs`，默认 6 小时），不依赖失败计数；
+///   这类账号已被 `mark_account_unavailable_for_auth_error` 置不可用，长冷却避免反复进轮询。
+/// - 临时失败（Unknown401，以及分类器返回 None 的网络/5xx/超时）：连续失败计数 +1，
+///   按指数退避 `base * 2^(n-1)`（封顶 max）作为下次重试间隔，让服务端抖动快速恢复。
+///
+/// # 参数
+/// - storage: 存储句柄
+/// - account_id: 账号 ID
+/// - now: 当前时间戳（秒）
+/// - err: 刷新失败的错误文本，用于分类
+///
+/// # 返回
+/// 无
+fn schedule_token_refresh_failure_retry(storage: &Storage, account_id: &str, now: i64, err: &str) {
+    let is_permanent = refresh_token_auth_error_reason_from_message(err)
+        .map(|reason| reason.is_permanent())
+        .unwrap_or(false);
+
+    if is_permanent {
+        // 中文注释：永久无效走长冷却；同时清零失败计数，避免后续若被人工恢复时
+        // 仍残留历史临时计数导致退避错乱。
+        let _ = storage.reset_token_consecutive_failure_count(account_id);
+        let cooldown = i64::try_from(token_refresh_failure_cooldown_secs()).unwrap_or(i64::MAX);
+        let next_refresh_at = now.saturating_add(cooldown);
+        let _ = storage.update_token_next_refresh_at(account_id, Some(next_refresh_at));
+        return;
+    }
+
+    // 中文注释：临时失败，递增计数并按指数退避推迟下次刷新。
+    let failure_count = storage
+        .increment_token_consecutive_failure_count(account_id)
+        .unwrap_or(1);
+    let backoff = token_refresh_transient_backoff_secs(failure_count);
+    let next_refresh_at = now.saturating_add(i64::try_from(backoff).unwrap_or(i64::MAX));
     let _ = storage.update_token_next_refresh_at(account_id, Some(next_refresh_at));
 }
 
@@ -929,10 +1025,14 @@ fn run_token_refresh_task(
         client_id,
         token_refresh_ahead_secs(),
     ) {
-        Ok(_) => true,
+        Ok(_) => {
+            // 中文注释：刷新成功，清零连续失败计数，使下次失败重新从最短退避起步。
+            let _ = storage.reset_token_consecutive_failure_count(&token.account_id);
+            true
+        }
         Err(err) => {
             let _ = mark_account_unavailable_for_auth_error(storage, &token.account_id, &err);
-            schedule_token_refresh_failure_retry(storage, &token.account_id, now_ts());
+            schedule_token_refresh_failure_retry(storage, &token.account_id, now_ts(), &err);
             log::warn!(
                 "token refresh polling failed: account_id={} err={}",
                 token.account_id,
