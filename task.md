@@ -885,3 +885,10 @@ fn schedule_token_refresh_failure_retry(storage, account_id, now) {
 task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token 刷新失败统一冷却不分类型）、KK（P2 错误分类过粗），二者构成"错误分类 → 分层退避"的成对优化，且与已记录 E（错误码聚合）、G（上游重试退避）同源——建议合并为一个"统一错误分类体系"专题实施。
 
 剩余高价值待实施项：H/J/account-usage-aggregate(P0)、I/N/T/JJ(P1)、K/O/W/KK(P2)、Z/GG(P3)。审计已充分覆盖后端热路径、并发、存储、前端、错误处理五大维度，趋于收敛。
+
+### ⚠️ 持续架构审计 - 第十批（事务边界）
+
+- **LL（P1）账号批量导入无事务批提交**：`import_items_in_batches()` 的 "batch"（默认 200）仅用于进度报告分组，实际每个 item 经 `import_single_item_with_account_id()` 独立写入。该函数内部 `insert_account()` + `insert_token()` 是两次独立单条 `execute`（各自 autocommit），无跨调用事务。导入 N 个账号 ≈ 2N 次独立 WAL fsync，是大批量导入慢与 WAL 写放大的来源。建议：把每个 progress batch 包在单个 `unchecked_transaction()` 内提交（200 条/事务），失败项单独回退或记录，可将 fsync 次数从 2N 降到 ~N/200。见 [account_import.rs:412](crates/service/src/account/account_import.rs:412) 与 [account_import.rs:712](crates/service/src/account/account_import.rs:712)。
+
+#### ✅ 第十批正面确认（已优化，避免重复审计）
+- **MM** storage 层多步写入已广泛使用事务：account_manager/accounts/aggregate_apis/model_groups/model_options/plugins/quota_pools/request_logs 等关键多步写入均包 `transaction()`/`unchecked_transaction()`，事务纪律整体良好，仅 service 层批量导入循环（LL）是缺口。
