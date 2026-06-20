@@ -978,3 +978,8 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
   model_groups.rs:191（批量校验先建 HashSet 再循环，优于逐个单查）、
   quota/read.rs:1569 api_available_model_slugs（按 supported_in_api+visibility 过滤构建列表，本需全部行）。
   结论：模型目录读取面健康，H 反模式边界清晰仅限单 slug 存在性校验，实施范围明确可控。
+
+### 第二十四批审计（冷启动首轮峰值）
+
+- **OOO（P1）冷启动 4 个后台 loop 同时立即执行首轮全量，无错峰**：`run_dynamic_poll_loop`（[runner.rs:306](crates/service/src/usage/refresh/runner.rs:306)）进入循环立即调 `task()`，无前置 sleep；jitter 仅作用于后续轮次间隔。`ensure_usage_polling`/`ensure_gateway_keepalive`/`ensure_token_refresh_polling`/`ensure_warmup_cron` 启动瞬间同时触发首轮，多账号库下 CPU/DB/上游请求峰值叠加。治本：首轮加随机启动延迟（startup jitter）或错开 4 个 loop 的首次触发时刻。
+- **PPP（正面确认）后台 loop 调度健康**：`OnceLock` 防重复启动 + 独立命名线程 + 动态间隔 + 失败指数退避 + 后续轮次 jitter，仅缺首轮错峰（OOO）。
