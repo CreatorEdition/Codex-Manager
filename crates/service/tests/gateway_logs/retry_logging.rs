@@ -73,6 +73,7 @@ fn gateway_stateless_retry_strips_encrypted_content_on_invalid_encrypted_content
             last_refresh: now,
         })
         .expect("insert token");
+    seed_account_source_model(&storage, "acc_retry_encrypted_content", "gpt-5.3-codex");
 
     let platform_key = "pk_retry_strip_encrypted_content";
     storage
@@ -224,6 +225,7 @@ fn gateway_request_log_keeps_only_final_result_for_multi_attempt_flow() {
                 last_refresh: now,
             })
             .expect("insert token");
+        seed_account_source_model(&storage, &format!("acc_final_{index}"), "gpt-5.3-codex");
     }
 
     let platform_key = "pk_final_result_only";
@@ -374,6 +376,7 @@ fn gateway_error_logging_writes_only_trace_log_file() {
             last_refresh: now,
         })
         .expect("insert token");
+    seed_account_source_model(&storage, "acc_single_log_error", "gpt-5.4");
 
     let platform_key = "pk_single_log_error";
     storage

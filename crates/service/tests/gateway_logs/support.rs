@@ -225,6 +225,33 @@ pub(super) fn seed_model_catalog_models(storage: &Storage, models: &[&str]) {
     );
 }
 
+/// 函数 `seed_account_source_model`
+///
+/// 作者: CCD-Opus
+///
+/// 时间: 2026-06-20
+///
+/// # 说明
+/// 为指定 openai_account 账号注册一个 status=available 的来源模型，
+/// 模拟账号 OAuth/import 完成后 `sync_account_pool_model_routes` 的注册结果。
+/// a50fc079 移除网关请求热路径的模型路由全局 bootstrap 后，校验要求来源模型显式存在，
+/// 集成测试需在 setup 阶段显式注册（生产由账号同步路径承担）。
+///
+/// # 参数
+/// - storage: 存储句柄
+/// - account_id: 账号 ID（source_id）
+/// - upstream_model: 上游模型 slug（同时作为请求 model）
+pub(super) fn seed_account_source_model(storage: &Storage, account_id: &str, upstream_model: &str) {
+    storage
+        .upsert_discovered_model_source_models(
+            "openai_account",
+            account_id,
+            &[upstream_model.to_string()],
+            "synced",
+        )
+        .expect("seed openai_account source model");
+}
+
 pub(super) fn seed_model_catalog_response(storage: &Storage, response: &ModelsResponse) {
     let updated_at = now_ts();
     storage

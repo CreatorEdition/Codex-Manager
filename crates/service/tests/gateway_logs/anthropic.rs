@@ -69,6 +69,7 @@ fn gateway_claude_protocol_rewrites_messages_path_with_sticky_prompt_cache_key()
             last_refresh: now,
         })
         .expect("insert token");
+    seed_account_source_model(&storage, "acc_claude_sticky_anchor", "gpt-5.4-mini");
 
     let platform_key = "pk_claude_sticky_anchor";
     storage
@@ -388,6 +389,7 @@ fn gateway_claude_messages_stay_on_chatgpt_codex_base() {
             last_refresh: now,
         })
         .expect("insert token");
+    seed_account_source_model(&storage, "acc_claude_chatgpt_base", "gpt-5.4-mini");
 
     let platform_key = "pk_claude_chatgpt_base";
     storage
@@ -515,6 +517,7 @@ fn gateway_claude_protocol_end_to_end_uses_codex_headers() {
             last_refresh: now,
         })
         .expect("insert token");
+    seed_account_source_model(&storage, "acc_claude_e2e", "claude-3-5-sonnet-20241022");
 
     let platform_key = "pk_claude_e2e";
     storage
@@ -745,6 +748,8 @@ fn gateway_claude_failover_cross_workspace_strips_session_affinity_headers() {
             last_refresh: now,
         })
         .expect("insert token wsB");
+    seed_account_source_model(&storage, "acc_ws_a", "gpt-5.3-codex");
+    seed_account_source_model(&storage, "acc_ws_b", "gpt-5.3-codex");
 
     let platform_key = "pk_strip_cross_workspace";
     storage
@@ -938,6 +943,11 @@ fn gateway_claude_failover_same_workspace_preserves_session_affinity_headers() {
                 last_refresh: now,
             })
             .expect("insert token wsSame");
+        seed_account_source_model(
+            &storage,
+            &format!("acc_ws_same_{index}"),
+            "gpt-5.3-codex",
+        );
     }
 
     let platform_key = "pk_strip_same_workspace";

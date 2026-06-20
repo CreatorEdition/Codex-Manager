@@ -64,6 +64,7 @@ fn gateway_usage_limit_in_sse_marks_request_as_failover() {
                 last_refresh: now,
             })
             .expect("insert token");
+        seed_account_source_model(&storage, id, "gpt-5.3-codex");
         storage
             .insert_usage_snapshot(&UsageSnapshotRecord {
                 account_id: id.to_string(),
@@ -220,6 +221,7 @@ fn gateway_low_quota_account_is_skipped_on_first_request() {
                 last_refresh: now,
             })
             .expect("insert token");
+        seed_account_source_model(&storage, id, "gpt-5.3-codex");
         storage
             .insert_usage_snapshot(&UsageSnapshotRecord {
                 account_id: (*id).to_string(),

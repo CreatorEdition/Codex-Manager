@@ -66,6 +66,7 @@ fn seed_openai_compat_gateway(storage: &Storage, platform_key: &str, key_id: &st
                 last_refresh: now,
             })
             .expect("insert token");
+        seed_account_source_model(&storage, id, MODEL);
         storage
             .insert_usage_snapshot(&UsageSnapshotRecord {
                 account_id: id.to_string(),

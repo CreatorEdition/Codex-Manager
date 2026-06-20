@@ -48,6 +48,7 @@ fn gateway_images_generation_wraps_codex_sse_as_openai_images_json() {
             last_refresh: now,
         })
         .expect("insert token");
+    seed_account_source_model(&storage, "acc_images_generation", "gpt-5.4-mini");
 
     let platform_key = "pk_images_generation";
     storage
@@ -176,6 +177,7 @@ fn native_codex_responses_auto_injects_image_generation_tool() {
             last_refresh: now,
         })
         .expect("insert token");
+    seed_account_source_model(&storage, "acc_native_image_auto", "gpt-5.4");
 
     let platform_key = "pk_native_image_auto";
     storage
@@ -315,6 +317,7 @@ fn native_codex_image_generation_responses_request_passthroughs_tool_and_sse() {
             last_refresh: now,
         })
         .expect("insert token");
+    seed_account_source_model(&storage, "acc_native_image_generation", "gpt-5.4");
 
     let platform_key = "pk_native_image_generation";
     storage
