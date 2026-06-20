@@ -671,3 +671,27 @@ Err(err) => {
 
 本批审计账号 warmup、登录回调生命周期，发现定时 warmup 全账号串行（AA，P2）——与用量刷新的多 worker 并发模型不一致，是后台任务并发模型的局部缺口。登录回调单例、warmup Client 复用确认良好。AA 与既有后台任务优化（用量轮询限载、聚合余额批次）同属"后台任务效率"族。A–AA 共 27 类优化点。
 
+
+## 2026-06-20 CodeX-GPT 独立复核第七至十六批（T-AA）
+
+### 复核结论
+
+- **T / 2026-06-19 V 候选缓存深拷贝：✅ 确认，且为重复项，应合并实施。** 当前 `collect_gateway_candidates_with_low_quota_mode()` 在未命中时 `write_candidate_cache(low_quota_mode, candidates.clone())`，命中时 `read_candidate_cache()` 返回 `Some(cached.candidates.clone())`，确实会按请求深拷贝 `Vec<(Account, Token)>`。2026-06-19 第七批的 V 与 2026-06-14 第七批的 T 是同一问题，后续下发时统一命名为 **T：候选缓存 Arc 化**，不要按两个任务重复实施。修复方向：缓存存 `Arc<Vec<(Account, Token)>>`，命中只 clone Arc；调用方改只读遍历，必要时再局部 clone 单个候选。
+- **U 服务启动同步网络阻塞：✅ 确认。** `start_server()` 在监听 HTTP 端口前调用 `sync_gateway_user_agent_version_from_codex_latest()`，该函数通过 `fresh_upstream_client().get(CODEX_NPM_LATEST_URL).timeout(10s).send()` 同步访问 npm registry；紧随其后又调用 `ensure_codex_latest_version_sync()` 启动后台线程。结论成立：启动主路径的远程同步是冗余阻塞。修复方向：启动时只读取已持久化版本或默认版本，远程 latest 拉取完全交给后台线程首刷。
+- **2026-06-14 第十批 V 批量导入无事务：✅ 确认，但与前面的 V 字母冲突。** `import_items_in_batches()` 的 `chunks(batch_size)` 只用于 `begin_batch/finish_batch` 进度上报，循环内仍逐条 `import_single_item_with_account_id()`；该函数又逐步 `insert_account()`、`upsert_account_metadata()`、写 token/subscription 等，storage 侧 `insert_account()` 是单条 `conn.execute`，未见批次事务边界。后续统一重命名为 **AB：批量账号导入按 batch 事务提交**，避免与候选缓存 V/T 混淆。
+- **W 错误早返回先写日志后响应：✅ 确认，维持 P3。** `request_entry.rs` 的早期错误路径先 `write_request_log()` 再返回错误响应；`proxy.rs` 的 `model_route_error()` 与 aggregate API 404 也先写日志再构造 terminal response。成功主路径已在 respond 后写日志，因此 W 是真实但低优先级的时序一致性问题。修复方向：仅在不破坏 trace/outcome 记录语义的前提下，把错误响应也改成先 respond 后异步/后置写日志。
+- **X 静态资源缺长缓存头：✅ 确认。** `serve_embedded_path()` 只对 HTML 追加 `no-store, no-cache, must-revalidate`，非 HTML 静态资源不设置 `Cache-Control`；现有测试还断言 `favicon.ico` 不存在 cache-control。修复方向：HTML 保持 no-store，非 HTML 资源追加 `Cache-Control: public, max-age=31536000, immutable`；若担心非 hash 文件，先限定 hashed chunk / assets 目录，favicon 可单独给较短缓存。
+- **Y Rhai 每次执行重编译：✅ 确认，维持 P3。** `execute_plugin_script()` 每次新建 `Engine`、注册函数并 `compile(&plugin.script_body)`；插件通常低频，先记录即可。修复方向：只缓存 `(plugin_id, script_body_hash) -> AST`，Engine 仍按权限快照构建，避免把权限函数或动态设置错误缓存。
+- **Z gateway 与后台 token 刷新锁不统一：✅ 确认，且优先级应高于一般性能项。** gateway bearer 兑换 fallback 在 `account_token_exchange_lock` 内裸调 `refresh_access_token(&token.refresh_token)`，后台刷新在独立 `TOKEN_REFRESH_LOCKS` 内执行 `refresh_and_persist_access_token()`，后者才有持锁重读、double-check 与 `recover_refresh_race_from_latest_token()`。两套锁无法跨路径互斥，确实可能并发消费同一 refresh_token，和用户日志里的 `refresh token already used` 401 高度相关。修复方向优先选 **统一复用 `refresh_and_persist_access_token()`**，而不是再复制一套 race recovery。
+- **AA 定时 warmup 全账号串行：✅ 确认，但默认关闭，按 P2 处理。** `WARMUP_CRON_ENABLED` 默认 false；开启后 `warmup_cron_loop()` 调 `warmup_accounts(Vec::new(), "")`，空账号列表会经 `resolve_target_accounts()` 解析为 `list_gateway_candidates()` 全候选，再在 `warmup_accounts()` 中串行 `for account in accounts.drain(..)` 发完整上游请求。修复方向：保守有界并发（独立 `WARMUP_WORKERS`，默认 2-4），并对指定 account_ids 增加按 ID 直查，避免先全量候选再线性 find。
+
+### 下发实施校准
+
+- **必须优先落地**：Z（统一 token refresh 锁/路径）+ O/P（分类冷却、指数退避）+ E（错误码聚合）。这组直接对应用户日志中 >95% 的 token refresh 401 风暴，收益大于低优先级 CPU 小项。
+- **热路径性能批次**：H（模型目录按 slug 主键单查）、C（聚合 API 热路径 active/provider SQL 下推）、T（候选缓存 Arc 化）、Q（协议转换 JSON 单次 parse）、X（静态资源长缓存）。这些改动范围相对清晰，适合拆成独立 PR。
+- **后台/写入批次**：AB（批量导入事务）、J（usage_snapshots 变化检测再写）、AA（warmup 有界并发）、U（启动远程同步后台化）。其中 AB/J 属 SQLite WAL 写放大治理，AA/U 属后台任务与启动体验治理。
+- **仅记录或低优先级**：W（错误路径响应时序）、Y（Rhai AST 缓存）、S（候选 lazy backfill 观察）。除非真实环境指标指向这些点，否则不应抢占 Z/E/H/C/T 的实施顺序。
+
+### 编号去重备注
+
+当前 `task.md` 保留了多轮历史审计原文，因此存在字母复用：2026-06-19 第七批 V 与 2026-06-14 第七批 T 是同一候选缓存问题；2026-06-14 第十批 V 是另一个“批量导入无事务”问题。后续派单请使用本节校准命名：**T=候选缓存 Arc 化，AB=批量导入事务**。不要按历史字母机械统计总数。
