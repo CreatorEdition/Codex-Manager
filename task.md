@@ -695,3 +695,18 @@ Err(err) => {
 ### 编号去重备注
 
 当前 `task.md` 保留了多轮历史审计原文，因此存在字母复用：2026-06-19 第七批 V 与 2026-06-14 第七批 T 是同一候选缓存问题；2026-06-14 第十批 V 是另一个“批量导入无事务”问题。后续派单请使用本节校准命名：**T=候选缓存 Arc 化，AB=批量导入事务**。不要按历史字母机械统计总数。
+
+## 2026-06-14 持续架构审计（第十七批：聚合API候选每请求全量加载无下推无缓存 + keepalive正面确认）
+
+### ⚠️ 待处理（BB，本批新增，P1）
+
+- **BB（P1 聚合 API 路由候选每请求全量加载 + Rust 过滤 + 无缓存）**：`resolve_aggregate_api_rotation_candidates`（[aggregate_api.rs:726](crates/service/src/gateway/upstream/protocol/aggregate_api.rs:726)）在**每个走聚合 API 的网关请求**热路径调 `storage.list_aggregate_apis()` **全量加载所有聚合 API**（含全部 provider_type、全部 status），再在 Rust 层 `.filter(status=="active" && provider_type 匹配)` + `normalize_candidate_order`。问题：① **过滤未下推 SQL**——已确认无 `list_active_aggregate_apis_by_provider` 类按 provider_type+status 过滤的查询函数（虽有 `list_aggregate_apis_active_paginated` 但未按 provider 过滤且 rotation 路径未用）；② **无候选缓存**——对比账号候选有 `CANDIDATE_SNAPSHOT_CACHE`（短 TTL），聚合 API 候选完全无缓存，每请求重新全量 list + filter。聚合 API supplier 多（几十上百）时，每个聚合路由请求都全量搬运 + Rust 过滤，CPU 与内存分配随 supplier 数线性放大。见 [aggregate_apis.rs:116](crates/core/src/storage/aggregate_apis.rs:116)。优化：① 新增 SQL 下推查询 `list_active_aggregate_apis_by_provider(provider_type)`（`WHERE status='active' AND provider_type=? ORDER BY ...`），替换全量 list + Rust filter；② 可选加短 TTL 候选缓存（类比账号候选 CANDIDATE_SNAPSHOT_CACHE），账号/聚合 API 变更时失效。与 H/T 同属"热路径用全量加载替代点查/缓存"模式族。
+
+### ✅ 正面确认（本批）
+
+- **gateway keepalive loop 设计完善**：`gateway_keepalive_loop` 走通用 `run_dynamic_poll_loop`（interval + jitter + failure backoff），单次 `run_gateway_keepalive_once` 只调 `fetch_models_for_picker()` 探活预热上游连接与 token exchange（轻量，非全量扫描账号），并有 `is_keepalive_error_ignorable` 识别"无可用账号/存储不可用"等可忽略错误避免无谓 backoff。见 [usage_keepalive.rs:12](crates/service/src/usage/usage_keepalive.rs:12) 与 [runner.rs:72](crates/service/src/usage/refresh/runner.rs:72)。设计良好。
+
+### 审计方法论备注（第十七批）
+
+本批审计 gateway keepalive 与聚合 API 故障转移候选解析，发现聚合 API 候选每请求全量加载无下推无缓存（BB，P1）——这与 H 项（模型目录全量加载线性查找）、T 项（账号候选缓存深拷贝）同源，都是"热路径未用对数据访问方式"。值得注意：账号候选路径已优化（缓存+quota guard），但**聚合 API 候选路径未享受同等优化**——这是路径间优化不对称的典型。keepalive 子系统确认完善。A–BB 共 28 类优化点。
+
