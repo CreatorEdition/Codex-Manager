@@ -744,3 +744,31 @@ Err(err) => {
 ### 审计进度小结
 
 task.md 已累计记录 A–S 共 **19 类**架构优化点 + 正面确认。本轮新增 N（P1 调度器冗余全量）、O（P3 Rhai AST 缓存）两个可优化项，并确认 env/HTTP客户端/Web资源/运行时配置 4 项已优化。后续可转向：trace_log 写入开销、SSE keepalive 定时器、前端 React 重渲染热点、迁移脚本启动耗时。
+
+## 2026-06-20 持续架构审计（第五批：trace_log 全局锁竞争）
+
+### T. trace_log 每请求多次全局锁 + 无门控字符串分配（P1，新发现）
+
+`crates/service/src/gateway/observability/trace_log.rs` 的所有 trace 记录函数（`log_request_start`:840、`log_request_execution_plan`:869、`log_request_final` 等共 14+ 处）都无条件执行：
+1. `format!(...)` 拼接 trace 字符串（每次堆分配）
+2. `buffer_trace_line(trace_id, line)` → `lock()` 全局 `TRACE_PENDING_LINES`（`Mutex<HashMap<String, Vec<String>>>`，trace_log.rs:25）
+
+问题：
+- **无全局 trace 开关**：即使运维不看 trace，每个网关请求仍执行全部 format + 入 HashMap。一个请求至少 REQUEST_START + execution_plan + final 多条行 → 每请求多次 `format!` 堆分配 + 多次全局 Mutex 加锁。
+- **全局单锁**：所有请求线程争抢同一个 `TRACE_PENDING_LINES` Mutex。高 RPS（如 Codex CLI 高频探测）下成为锁竞争热点，且与 `TRACE_ERROR_TRACES`（trace_log.rs:24）叠加。
+
+已优化部分（确认）：磁盘写入已通过 `TRACE_WRITER`（`TraceAsyncWriter`，trace_log.rs:22）异步落盘，不阻塞请求线程；pending 行有 `TRACE_PENDING_LINE_LIMIT` 截断保护。
+
+建议（按收益排序）：
+1. 新增 atomic 全局 trace 开关（默认开/可关），`buffer_trace_line` 入口先判断，关闭时直接 return，连 `format!` 都不做（调用点改为闭包惰性求值或入口判断）。
+2. 若需常开，把 `TRACE_PENDING_LINES` 改为分片锁（按 trace_id hash 分 N 个 bucket），降低单锁竞争。
+3. 错误才落盘的场景，非错误 trace 可在内存环形缓冲滚动，减少 HashMap 增删。
+
+### 正面确认（已优化）
+
+- **U. SSE keepalive 非每连接独立定时器**：`resolve_stream_keepalive_frame`（delivery.rs:3938）返回 `SseKeepAliveFrame` 帧类型，在同步流读取循环内按 idle 时间插入 keepalive 帧，非每连接起独立定时器线程。
+- **V. trace 磁盘写入已异步化**：`TraceAsyncWriter` 后台线程落盘，请求线程只入内存缓冲。
+
+### 审计进度小结
+
+task.md 累计 A–V 共 **22 类**。本批新增 T（P1 trace_log 全局锁竞争 + 无门控 format），确认 SSE keepalive / trace 异步写入已优化。后续方向：迁移脚本启动耗时、前端 React 重渲染、account/usage/aggregate 接回 SQL 下推（P0 J 关联）、错误码归一化聚合（E 项）。
