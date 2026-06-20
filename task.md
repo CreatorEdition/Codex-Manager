@@ -621,3 +621,20 @@ Err(err) => {
 
 本批审计插件 Rhai 执行与 Web 静态资源服务，发现静态资源缓存头缺失（X，P2，Web 模式前端加载）与 Rhai AST 重编译（Y，P3，低频）。内嵌资源、HTML 禁缓存、路径遍历防护均确认良好。X 项与 HTML no-store 互补——构成"入口不缓存 + 不可变资源强缓存"的标准前端缓存策略，当前只做了前半。A–Y 共 25 类优化点。
 
+
+## 2026-06-14 持续架构审计（第十四批：E项实施强化 + 配置热加载/错误分类正面确认）
+
+### 🔑 E 项实施强化（关键补充，复用现有错误分类器）
+
+复核确认 E 项（requestlog/errorSummary 错误去重"450 条压成 5 类"）的优化**可直接复用现有成熟错误分类器**：`crate::errors::classify_message(message: &str) -> ErrorCode`（[errors/mod.rs:65](crates/service/src/errors/mod.rs:65)）已把原始错误文本规范化映射到稳定的 `ErrorCode` 枚举（含 eq/starts_with/contains 多策略 + 中英文 + 括号尾部英文提取）。E 项的实施只需：① 写入 request_logs 时或查询时调用 `classify_message(error)` 得到 ErrorCode 作为 `error_code` 字段；② 按 error_code GROUP BY 聚合 count/lastSeen/代表样例。无需从零编写错误规范化逻辑——分类器已覆盖 token 刷新失败、网络错误、流传输故障等用户日志中的核心错误类型。这把 E 项从"需设计规范化方案"降为"复用 classify_message + 加聚合查询"，实施成本显著降低。
+
+### ✅ 正面确认（本批）
+
+- **运行时配置 OnceLock + atomic，读不触发 DB**：`ensure_runtime_config_loaded` 用 `RUNTIME_CONFIG_LOADED.get_or_init(reload_from_env)` 只加载一次，后续所有配置读取走 atomic（ROUTE_MODE/USE_WEBSOCKET_UPSTREAM 等），网关热路径读配置零 DB/零 env 访问。见 [runtime_config.rs ensure_runtime_config_loaded](crates/service/src/gateway/core/runtime_config.rs:156)。
+- **设置 sync 属低频管理面，无热路径调用**：`sync_runtime_settings_from_storage` / `list_app_settings_map` 调用方均为设置页 GET（current.rs）、启动初始化、插件低频调度（catalog/runtime），网关请求热路径不调用。设置页 GET 触发全量 sync 重应用 setter 属"读带写副作用"的轻微代码味道，但低频（用户打开设置页才触发），非性能问题。见 [runtime_sync.rs:63](crates/service/src/app_settings/runtime_sync.rs:63)。
+- **错误分类仅错误路径调用，线性匹配可接受**：`classify_message` 的 to_ascii_lowercase 分配 + 几十个模式线性匹配只在请求出错时执行（非每请求），错误是少数情况，开销可接受；无需为其引入 trie/正则等复杂优化。见 [errors/mod.rs:65](crates/service/src/errors/mod.rs:65)。
+
+### 审计方法论备注（第十四批）
+
+本批审计配置热加载传播与错误码体系，确认运行时配置 OnceLock+atomic（热路径零 DB）、设置 sync 低频、错误分类仅错误路径——均合理。核心产出是 E 项实施强化：发现 classify_message 已提供成熟错误规范化器，E 项可直接复用（类比第十一批对 H 项主键的强化）。连续多轮"实施强化 + 正面确认"主导，印证核心子系统审计饱和，优化蓝图重心应转向实施。A–Y 共 25 类（本批强化 E 项实施路径，无新增字母项）。
+
