@@ -268,6 +268,30 @@ impl Storage {
         Ok(items)
     }
 
+    /// 函数 `model_catalog_model_exists`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-06-21
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - scope: 参数 scope
+    /// - slug: 参数 slug
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    ///
+    /// 说明: 借助主键 `(scope, slug)` 做 O(log n) 点查，判断目标模型是否存在，
+    /// 避免全量加载模型目录后再线性 `.any()` 扫描的反模式。
+    pub fn model_catalog_model_exists(&self, scope: &str, slug: &str) -> rusqlite::Result<bool> {
+        let mut stmt = self.conn.prepare(
+            "SELECT 1 FROM model_catalog_models WHERE scope = ?1 AND slug = ?2 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![scope, slug])?;
+        Ok(rows.next()?.is_some())
+    }
+
     pub fn delete_model_catalog_model(&self, scope: &str, slug: &str) -> rusqlite::Result<()> {
         self.conn.execute(
             "DELETE FROM model_catalog_models WHERE scope = ?1 AND slug = ?2",

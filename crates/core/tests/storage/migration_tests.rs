@@ -1646,3 +1646,51 @@ fn init_migrates_quota_assignments_to_model_source_mappings() {
     assert_eq!(mapping_row.4, 0);
     assert_eq!(mapping_row.5, 1);
 }
+
+/// 函数 `model_catalog_model_exists_uses_primary_key_point_lookup`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-06-21
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+///
+/// 说明: 验证 `model_catalog_model_exists` 走主键 `(scope, slug)` 点查的语义：
+/// 命中返回 true、不存在返回 false、scope 不匹配返回 false。
+#[test]
+fn model_catalog_model_exists_uses_primary_key_point_lookup() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    let record = super::ModelCatalogModelRecord {
+        scope: "default".to_string(),
+        slug: "gpt-5.3-codex".to_string(),
+        display_name: "GPT-5.3 Codex".to_string(),
+        source_kind: "remote".to_string(),
+        extra_json: "{}".to_string(),
+        updated_at: super::now_ts(),
+        ..Default::default()
+    };
+    storage
+        .upsert_model_catalog_models(&[record])
+        .expect("upsert model catalog model");
+
+    // 命中：scope 与 slug 完全匹配，返回 true
+    assert!(storage
+        .model_catalog_model_exists("default", "gpt-5.3-codex")
+        .expect("query existing model"));
+
+    // 不存在：slug 不存在，返回 false
+    assert!(!storage
+        .model_catalog_model_exists("default", "non-existent-model")
+        .expect("query missing model"));
+
+    // scope 不匹配：slug 存在但 scope 不同，返回 false
+    assert!(!storage
+        .model_catalog_model_exists("other-scope", "gpt-5.3-codex")
+        .expect("query mismatched scope"));
+}

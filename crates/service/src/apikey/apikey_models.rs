@@ -1107,10 +1107,8 @@ fn ensure_platform_model_enableable(storage: &Storage, model: &ModelInfo) -> Res
 
 fn ensure_platform_model_exists(storage: &Storage, slug: &str) -> Result<(), String> {
     let exists = storage
-        .list_model_catalog_models(MODEL_CACHE_SCOPE_DEFAULT)
-        .map_err(|err| format!("list model catalog failed: {err}"))?
-        .into_iter()
-        .any(|model| model.slug == slug);
+        .model_catalog_model_exists(MODEL_CACHE_SCOPE_DEFAULT, slug)
+        .map_err(|err| format!("list model catalog failed: {err}"))?;
     if exists {
         Ok(())
     } else {

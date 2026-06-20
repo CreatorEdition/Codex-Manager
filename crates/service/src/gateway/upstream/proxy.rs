@@ -153,10 +153,8 @@ fn model_route_error(
         return Ok(());
     };
     let model_exists = storage
-        .list_model_catalog_models("default")
-        .map_err(|err| (500, format!("model_catalog_read_failed: {err}")))?
-        .into_iter()
-        .any(|item| item.slug == model);
+        .model_catalog_model_exists("default", model)
+        .map_err(|err| (500, format!("model_catalog_read_failed: {err}")))?;
     if !model_exists {
         return Err((404, format!("model_not_found: {model}")));
     }
