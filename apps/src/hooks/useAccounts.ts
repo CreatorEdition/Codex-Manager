@@ -296,7 +296,6 @@ export function useAccounts(params?: AccountListParams) {
       queryClient.getQueryData<AccountListResult>(["accounts", "list"]) ||
       startupAccountList,
     placeholderData: (previousData): AccountListResult | undefined =>
-    placeholderData: (previousData): AccountListResult | undefined =>
       previousData ||
       (startupAccountPage?.items.length ? startupAccountPage : undefined),
   });
