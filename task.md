@@ -957,3 +957,8 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - **JJJ（P3）**：`build_codex_upstream_headers`（codex_headers.rs:113）每请求为静态头名（Authorization/Accept/User-Agent/originator/Content-Type 等）重复 `.to_string()` 堆分配，返回 `Vec<(String,String)>`。Vec::with_capacity(16) 已预分配且头数有界，分配规模小；静态键理论上可用 `&'static str` 或 `Cow`，但受 reqwest builder 接口与下游统一处理约束，收益边际。仅高 RPS 下作为微优化候选。
 - **正面确认 KKK**：头部构建逻辑正确——动态值（auth_token/account_id/各 incoming_* 头）经 trim+空值过滤后才透传，`with_capacity(16)` 避免 Vec 扩容，user_agent/originator 经 resolve 缓存身份；无重复构建、无每请求重建静态表。
+
+### 持续审计第二十一批（H项治本方案坐实 + 模型目录读取面）
+
+- **H 项强化（P0，治本方案已坐实）**：`model_catalog_models` 表已有 `PRIMARY KEY (scope, slug)`，天然支撑 O(log n) 点查；但 storage 层**无按 slug 单查/exists 函数**，导致 `proxy.rs:156` 热路径 `model_route_error` 用 `list_model_catalog_models("default")` 全量加载后 `.any(|item| item.slug == model)` 线性扫描。治本方案明确且改动极小：新增 `model_catalog_model_exists(scope, slug)`（`SELECT 1 ... WHERE scope=?1 AND slug=?2`，走主键）替换全量+线性查找。
+- **LLL（P2，关联读取面）**：`list_model_catalog_models` 全项目 12 处调用（apikey_models 多处、model_groups、quota/read、proxy 热路径）。多数在管理/读取路径（可接受全量），但 proxy.rs:156 是唯一请求热路径全量点，应优先按 H 改造；其余管理路径维持现状。
