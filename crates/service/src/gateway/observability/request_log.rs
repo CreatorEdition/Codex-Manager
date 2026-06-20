@@ -618,6 +618,12 @@ pub(crate) fn write_request_log_with_attempts(
             reasoning_output_tokens: None,
             estimated_cost_usd: None,
             error: error.map(|v| v.to_string()),
+            // 中文注释：写入时把 error 原文经 code_for_message 归类为稳定错误码落库，
+            // 供 requestlog/errorSummary 按类别聚合去重；无错误的成功请求不落码。
+            error_code: error
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(|text| crate::error_codes::code_for_message(text).to_string()),
             created_at,
         },
         &RequestTokenStat {

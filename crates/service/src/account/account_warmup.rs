@@ -269,6 +269,11 @@ fn persist_warmup_observability(
         duration_ms: Some(duration_ms.max(0)),
         first_response_ms: None,
         error: error.map(str::to_string),
+        // 中文注释：warmup 失败的 error 也按 code_for_message 归类落库，纳入错误去重聚合。
+        error_code: error
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(|text| crate::error_codes::code_for_message(text).to_string()),
         created_at,
         ..RequestLog::default()
     });

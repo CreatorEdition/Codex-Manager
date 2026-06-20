@@ -1539,6 +1539,31 @@ pub struct RequestLogTodaySummaryResult {
     pub estimated_cost: f64,
 }
 
+/// 结构体 `RequestLogErrorCodeSummaryItem`
+///
+/// 中文注释：错误去重汇总的单类条目，对应一个规范化 error_code 的聚合结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestLogErrorCodeSummaryItem {
+    /// 规范化错误码（历史空 code 行归入 "unknown"）
+    pub error_code: String,
+    /// 该错误码在窗口内的出现次数
+    pub count: i64,
+    /// 该错误码最近一次发生的时间戳（秒）
+    pub last_seen: i64,
+    /// 该错误码最近一条代表性错误原文（可能为空）
+    pub sample_message: Option<String>,
+}
+
+/// 结构体 `RequestLogErrorSummaryResult`
+///
+/// 中文注释：`requestlog/errorSummary` 的返回结果，按 count 降序的错误码聚合列表。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestLogErrorSummaryResult {
+    pub items: Vec<RequestLogErrorCodeSummaryItem>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartupSnapshotResult {

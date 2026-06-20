@@ -1,8 +1,8 @@
 use rusqlite::{params, params_from_iter, types::Value, Result, Row};
 
 use super::{
-    request_log_query, RequestLog, RequestLogQuerySummary, RequestLogTodaySummary,
-    RequestTokenStat, Storage,
+    request_log_query, RequestLog, RequestLogErrorCodeSummary, RequestLogQuerySummary,
+    RequestLogTodaySummary, RequestTokenStat, Storage,
 };
 
 const DEFAULT_REQUEST_LOG_RETENTION_DAYS: i64 = 14;
@@ -93,8 +93,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
                 request_path, original_path, adapted_path,
-                method, request_type, gateway_mode, route_strategy, route_source, transparent_mode, enhanced_mode, client_model, model, model_source, upstream_model, actual_source_kind, actual_source_id, client_reasoning_effort, reasoning_effort, reasoning_source, service_tier, effective_service_tier, service_tier_source, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)",
+                method, request_type, gateway_mode, route_strategy, route_source, transparent_mode, enhanced_mode, client_model, model, model_source, upstream_model, actual_source_kind, actual_source_id, client_reasoning_effort, reasoning_effort, reasoning_source, service_tier, effective_service_tier, service_tier_source, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, error, error_code, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -133,6 +133,7 @@ impl Storage {
                 log.duration_ms,
                 log.first_response_ms,
                 &log.error,
+                &log.error_code,
                 log.created_at,
             ],
         )?;
@@ -162,8 +163,8 @@ impl Storage {
             "INSERT INTO request_logs (
                 trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
                 request_path, original_path, adapted_path,
-                method, request_type, gateway_mode, route_strategy, route_source, transparent_mode, enhanced_mode, client_model, model, model_source, upstream_model, actual_source_kind, actual_source_id, client_reasoning_effort, reasoning_effort, reasoning_source, service_tier, effective_service_tier, service_tier_source, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)",
+                method, request_type, gateway_mode, route_strategy, route_source, transparent_mode, enhanced_mode, client_model, model, model_source, upstream_model, actual_source_kind, actual_source_id, client_reasoning_effort, reasoning_effort, reasoning_source, service_tier, effective_service_tier, service_tier_source, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, first_response_ms, error, error_code, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39)",
             params![
                 &log.trace_id,
                 &log.key_id,
@@ -202,6 +203,7 @@ impl Storage {
                 log.duration_ms,
                 log.first_response_ms,
                 &log.error,
+                &log.error_code,
                 log.created_at,
             ],
         )?;
@@ -309,7 +311,7 @@ impl Storage {
                 r.request_path, r.original_path, r.adapted_path,
                 r.method, r.request_type, r.gateway_mode, r.route_strategy, r.route_source, r.transparent_mode, r.enhanced_mode, r.client_model, r.model, r.model_source, r.upstream_model, r.actual_source_kind, r.actual_source_id, r.client_reasoning_effort, r.reasoning_effort, r.reasoning_source, r.service_tier, r.effective_service_tier, r.service_tier_source, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms,
                 t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
-                r.error, r.created_at
+                r.error, r.created_at, r.error_code
              FROM request_logs r
              {account_join}
              LEFT JOIN request_token_stats t ON t.request_log_id = r.id
@@ -360,7 +362,7 @@ impl Storage {
                 r.request_path, r.original_path, r.adapted_path,
                 r.method, r.request_type, r.gateway_mode, r.route_strategy, r.route_source, r.transparent_mode, r.enhanced_mode, r.client_model, r.model, r.model_source, r.upstream_model, r.actual_source_kind, r.actual_source_id, r.client_reasoning_effort, r.reasoning_effort, r.reasoning_source, r.service_tier, r.effective_service_tier, r.service_tier_source, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.first_response_ms,
                 t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
-                r.error, r.created_at
+                r.error, r.created_at, r.error_code
              FROM request_logs r
              {account_join}
              LEFT JOIN request_token_stats t ON t.request_log_id = r.id
@@ -526,6 +528,92 @@ impl Storage {
                     estimated_cost_usd: row.get(4)?,
                 })
             })
+    }
+
+    /// 函数 `ensure_request_logs_error_code_column`
+    ///
+    /// 中文注释：兼容旧库的回退路径。当 073 迁移 SQL 因历史库已存在该列而冲突时，
+    /// 通过 `ensure_column` 幂等补列，避免迁移在“重复列”上失败。error_code 可空，默认 NULL。
+    /// 同时确保聚合索引存在。
+    ///
+    /// # 参数
+    /// - self: 存储句柄
+    ///
+    /// # 返回
+    /// 返回执行结果
+    pub(super) fn ensure_request_logs_error_code_column(&self) -> Result<()> {
+        self.ensure_column("request_logs", "error_code", "TEXT")?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_error_code ON request_logs(error_code, created_at DESC)",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// 函数 `summarize_request_log_error_codes`
+    ///
+    /// 中文注释：按规范化 error_code 聚合错误请求日志，实现错误去重汇总
+    /// （"450 条压成 5 类"）。仅统计 error 非空的行；error_code 为 NULL 的历史行
+    /// 归入 `unknown` 一类。返回每类的计数、最近发生时间与一条最近的代表错误原文。
+    ///
+    /// # 参数
+    /// - start_ts: 起始时间戳（含），None 表示不限下界
+    /// - end_ts: 结束时间戳（含），None 表示不限上界
+    /// - limit: 返回的错误类别数上限（按 count 降序），<=0 时取默认 50
+    ///
+    /// # 返回
+    /// 按 count 降序排列的错误码聚合列表
+    pub fn summarize_request_log_error_codes(
+        &self,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<RequestLogErrorCodeSummary>> {
+        let normalized_limit = if limit <= 0 { 50 } else { limit.min(500) };
+        let mut conditions: Vec<String> = vec!["TRIM(IFNULL(error, '')) <> ''".to_string()];
+        let mut params: Vec<Value> = Vec::new();
+        if let Some(start) = start_ts {
+            conditions.push("created_at >= ?".to_string());
+            params.push(Value::Integer(start));
+        }
+        if let Some(end) = end_ts {
+            conditions.push("created_at <= ?".to_string());
+            params.push(Value::Integer(end));
+        }
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+        // 中文注释：用相关子查询取每个错误码分组内 created_at 最大（最近）的一条 error 原文作为代表样例。
+        let sql = format!(
+            "SELECT
+                IFNULL(agg.error_code, 'unknown') AS code,
+                COUNT(1) AS cnt,
+                MAX(agg.created_at) AS last_seen,
+                (
+                    SELECT rep.error
+                    FROM request_logs rep
+                    WHERE IFNULL(rep.error_code, 'unknown') = IFNULL(agg.error_code, 'unknown')
+                      AND TRIM(IFNULL(rep.error, '')) <> ''
+                    ORDER BY rep.created_at DESC, rep.id DESC
+                    LIMIT 1
+                ) AS sample_message
+             FROM request_logs agg
+             {where_clause}
+             GROUP BY IFNULL(agg.error_code, 'unknown')
+             ORDER BY cnt DESC, last_seen DESC
+             LIMIT ?"
+        );
+        params.push(Value::Integer(normalized_limit));
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(params.iter()))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(RequestLogErrorCodeSummary {
+                error_code: row.get(0)?,
+                count: row.get(1)?,
+                last_seen: row.get(2)?,
+                sample_message: row.get(3)?,
+            });
+        }
+        Ok(out)
     }
 
     pub fn summarize_request_logs_filtered_for_keys(
@@ -759,6 +847,7 @@ impl Storage {
                 duration_ms INTEGER,
                 first_response_ms INTEGER,
                 error TEXT,
+                error_code TEXT,
                 created_at INTEGER NOT NULL
             )",
             [],
@@ -1115,6 +1204,7 @@ fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
         estimated_cost_usd: row.get(41)?,
         error: row.get(42)?,
         created_at: row.get(43)?,
+        error_code: row.get(44)?,
     })
 }
 

@@ -759,3 +759,76 @@ fn observability_prune_defers_request_log_delete_until_token_stats_batch_finishe
     std::env::remove_var("CODEXMANAGER_REQUEST_TOKEN_STATS_RETENTION_DAYS");
     std::env::remove_var("CODEXMANAGER_REQUEST_LOG_RETENTION_DAYS");
 }
+
+/// 函数 `summarize_request_log_error_codes_groups_and_dedups`
+///
+/// 中文注释：验证 E 项错误码聚合查询——按 error_code 分组计数、取最近代表样例、
+/// NULL error_code 归入 unknown、空 error 不计入、时间窗口过滤生效、按 count 降序。
+#[test]
+fn summarize_request_log_error_codes_groups_and_dedups() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+
+    // 中文注释：辅助闭包——按 error_code/error/created_at 插入一条最小请求日志。
+    let insert = |code: Option<&str>, error: Option<&str>, created_at: i64| {
+        storage
+            .insert_request_log(&RequestLog {
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                error: error.map(str::to_string),
+                error_code: code.map(str::to_string),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
+    };
+
+    // refresh_token_reused 出现 3 次（代表样例应取最近一条，created_at=300）。
+    insert(Some("refresh_token_reused"), Some("reused #1"), 100);
+    insert(Some("refresh_token_reused"), Some("reused #2"), 200);
+    insert(Some("refresh_token_reused"), Some("reused #3 latest"), 300);
+    // network_error 出现 2 次。
+    insert(Some("network_error"), Some("conn reset"), 150);
+    insert(Some("network_error"), Some("conn reset again"), 250);
+    // NULL error_code 但有 error 文本：应归入 unknown。
+    insert(None, Some("unclassified boom"), 180);
+    // 成功行（error 为空）：不应计入聚合。
+    insert(None, None, 190);
+    insert(Some("should_be_ignored_empty_error"), Some("   "), 195);
+
+    // 不限窗口：应得到 3 类（reused / network_error / unknown）。
+    let all = storage
+        .summarize_request_log_error_codes(None, None, 50)
+        .expect("aggregate all");
+    assert_eq!(all.len(), 3, "应聚合为 3 类错误：{all:#?}");
+    // 按 count 降序：reused(3) 在首位。
+    assert_eq!(all[0].error_code, "refresh_token_reused");
+    assert_eq!(all[0].count, 3);
+    assert_eq!(all[0].last_seen, 300);
+    assert_eq!(all[0].sample_message.as_deref(), Some("reused #3 latest"));
+    // unknown 类（NULL code 的那一条）。
+    let unknown = all
+        .iter()
+        .find(|item| item.error_code == "unknown")
+        .expect("unknown 类应存在");
+    assert_eq!(unknown.count, 1);
+    assert_eq!(unknown.sample_message.as_deref(), Some("unclassified boom"));
+
+    // 时间窗口过滤：仅 created_at>=250 的行——reused #3(300) + network_error(250)。
+    let windowed = storage
+        .summarize_request_log_error_codes(Some(250), None, 50)
+        .expect("aggregate windowed");
+    assert_eq!(windowed.len(), 2, "窗口内应仅 2 类：{windowed:#?}");
+    let reused = windowed
+        .iter()
+        .find(|item| item.error_code == "refresh_token_reused")
+        .expect("reused 应在窗口内");
+    assert_eq!(reused.count, 1, "窗口内 reused 仅 1 条（created_at=300）");
+
+    // limit 截断：只取 count 最高的 1 类。
+    let limited = storage
+        .summarize_request_log_error_codes(None, None, 1)
+        .expect("aggregate limited");
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0].error_code, "refresh_token_reused");
+}

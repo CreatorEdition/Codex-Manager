@@ -226,6 +226,10 @@ pub struct RequestLog {
     pub reasoning_output_tokens: Option<i64>,
     pub estimated_cost_usd: Option<f64>,
     pub error: Option<String>,
+    /// 规范化错误码：写入时由服务层 `code_for_message` 归类落库，
+    /// 供 `requestlog/errorSummary` 按错误类别聚合去重（避免日志页重复错误原文淹没 UI）。
+    /// 旧数据或无错误的行为 None。
+    pub error_code: Option<String>,
     pub created_at: i64,
 }
 
@@ -260,6 +264,22 @@ pub struct RequestLogQuerySummary {
     pub error_count: i64,
     pub total_tokens: i64,
     pub estimated_cost_usd: f64,
+}
+
+/// 结构体 `RequestLogErrorCodeSummary`
+///
+/// 中文注释：错误请求日志按规范化 error_code 聚合的单类结果，
+/// 供 `requestlog/errorSummary` 实现错误去重汇总。
+#[derive(Debug, Clone)]
+pub struct RequestLogErrorCodeSummary {
+    /// 规范化错误码（历史空 code 行归入 "unknown"）
+    pub error_code: String,
+    /// 该错误码在窗口内的出现次数
+    pub count: i64,
+    /// 该错误码最近一次发生的时间戳（秒）
+    pub last_seen: i64,
+    /// 该错误码最近一条代表性错误原文
+    pub sample_message: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1103,6 +1123,11 @@ impl Storage {
             "072_tokens_consecutive_failure_count",
             include_str!("../../migrations/072_tokens_consecutive_failure_count.sql"),
             |s| s.ensure_token_consecutive_failure_count_column(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "073_request_logs_error_code",
+            include_str!("../../migrations/073_request_logs_error_code.sql"),
+            |s| s.ensure_request_logs_error_code_column(),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;

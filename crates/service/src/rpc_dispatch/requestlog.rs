@@ -1,7 +1,10 @@
 use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse, RequestLogListParams};
 
 use crate::RpcActor;
-use crate::{requestlog_clear, requestlog_list, requestlog_summary, requestlog_today_summary};
+use crate::{
+    requestlog_clear, requestlog_error_summary, requestlog_list, requestlog_summary,
+    requestlog_today_summary,
+};
 
 fn actor_key_ids(actor: &RpcActor) -> Result<Vec<String>, String> {
     if actor.is_admin() {
@@ -64,6 +67,22 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
                     )
                 }
             }))
+        }
+        "requestlog/errorSummary" => {
+            // 中文注释：错误去重汇总跨全部账号/来源聚合，属管理面诊断数据，仅管理员可调用，
+            // 避免成员会话拿到全局错误分布。非管理员直接返回 permission_denied。
+            if !actor.is_admin() {
+                super::value_or_error::<serde_json::Value>(Err(
+                    "permission_denied: requestlog/errorSummary requires admin".to_string(),
+                ))
+            } else {
+                let start_ts = super::i64_param(req, "startTs");
+                let end_ts = super::i64_param(req, "endTs");
+                let limit = super::i64_param(req, "limit");
+                super::value_or_error(requestlog_error_summary::read_request_log_error_summary(
+                    start_ts, end_ts, limit,
+                ))
+            }
         }
         "requestlog/clear" => super::ok_or_error(requestlog_clear::clear_request_logs()),
         "requestlog/today_summary" => {

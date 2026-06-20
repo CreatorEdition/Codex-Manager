@@ -49,6 +49,7 @@ fn observability_prepare_migration_does_not_prune_or_vacuum_legacy_rows() {
         reasoning_output_tokens: None,
         estimated_cost_usd: None,
         error: None,
+        error_code: None,
         created_at: 1,
     };
     let request_log_id = storage.insert_request_log(&log).expect("insert log");
