@@ -990,3 +990,21 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - **QQQ（P1，热路径 CPU）请求 body 在校验/改写流水中被多次完整 JSON 解析**：单次网关请求在 `local_validation/request.rs` 中，同一 body 经 `inspect_service_tier_for_log`([:1691](crates/service/src/gateway/local_validation/request.rs:1691))、`parse_request_metadata`([:1700](crates/service/src/gateway/local_validation/request.rs:1700)/:1627/:2085)、`validate_text_input_limit_for_path`([:1781](crates/service/src/gateway/local_validation/request.rs:1781)/:1852/:2082)、`request_rewrite`([:720](crates/service/src/gateway/request/request_rewrite.rs:720)) 各自独立 `serde_json::from_slice::<Value>(body)`，同一请求体被完整解析 4+ 次。Codex 请求 body 常含长对话上下文（数十 KB～MB），重复全量解析放大热路径 CPU 与分配。治本：流水入口一次性 parse 成 `Value`，向各函数传 `&Value`（或解析结果结构）而非反复 `&[u8]` 重解析；改写完成后仅在 body 变更时再序列化一次。
 - **RRR（正面确认）解析本身防御正确**：各 `from_slice` 失败均走 `Ok(...) else`/`map_err` 优雅降级（如 request_rewrite.rs:720 解析失败直接返回原 body），无 unwrap panic 风险；问题仅在重复次数而非正确性。
+
+## 2026-06-21 gateway_logs 集成测试阻塞核查（【Claude-Opus】实施）
+
+### ✅ 结论：当前 HEAD（45c02c5d）上 gateway_logs 测试通过，原“22 失败”系跨进程并发干扰，非代码缺陷
+
+任务背景：上一轮汇报 `cargo test -p codexmanager-service --test gateway_logs -- --test-threads=1` 为 4 passed / 22 failed，失败类型含 502 upstream compatibility bridge failed、mock read timeout（os error 10060）、receive upstream request: Disconnected、duplicate column name: account_plan_type。
+
+核查结果：在隔离（单一 cargo test 进程）环境下连续运行两次，均为 **26 passed; 0 failed; 0 ignored**（耗时 68s / 73s），`cargo check -p codexmanager-service` 通过（仅既有 dead_code warning）。
+
+根因判定（非代码缺陷，环境性）：
+1. **duplicate column name: account_plan_type 不可能由当前代码产生**——`account_plan_type` 列仅通过 `ensure_account_subscriptions_table()` 的 `CREATE TABLE IF NOT EXISTS`（[account_subscriptions.rs:194](crates/core/src/storage/account_subscriptions.rs:194)）+ `ensure_column()`（[mod.rs:1349](crates/core/src/storage/mod.rs:1349)，先 `has_column` 判定，已幂等）建立；迁移 063 是纯 Rust `apply_compat_migration`（无 SQL 文件、`has_migration` 门控）。全仓唯一的无条件 `ADD COLUMN` 是 044 的 `account_plan_filter`（不同列）。该错误更可能来自两个并发测试进程写同一被竞用的库/连接交叉，而非 schema 逻辑。
+2. **502 / os error 10060 / Disconnected**——这些是 mock upstream 在 `accept_http_request` 的 3s accept 截止（[support.rs:637](crates/service/tests/gateway_logs/support.rs:637)）内没等到请求、或 TCP 端口竞争（`TEST_PORT_SEQ` 从 41000 起，两个进程共用同一端口段）、或 CPU 争抢导致网关在 mock 关闭后才转发的连锁症状。`--test-threads=1` 只串行化单进程内用例，**无法隔离两个并发 cargo test 进程**（两个 Claude loop 同时跑测试即触发）。
+
+未改任何业务代码或测试代码（无修复对象）。验证命令与结果：
+- `cargo test -p codexmanager-service --test gateway_logs -- --test-threads=1` ×2 → 均 26 passed / 0 failed（exit 0）
+- `cargo check -p codexmanager-service` → Finished（exit 0）
+
+剩余风险：若再次出现失败，应先确认是否有第二个 cargo/测试进程并发占用端口与 CPU；建议同一时刻只运行一个测试进程。本项不涉及提交（无代码变更）。
