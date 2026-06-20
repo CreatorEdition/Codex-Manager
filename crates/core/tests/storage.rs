@@ -407,11 +407,15 @@ fn token_upsert_keeps_refresh_schedule_columns() {
     assert_eq!(due2[0].account_id, "acc-schedule-1");
 }
 
-/// 函数 `tokens_due_for_refresh_uses_access_exp_when_next_refresh_is_stale`
+/// 函数 `tokens_due_for_refresh_uses_access_exp_only_when_next_refresh_is_null`
 ///
 /// 作者: gaohongshun
 ///
 /// 时间: 2026-04-26
+///
+/// 说明：失败退避语义（commit 8e3014d2）下，next_refresh_at 一旦显式排程即视为
+/// 权威退避点，access_token_exp 仅在 next_refresh_at 为 NULL 时才驱动到期判定，
+/// 避免远期重试排程被即将过期的 access token 强制提前刷新。
 ///
 /// # 参数
 /// 无
@@ -419,13 +423,13 @@ fn token_upsert_keeps_refresh_schedule_columns() {
 /// # 返回
 /// 无
 #[test]
-fn tokens_due_for_refresh_uses_access_exp_when_next_refresh_is_stale() {
+fn tokens_due_for_refresh_uses_access_exp_only_when_next_refresh_is_null() {
     let storage = Storage::open_in_memory().expect("open in memory");
     storage.init().expect("init schema");
     let now = now_ts();
     let account = Account {
-        id: "acc-stale-next-refresh".to_string(),
-        label: "stale next refresh".to_string(),
+        id: "acc-access-exp-null-next".to_string(),
+        label: "access exp without next refresh".to_string(),
         issuer: "https://auth.openai.com".to_string(),
         chatgpt_account_id: None,
         workspace_id: None,
@@ -446,9 +450,10 @@ fn tokens_due_for_refresh_uses_access_exp_when_next_refresh_is_stale() {
             last_refresh: now,
         })
         .expect("insert token");
+    // next_refresh_at 为 NULL、仅设置 access_token_exp：到期窗口应由 access_exp 驱动。
     storage
-        .update_token_refresh_schedule(&account.id, Some(4_102_444_800), Some(4_102_999_999))
-        .expect("set stale schedule");
+        .update_token_refresh_schedule(&account.id, Some(4_102_444_800), None)
+        .expect("set access exp without next refresh");
 
     let due = storage
         .list_tokens_due_for_refresh(4_102_444_100, 4_102_444_700, 10)
@@ -460,6 +465,18 @@ fn tokens_due_for_refresh_uses_access_exp_when_next_refresh_is_stale() {
         .expect("list due after access exp window");
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].account_id, account.id);
+
+    // 显式排程未来的 next_refresh_at（失败退避）后，即使 access token 已过期也不应被刷新。
+    storage
+        .update_token_refresh_schedule(&account.id, Some(4_102_444_800), Some(4_102_999_999))
+        .expect("set future backoff schedule");
+    let due = storage
+        .list_tokens_due_for_refresh(4_102_444_100, 4_102_444_900, 10)
+        .expect("list due with future backoff schedule");
+    assert!(
+        due.is_empty(),
+        "未来的 next_refresh_at 退避点应优先于过期 access token"
+    );
 }
 
 /// 函数 `tokens_due_for_refresh_include_other_unavailable_accounts_but_skip_deactivated`
