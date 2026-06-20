@@ -710,3 +710,37 @@ Err(err) => {
 
 本批审计 gateway keepalive 与聚合 API 故障转移候选解析，发现聚合 API 候选每请求全量加载无下推无缓存（BB，P1）——这与 H 项（模型目录全量加载线性查找）、T 项（账号候选缓存深拷贝）同源，都是"热路径未用对数据访问方式"。值得注意：账号候选路径已优化（缓存+quota guard），但**聚合 API 候选路径未享受同等优化**——这是路径间优化不对称的典型。keepalive 子系统确认完善。A–BB 共 28 类优化点。
 
+
+## 2026-06-20 持续架构审计（第四批：调度器 + 插件运行时 + 热路径正面确认）
+
+### N. 插件调度器冗余全量查询（P1，新发现）
+
+`run_due_tasks_once()`（`crates/service/src/plugin/scheduler.rs:20`）已用 `list_due_plugin_tasks(now, 100)` SQL 下推（JOIN plugin_installs + WHERE enabled/status/next_run_at）取到期任务，执行无误。
+
+问题：执行完到期任务后，为计算下次 sleep 时长，又额外调用：
+- `list_plugin_installs()` 全量加载所有安装
+- `list_plugin_tasks(None)` 全量加载所有任务
+然后在 Rust 层遍历求最小 `next_run_at`。
+
+大量插件/任务时，每个调度 tick 都把全部 installs + tasks 搬到内存只为求一个最小值。
+
+建议：新增 `min_next_run_at_for_enabled_tasks(now)` storage 查询（`SELECT MIN(next_run_at) FROM plugin_tasks t JOIN plugin_installs p ... WHERE enabled=1 AND status='enabled' AND schedule_kind<>'manual'`），一条 SQL 返回下次唤醒时间，消除两次全量加载。
+
+### O. 插件 Rhai 引擎每次重建并重编译 AST（P3，新发现，低优先级）
+
+`execute_plugin_script()`（`crates/service/src/plugin/runtime.rs:173`）每次任务执行都 `Engine::new()` + 注册全部 fn + `engine.compile(&plugin.script_body)` 重新编译脚本为 AST。
+
+插件是低频后台调度任务（interval 通常分钟/小时级），单次重建开销可接受；但同一脚本反复执行（高频调度或手动多次触发）时重编译 AST 是浪费。
+
+建议（低优先级）：按 `(plugin_id, script_body_hash)` 缓存编译后的 AST（Rhai AST 与 Engine 分离，可独立复用）。注意引擎注册的闭包捕获 permissions/settings 快照，引擎本身不宜跨执行共享，仅缓存 AST。仅当插件高频执行才有收益。
+
+### 正面确认（已优化，记录避免重复审计）
+
+- **P. 热路径 env::var 已 atomic 缓存**：`route_hint.rs` 的 route_strategy 等用 `reload_from_env()` 读 env 后存 atomic（`ROUTE_MODE.store`），运行时读 atomic load，非每请求读 env。selection.rs 的 quota guard config 同样用 `current_quota_guard_config()` 内存缓存。
+- **Q. 上游 HTTP 客户端已连接池化 + 按 proxy 缓存**：`runtime_config.rs` 用 `UPSTREAM_CLIENT`（OnceLock<RwLock<Client>>）+ `UPSTREAM_CLIENT_POOL`（按 proxy_url 缓存），客户端配置 `pool_max_idle_per_host(32)` + `pool_idle_timeout(90s)` + `tcp_keepalive(30s)`。proxy.rs/postprocess.rs 中的 `Client::new()` 全是测试 fixture。
+- **R. Web 静态资源已 include_dir 内嵌**：`crates/web/src/embedded_ui.rs` 用 `include_dir!` 编译期内嵌 dist 到二进制，非每请求读盘。
+- **S. 运行时配置已 OnceLock 缓存**：`RUNTIME_CONFIG_LOADED.get_or_init(reload_from_env)`，配置变更走显式 reload，非每次重新解析。
+
+### 审计进度小结
+
+task.md 已累计记录 A–S 共 **19 类**架构优化点 + 正面确认。本轮新增 N（P1 调度器冗余全量）、O（P3 Rhai AST 缓存）两个可优化项，并确认 env/HTTP客户端/Web资源/运行时配置 4 项已优化。后续可转向：trace_log 写入开销、SSE keepalive 定时器、前端 React 重渲染热点、迁移脚本启动耗时。
