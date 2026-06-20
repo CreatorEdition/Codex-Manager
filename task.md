@@ -584,3 +584,21 @@ Err(err) => {
 
 本批审计路由相关查询（conversation 绑定、模型源映射、模型目录）的索引覆盖度，确认 conversation_bindings 与 model_source_mappings 索引设计优秀（条件+排序全覆盖），唯一缺口是 H 项的 model_catalog 全量加载——而其主键 `(scope, slug)` 使修复零索引成本。这印证了"索引设计整体良好，个别热路径未用上已有主键"的模式。H 项实施细节已明确，可优先落地。A–V 共 22 类（本批无新增字母项，强化 H 项实施路径）。
 
+
+## 2026-06-14 持续架构审计（第十二批：observability/日志写入路径——时序观察 + 全维度正面确认）
+
+### ⚠️ 待处理（W，本批新增，P3 低优先级）
+
+- **W（P3 错误早返回路径先写日志后响应，增加错误响应延迟）**：成功主路径日志写入在 `request.respond()` **之后**（不阻塞客户端，见正面确认），但错误早返回路径（404/鉴权失败/早返回错误）是**先 `write_request_log` 再构造 `terminal_text_response` 并 respond**，客户端要等日志写入 DB（含 WAL 写）完成才收到错误响应。见 [request_entry.rs:64](crates/service/src/gateway/request/request_entry.rs:64)、[proxy.rs:268](crates/service/src/gateway/upstream/proxy.rs:268)、[proxy.rs:452](crates/service/src/gateway/upstream/proxy.rs:452)。错误路径相对低频且错误响应延迟敏感度低，故 P3。优化（可选）：调整错误路径时序为先 respond 再写日志，与成功路径对齐；或确认错误响应延迟在可接受范围则不动。仅记录，非优先项。
+
+### ✅ 正面确认（本批：日志/observability 写入路径设计优秀）
+
+- **请求日志单事务两表写 + 空 token 跳过**：`insert_request_log_with_token_stat` 用 `unchecked_transaction()` 把 request_logs + request_token_stats 包在**单事务单提交**；token 与费用均为 0 时只写 request_logs，不写无统计贡献的明细行（与 task.md 既有"空 token_stats 写入跳过"一致）。见 [request_logs.rs:155](crates/core/src/storage/request_logs.rs:155)。
+- **request_logs 索引覆盖充分**：8 组复合索引（created_at / status_code+created_at / method+created_at / key_id+created_at / account_id+created_at / created_at+id / trace_id+created_at / actual_source+created_at），日志页按时间/状态/方法/Key/账号/trace/来源筛选均有索引支撑（呼应 M 项）。见 [012/020/027/060 migrations](crates/core/migrations/012_request_logs_search_indexes.sql:1)。
+- **成功主路径日志写入不阻塞客户端**：`respond_with_upstream`/`respond_with_stream_upstream` 内部先 `request.respond()` 把响应发给客户端，返回后 execution_context 才调 `write_request_log_with_attempts`——高频成功路径的日志写入在响应之后，不增加客户端感知延迟。见 [execution_context.rs:330](crates/service/src/gateway/upstream/proxy_pipeline/execution_context.rs:330) 与 [delivery.rs respond](crates/service/src/gateway/observability/http_bridge/delivery.rs:2108)。
+- **trace_log 成功请求默认零文件 IO**：`log_request_final` 对成功请求（status<400 且无 error）仅 `clear_trace_state`（内存操作），只有 `gateway_trace_stdout_enabled() && elapsed_ms >= slow_threshold`（trace 开启 + 慢请求）才 `flush_trace_lines` 落盘；错误请求标记 `mark_trace_has_error`（内存）。默认不每请求写文件。见 [trace_log.rs:1333](crates/service/src/gateway/observability/trace_log.rs:1333)。
+
+### 审计方法论备注（第十二批）
+
+本批系统审计 observability/日志写入路径（请求日志事务、索引、写入时序、trace 落盘），确认高频成功路径设计优秀：单事务两表写、索引充分、日志在 respond 之后写（不阻塞客户端）、trace 默认零文件 IO。唯一改进点是错误路径的写日志/响应时序（W，P3 低频）。这印证 observability 子系统已高度优化。A–W 共 23 类优化点（W 为 P3 低优先级）。
+
