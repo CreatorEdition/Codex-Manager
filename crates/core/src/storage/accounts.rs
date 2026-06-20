@@ -278,7 +278,12 @@ impl Storage {
         query: Option<&str>,
         group_name: Option<&str>,
     ) -> Result<i64> {
-        self.count_accounts_with_usage_mode(query, group_name, AccountUsageQueryMode::LowQuota, None)
+        self.count_accounts_with_usage_mode(
+            query,
+            group_name,
+            AccountUsageQueryMode::LowQuota,
+            None,
+        )
     }
 
     /// 函数 `query_accounts_with_usage_mode`
@@ -817,7 +822,6 @@ impl Storage {
         }
         Ok(out)
     }
-
 }
 
 /// 函数 `normalize_optional_filter`

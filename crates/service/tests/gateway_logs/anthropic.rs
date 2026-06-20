@@ -943,11 +943,7 @@ fn gateway_claude_failover_same_workspace_preserves_session_affinity_headers() {
                 last_refresh: now,
             })
             .expect("insert token wsSame");
-        seed_account_source_model(
-            &storage,
-            &format!("acc_ws_same_{index}"),
-            "gpt-5.3-codex",
-        );
+        seed_account_source_model(&storage, &format!("acc_ws_same_{index}"), "gpt-5.3-codex");
     }
 
     let platform_key = "pk_strip_same_workspace";

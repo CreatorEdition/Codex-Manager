@@ -484,8 +484,9 @@ mod tests {
             .insert_event(&Event {
                 account_id: Some("acc-transient".to_string()),
                 event_type: "account_status_update".to_string(),
-                message: "status=unavailable reason=refresh_token_invalid:refresh_token_unknown_401"
-                    .to_string(),
+                message:
+                    "status=unavailable reason=refresh_token_invalid:refresh_token_unknown_401"
+                        .to_string(),
                 created_at: now + 10,
             })
             .expect("insert transient unknown_401 status");
