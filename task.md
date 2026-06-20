@@ -1008,3 +1008,22 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - `cargo check -p codexmanager-service` → Finished（exit 0）
 
 剩余风险：若再次出现失败，应先确认是否有第二个 cargo/测试进程并发占用端口与 CPU；建议同一时刻只运行一个测试进程。本项不涉及提交（无代码变更）。
+
+## 2026-06-21 实施：H + MMM 模型存在性校验统一收口（【Claude-Opus】实施 + 主代理独立审计，commit fe67d53a）
+
+### ✅【已完成】H（P0 网关热路径）+ MMM（P2 管理路径）：全量加载+线性 .any() → 主键点查
+
+实施内容：
+- 新增 storage 函数 `model_catalog_model_exists(&self, scope, slug) -> rusqlite::Result<bool>`（[model_options.rs:271](crates/core/src/storage/model_options.rs:271)），SQL `SELECT 1 FROM model_catalog_models WHERE scope=?1 AND slug=?2 LIMIT 1`，走主键 `(scope, slug)`（迁移 047:42 与 model_options.rs:700 重建表均确认 `PRIMARY KEY (scope, slug)`），零新增索引。
+- 替换两处反模式调用，行为等价（同 scope、同 `map_err` 文案与错误码、同 false 分支返回）：
+  - H（P0 热路径）：[proxy.rs:155](crates/service/src/gateway/upstream/proxy.rs:155) `model_route_error`，原 `list_model_catalog_models("default")` 全量 + `.any(slug==model)`。上方 trim/非空守卫未动。
+  - MMM（P2 管理路径）：[apikey_models.rs:1108](crates/service/src/apikey/apikey_models.rs:1108) `ensure_platform_model_exists`，原 `list_model_catalog_models(MODEL_CACHE_SCOPE_DEFAULT)` 全量 + `.any(slug==slug)`。
+- 补 core storage 单元测试 `model_catalog_model_exists_uses_primary_key_point_lookup`（[migration_tests.rs:1649](crates/core/tests/storage/migration_tests.rs:1649)）覆盖 命中/不存在/scope 不匹配 三态。
+
+主代理独立审计（非盲信子代理报告，亲自复跑）：
+- diff 仅 4 个相关文件、未动 task.md、未 git add .；行为等价性逐分支核对通过。
+- `cargo check -p codexmanager-core` → Finished（exit 0）。
+- `cargo test -p codexmanager-core --lib model_catalog_model_exists_uses_primary_key_point_lookup` → 1 passed。
+- **`cargo test -p codexmanager-service --test gateway_logs -- --test-threads=1` → 26 passed / 0 failed**（69.53s，回归保护成立，证明未破坏网关路由校验）。
+
+剩余风险：无功能性风险。task.md 早期条目（186/251/576/965/970/977 行）中"待新增 model_catalog_model_exists"的描述现已落地，后续不应再列为待办。
