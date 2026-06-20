@@ -32,6 +32,12 @@ export interface QuotaGuardSettings {
   allowAllLowQuotaFallback: boolean;
 }
 
+export interface RuntimeTimeZone {
+  name: string;
+  offset: string;
+  source: string;
+}
+
 export interface AppSettings {
   updateAutoCheck: boolean;
   closeToTrayOnClose: boolean;
@@ -78,6 +84,7 @@ export interface AppSettings {
   envOverrideUnsupportedKeys: string[];
   theme: string;
   appearancePreset: string;
+  runtimeTimeZone?: RuntimeTimeZone | null;
   [key: string]: unknown;
 }
 
