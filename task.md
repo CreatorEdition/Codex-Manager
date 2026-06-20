@@ -967,3 +967,14 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - **MMM（P1，与 H 同源）模型存在性校验反模式有第二处**：`ensure_platform_model_exists(storage, slug)`（[apikey_models.rs:1108](crates/service/src/apikey/apikey_models.rs:1108)）与 H 项 `model_route_error`（proxy.rs:156）是完全相同反模式——`list_model_catalog_models("default")` 全量加载 + `.into_iter().any(|m| m.slug == slug)` 线性扫描，仅为判断单 slug 是否存在。归属 `save_managed_model_source_mapping`（模型路由映射保存，管理操作，频率低于网关热路径）。两处共用同一治本方案：新增 `model_catalog_model_exists(scope, slug)` 走 `PRIMARY KEY (scope, slug)` 的 O(log n) 点查，一次改造同时消除 H + MMM。建议把 H 从"单点修复"升级为"模型存在性校验统一收口"小专题。
 - **正面确认 NNN**：apikey_models.rs 其余全量加载点（cleanup_orphan_auto_catalog_models:798、prune_unedited_remote_..:1847）是 cleanup/prune 维护型操作，本就需遍历全部模型，全量加载合理，非反模式。
+
+### 持续架构审计第二十三批（模型目录加载点全面映射完成）
+
+- OOO（H 反模式完整分布定论，P0+P2）：完成 `list_model_catalog_models` 全部 12 个调用点映射。
+  仅 2 处是 H 反模式（全量加载 + `.any()` 判单 slug 存在）：proxy.rs:156（网关热路径，P0）、
+  ensure_platform_model_exists（管理路径，P2）。两处共用治本方案 `model_catalog_model_exists(scope,slug)` 走 PK。
+- PPP（正面确认）：其余 10 处均为合理全量用法——
+  read_managed_model_catalog（读全目录）、cleanup_orphan/prune（维护需遍历）、
+  model_groups.rs:191（批量校验先建 HashSet 再循环，优于逐个单查）、
+  quota/read.rs:1569 api_available_model_slugs（按 supported_in_api+visibility 过滤构建列表，本需全部行）。
+  结论：模型目录读取面健康，H 反模式边界清晰仅限单 slug 存在性校验，实施范围明确可控。
