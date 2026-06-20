@@ -638,3 +638,20 @@ Err(err) => {
 
 本批审计配置热加载传播与错误码体系，确认运行时配置 OnceLock+atomic（热路径零 DB）、设置 sync 低频、错误分类仅错误路径——均合理。核心产出是 E 项实施强化：发现 classify_message 已提供成熟错误规范化器，E 项可直接复用（类比第十一批对 H 项主键的强化）。连续多轮"实施强化 + 正面确认"主导，印证核心子系统审计饱和，优化蓝图重心应转向实施。A–Y 共 25 类（本批强化 E 项实施路径，无新增字母项）。
 
+
+## 2026-06-14 持续架构审计（第十五批：跨路径并发token刷新隐患——呼应用户痛点）
+
+### 🔴 待处理（Z，本批新增，P0/P1，直接关联用户日志 >95% 的 refresh_token reused 401）
+
+- **Z（P0-P1 gateway 与后台 token 刷新用两个独立锁，跨路径并发消费同一 refresh_token 触发 "already used" 401）**：系统存在**两条独立的 token 刷新路径，各用各的 per-account 锁，互不互斥**：
+  - **gateway 请求路径**：`account_token_exchange_lock`（`static ACCOUNT_TOKEN_EXCHANGE_LOCKS`，[token_exchange.rs:26](crates/service/src/gateway/auth/token_exchange.rs:26)），api_key 交换失败的 fallback 分支**裸调** `refresh_access_token(&token.refresh_token)`（[token_exchange.rs:269](crates/service/src/gateway/auth/token_exchange.rs:269)）消费 refresh_token，该 fallback 仅 double-check 了 api_key_access_token，**未** double-check refresh_token 是否已被后台刷新、也无 race recovery。
+  - **后台用量轮询路径**：`token_refresh_lock_for_account`（`static TOKEN_REFRESH_LOCKS`，[usage_token_refresh.rs:14](crates/service/src/usage/usage_token_refresh.rs:14)），`refresh_and_persist_access_token` 有完善的持锁 double-check（重读最新 token，已变则复用）+ `recover_refresh_race_from_latest_token` 竞态恢复。
+  
+  **隐患**：两个锁是完全独立的 static 锁表，同一账号的 token 刷新若同时被 gateway 请求与后台轮询触发，二者各持各锁、并发执行：后台消费 refresh_token_A 换得 refresh_token_B 落库，gateway fallback 仍用旧 refresh_token_A 调上游 → OpenAI 返回 **"refresh token already used" 401**。这与用户提供的日志中占比 >95% 的 token 刷新 401（reused/revoked）高度吻合，是潜在根因之一。
+  
+  **优化（P0-P1）**：① 统一两条路径为**单一 per-account token 刷新锁**（共用同一 static 锁表，按 account_id 互斥），或 ② 让 gateway 的 refresh fallback **复用后台的 `refresh_and_persist_access_token`**（它已含 double-check + race recovery），不再裸调 `refresh_access_token`。这样跨路径刷新串行化，后到者持锁后重读最新 token 即发现已刷新、直接复用，避免重复消费旧 refresh_token。可显著降低用户日志中的 reused 401。配合既有 O 项（失败分类冷却）与 P 项（指数退避），构成 token 刷新健壮性的完整修复。
+
+### 审计方法论备注（第十五批）
+
+本批审计 token 交换/刷新并发路径，发现 gateway 与后台两条刷新路径锁不统一（Z 项）——这是十五轮审计中**与用户原始痛点（token 刷新 401 风暴）最直接相关的高价值发现**。单条路径内的 single-flight + double-check 设计均正确，缺口在**跨路径锁未协调**。Z 与 O/P 同属 token 刷新健壮性族，应合并为"token 刷新修复"实施批次并优先落地——直接改善账号可用性与用户可见的错误日志。A–Z 共 26 类优化点。
+
