@@ -655,3 +655,19 @@ Err(err) => {
 
 本批审计 token 交换/刷新并发路径，发现 gateway 与后台两条刷新路径锁不统一（Z 项）——这是十五轮审计中**与用户原始痛点（token 刷新 401 风暴）最直接相关的高价值发现**。单条路径内的 single-flight + double-check 设计均正确，缺口在**跨路径锁未协调**。Z 与 O/P 同属 token 刷新健壮性族，应合并为"token 刷新修复"实施批次并优先落地——直接改善账号可用性与用户可见的错误日志。A–Z 共 26 类优化点。
 
+
+## 2026-06-14 持续架构审计（第十六批：定时warmup全账号串行 + 登录回调/Client复用正面确认）
+
+### ⚠️ 待处理（AA，本批新增，P2）
+
+- **AA（P2 定时 warmup 全账号串行发上游请求，单轮可能耗时数小时）**：`warmup_cron_loop`（[runner.rs:121](crates/service/src/usage/refresh/runner.rs:121)）定时调 `warmup_accounts(Vec::new(), "")`，空 account_ids 经 `resolve_target_accounts` 解析为**全部候选账号**；`warmup_accounts`（[account_warmup.rs:53](crates/service/src/account/account_warmup.rs:53)）对账号**串行** `for account in accounts.drain(..)` 逐个 `warmup_single_account`——每个是一次完整上游 inference 请求 + SSE 流消费（可能数秒）。几百上千账号串行，单轮总耗时 = N × 单账号时间，可能数小时，长期占用一个后台线程，甚至上一轮未跑完下一轮信号又到。对比：用量刷新/ token refresh 已有多 worker 并发模型（`USAGE_REFRESH_WORKERS` + `token_refresh_worker_count`），warmup 却单线程串行——**并发模型不一致**。优化：warmup 复用类似的 worker 池并发（带并发上限，避免上游限流；可复用 USAGE_REFRESH_WORKERS 或单独 `WARMUP_WORKERS` 配置）。注意：Client 已复用（`build_warmup_client` 一次传引用，无需改）；并发上限需保守以防触发上游限流/封禁。次要点：`resolve_target_accounts` 指定 account_ids 时先 `list_gateway_candidates()` 全量加载再 `accounts.iter().find()` 线性查找（O(候选数 × 请求数)），warmup 低频影响有限，可一并优化为按 ID 直查。
+
+### ✅ 正面确认（本批）
+
+- **登录回调服务器单例复用**：`ensure_login_server_with_addr` 用 `LOGIN_SERVER_STATE.get_or_init` + Mutex 单例，已绑定则直接返回复用，不会每次登录都 spawn 新监听服务器。见 [auth_callback.rs:276](crates/service/src/auth/auth_callback.rs:276)。
+- **warmup HTTP Client 已复用**：`warmup_accounts` 中 `build_warmup_client()` 只构建一次，传 `&client` 引用给每个 `warmup_single_account`，串行各账号复用同一 Client（连接池保留）。Client 复用正确，问题仅在请求串行（AA 项）。见 [account_warmup.rs:63](crates/service/src/account/account_warmup.rs:63)。
+
+### 审计方法论备注（第十六批）
+
+本批审计账号 warmup、登录回调生命周期，发现定时 warmup 全账号串行（AA，P2）——与用量刷新的多 worker 并发模型不一致，是后台任务并发模型的局部缺口。登录回调单例、warmup Client 复用确认良好。AA 与既有后台任务优化（用量轮询限载、聚合余额批次）同属"后台任务效率"族。A–AA 共 27 类优化点。
+
