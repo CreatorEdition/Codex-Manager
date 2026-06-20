@@ -962,3 +962,8 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - **H 项强化（P0，治本方案已坐实）**：`model_catalog_models` 表已有 `PRIMARY KEY (scope, slug)`，天然支撑 O(log n) 点查；但 storage 层**无按 slug 单查/exists 函数**，导致 `proxy.rs:156` 热路径 `model_route_error` 用 `list_model_catalog_models("default")` 全量加载后 `.any(|item| item.slug == model)` 线性扫描。治本方案明确且改动极小：新增 `model_catalog_model_exists(scope, slug)`（`SELECT 1 ... WHERE scope=?1 AND slug=?2`，走主键）替换全量+线性查找。
 - **LLL（P2，关联读取面）**：`list_model_catalog_models` 全项目 12 处调用（apikey_models 多处、model_groups、quota/read、proxy 热路径）。多数在管理/读取路径（可接受全量），但 proxy.rs:156 是唯一请求热路径全量点，应优先按 H 改造；其余管理路径维持现状。
+
+### ⚠️ 第二十二批审计（模型目录存在性校验反模式扩面）
+
+- **MMM（P1，与 H 同源）模型存在性校验反模式有第二处**：`ensure_platform_model_exists(storage, slug)`（[apikey_models.rs:1108](crates/service/src/apikey/apikey_models.rs:1108)）与 H 项 `model_route_error`（proxy.rs:156）是完全相同反模式——`list_model_catalog_models("default")` 全量加载 + `.into_iter().any(|m| m.slug == slug)` 线性扫描，仅为判断单 slug 是否存在。归属 `save_managed_model_source_mapping`（模型路由映射保存，管理操作，频率低于网关热路径）。两处共用同一治本方案：新增 `model_catalog_model_exists(scope, slug)` 走 `PRIMARY KEY (scope, slug)` 的 O(log n) 点查，一次改造同时消除 H + MMM。建议把 H 从"单点修复"升级为"模型存在性校验统一收口"小专题。
+- **正面确认 NNN**：apikey_models.rs 其余全量加载点（cleanup_orphan_auto_catalog_models:798、prune_unedited_remote_..:1847）是 cleanup/prune 维护型操作，本就需遍历全部模型，全量加载合理，非反模式。
