@@ -947,3 +947,8 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - ⚠️ FFF（P3，健壮性）：流式 usage_collector 有 4 处裸 `.lock().expect("usage lock")`，见 [anthropic.rs:714](crates/service/src/gateway/observability/http_bridge/stream_readers/anthropic.rs:714)、[responses_from_anthropic.rs:682/716/750](crates/service/src/gateway/observability/http_bridge/stream_readers/responses_from_anthropic.rs:682)。项目已有 `lock_utils::read_recover/write_recover` poison 容错封装却未在此复用；若持锁线程 panic 致锁中毒，后续同 collector 的 expect 会连锁 panic。建议改用容错读取或 `lock().unwrap_or_else(|e| e.into_inner())` 模式。
 - ✅ GGG：除上述 4 处外，gateway/storage 共享状态锁已普遍走 `read_recover/write_recover` 容错封装（见 lock_utils.rs），poison 不致全局崩溃。
+
+### 持续审计第十九批（2026-06-14，trace 状态清理）
+
+- ✅ HHH 正面确认：`TRACE_ERROR_TRACES` / `TRACE_PENDING_LINES` 有配对清理。`log_request_final`（每请求终点）无条件调用 `clear_trace_state`，同时清理 pending lines 与 error trace；中途 `mark_trace_has_error`（多处）最终都由 final 清理，无界增长风险低。见 [trace_log.rs (line 1350)](crates/service/src/gateway/observability/trace_log.rs:1350)。
+- ⚠️ III（P3，与 FFF 同源）：唯一残留缺口是请求中途 panic 未走 `log_request_final` 时，该 trace_id 的 pending lines / error 标记不被清理。低频边际点，可在 final 路径用 RAII guard 兜底确保清理。
