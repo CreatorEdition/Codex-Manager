@@ -898,3 +898,11 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - **NN（P1，安全门禁）**：`all_interfaces` 暴露与 `WEB_AUTH_MODE_NONE` 缺少联动强制。`default_listener_bind_addr()` 默认 loopback 是安全默认（见 [service.rs:229](crates/service/src/app_settings/service.rs:229)），仅在用户显式开 `all_interfaces` 时绑 `0.0.0.0`。但 `current_web_auth_mode()` 未配置密码时默认 `WEB_AUTH_MODE_NONE`（见 [app_manager.rs:138](crates/service/src/auth/app_manager.rs:138)）。缺口：用户开 all_interfaces 把服务暴露到局域网/公网时，系统不强制要求认证，也无显著告警。建议开 all_interfaces 时若 auth_mode=none 则拒绝启动或强制提示，避免未授权暴露账号池/网关。
 
 - **正面确认 OO**：bind 默认安全。`normalize_service_bind_mode` 无配置默认 `LOOPBACK`，`0.0.0.0` 常量仅在显式 all_interfaces 下生效，非默认开放，见 [service.rs](crates/service/src/app_settings/service.rs:1)。
+
+### 2026-06-14 持续架构审计第十二批（密钥日志脱敏）
+
+- **PP（P2，安全一致性）**：URL 脱敏未全局统一。`redact_sensitive_error_url()` / `redact_sensitive_url_parts()`（见 [auth_tokens.rs:483](crates/service/src/auth/auth_tokens.rs:483)）会从 reqwest 错误的 URL 中脱敏敏感 query 参数，但**仅 auth_tokens 模块使用**。gateway 上游请求错误（如 [transport.rs:424](crates/service/src/gateway/upstream/attempt_flow/transport.rs:424)、:540）直接 `err.to_string()`，reqwest error 默认携带 URL。OpenAI/Codex 上游用 Authorization header（URL 通常无 secret），但聚合 API 自定义上游若把 key/token 放 query，错误日志/请求日志会泄露。建议：抽出公共 `redact_sensitive_error_url` 到错误处理模块，gateway 上游与聚合 API 错误统一走脱敏后再 to_string，避免 query secret 进日志。
+
+#### ✅ 第十二批正面确认
+- **QQ** 无明文 token 日志：未发现 `log::*!` 直接打印 access_token/refresh_token/password/api_key；id_token 仅用于 claims 解析与导入导出数据处理，非日志输出。
+- **RR** auth 流程 URL 已脱敏：OAuth token 交换等 auth_tokens 路径的请求错误均经 `redact_sensitive_error_url` 处理后才转字符串。
