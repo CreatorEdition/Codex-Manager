@@ -6,7 +6,7 @@ use codexmanager_core::storage::{now_ts, Account, Storage, Token};
 
 use crate::account_status::mark_account_unavailable_for_auth_error;
 use crate::auth_tokens;
-use crate::usage_http::refresh_access_token;
+use crate::usage_token_refresh::{refresh_and_persist_access_token, token_refresh_ahead_secs};
 
 const ACCOUNT_TOKEN_EXCHANGE_LOCK_TTL_SECS: i64 = 30 * 60;
 const ACCOUNT_TOKEN_EXCHANGE_LOCK_CLEANUP_INTERVAL_SECS: i64 = 60;
@@ -266,16 +266,28 @@ pub(super) fn resolve_openai_bearer_token(
         Ok(token) => return Ok(token),
         Err(exchange_err) => {
             if !token.refresh_token.trim().is_empty() {
-                match refresh_access_token(&issuer, &client_id, &token.refresh_token) {
-                    Ok(refreshed) => {
-                        token.access_token = refreshed.access_token;
-                        if let Some(refresh_token) = refreshed.refresh_token {
-                            token.refresh_token = refresh_token;
+                // 中文注释：api_key 兑换失败后的 refresh 兜底统一复用后台轮询的
+                // refresh_and_persist_access_token。该函数内部持有与后台轮询相同的
+                // per-account TOKEN_REFRESH_LOCKS，并在持锁后重读最新 token 做 double-check
+                // 与竞态恢复，从而让 gateway 路径与后台路径共用同一把锁、跨路径串行化，
+                // 避免同一账号的 refresh_token 被并发消费触发 “refresh token already used” 401。
+                match refresh_and_persist_access_token(
+                    storage,
+                    token,
+                    &issuer,
+                    &client_id,
+                    token_refresh_ahead_secs(),
+                ) {
+                    Ok(()) => {
+                        // 中文注释：refresh_and_persist_access_token 在拿到 id_token 时已尝试
+                        // 兑换并缓存 api_key_access_token，这里优先复用其结果，避免重复 token exchange 打上游。
+                        if let Some(existing) = token
+                            .api_key_access_token
+                            .as_deref()
+                            .and_then(usable_api_key_access_token)
+                        {
+                            return Ok(existing);
                         }
-                        if let Some(id_token) = refreshed.id_token {
-                            token.id_token = id_token;
-                        }
-                        let _ = storage.insert_token(token);
 
                         if !token.id_token.trim().is_empty() {
                             let refreshed_client_id =
