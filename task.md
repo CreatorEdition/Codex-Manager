@@ -793,3 +793,27 @@ task.md 累计 A–V 共 **22 类**。本批新增 T（P1 trace_log 全局锁竞
 ### 审计进度小结
 
 task.md 累计 A–Y 共 **25 类**。本批新增 W（P2 迁移启动 69 次查询），确认迁移幂等门控正确、协议适配无重复 parse。后续方向：account/usage/aggregate 接回 SQL 下推（P0 J 关联）、前端 React 重渲染热点、错误码归一化聚合（E 项）、上游重试退避策略（G 项关联）。
+
+## 2026-06-20 持续架构审计（第七批：并发/路由/状态管理 — 多为正面确认）
+
+### Z. challenge 检测全量 to_ascii_lowercase 分配（P3，新发现，仅错误路径）
+
+`body_looks_like_cloudflare_challenge`（`delivery.rs:416`）与 `looks_like_cloudflare_challenge`（`output_text.rs:875`）对整个响应体 `to_ascii_lowercase()`（分配与 body 等大的新 String）后做 8 次 `contains` 子串扫描。
+
+影响有限：调用点（delivery.rs:1255/1308 的 `classify_compact_non_success_kind` 等）均在**非成功/错误响应分类路径**，正常成功响应不触发。仅当上游返回错误/challenge HTML（可能几十 KB）时，每次分配全量 lowercase 副本。
+
+建议（低优先级）：改用大小写不敏感子串匹配（如对固定 ASCII 关键词做不分配的 `find` + `eq_ignore_ascii_case` 窗口比较，或一次扫描多模式匹配），避免分配整个 body 的 lowercase 副本。收益仅在大错误响应高频出现时显现。
+
+### 正面确认（已优化，记录避免重复审计）
+
+- **AA. 后台任务线程模型良好**：`spawn_background_loop`（refresh/mod.rs:297）用 `catch_unwind` 包裹 worker，panic 自动重启（1s 退避）。usage-polling / gateway-keepalive / token-refresh-polling / account-warmup 各一专用命名线程，非每任务起线程。
+- **BB. token 刷新并发分片良好**：`run_token_refresh_tasks`（refresh/mod.rs）用 crossbeam `unbounded` channel + worker 池（`token_refresh_worker_count` 按账号数与配置取 min）+ 每 worker 独立 storage 连接 + `thread::scope` 优雅 join，无串行瓶颈。
+- **CC. 路由选择用 P2C 算法**：`apply_health_p2c` / `p2c_challenger_index`（route_hint.rs）用 power-of-two-choices O(1) 随机选两比较，非全候选排序。
+- **DD. 路由状态 HashMap 清理完善**：`p2c_nonce_by_key_model` / `next_start_by_key_model` 既有 lazy `remove_entry_if_expired`，又有 `maybe_maintain`（route_hint.rs:842）按 `maintenance_tick % ROUTE_STATE_MAINTENANCE_EVERY` 节流的全表 `prune_expired_entries`（TTL）+ `enforce_capacity_pair`（容量上限），无无界增长。
+- **EE. 无运行时正则编译**：service crate 无 `Regex::new`，challenge/错误检测均用 `contains` 字面量匹配，无每请求正则编译开销。
+
+### 审计进度小结
+
+task.md 累计 A–Z + AA–EE 共 **31 类条目**（含可优化项与正面确认）。本批新增 Z（P3 challenge 全量 lowercase），确认后台线程池/token 并发分片/P2C 路由/路由状态清理/无正则编译 共 5 个区域已优化良好。
+
+剩余高价值待实施项（按优先级）：H/J/account-usage-aggregate(P0)、I/N/T(P1)、K/O/W(P2)、Z(P3)。后续审计方向趋于收敛，可转向验证已记录 P0 项的当前实现状态，或前端 React 重渲染 / 错误码归一化聚合(E) 等仍未深入的维度。
