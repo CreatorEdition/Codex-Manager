@@ -96,7 +96,7 @@
 - Web RPC 仍需继续按方法梳理超时/重试配置，特别是批量导入、手动全量刷新和长耗时维护类操作；不得通过恢复全量裸调用来规避超时。
 - 首页模型池卡片在 summary 模式下容量数字会显示未知；后续如要展示容量，应通过独立轻量汇总或分页来源接口懒加载，不能回退到裸 RPC 全量扫描。
 - ✅【已完成 2026-06-19 commit dd794ab3】更新检测默认地址已从 `qxcnm/Codex-Manager` 统一改为 `CreatorEdition/Codex-Manager`，覆盖 `DEFAULT_UPDATE_REPO`、设置页 fallback release URL、环境变量目录默认值、github.rs 测试夹具和多语言文档链接，`CODEXMANAGER_UPDATE_REPO` 覆盖能力保持不变。审计备注：`items.rs` 提交带入 CRLF 行尾符噪声（真实变更仅 2 行但 diff 显示 146 行），index 已一致不再持续产生噪声，逻辑无误。
-- 🔄【进行中 2026-06-19】前端 conflict marker 收敛：13 个文件中 package.json/useApiKeys.ts/ko.ts/ru.ts 已收敛（commit b4c5e092，保留 HEAD 分页优化与上游 codexProfile/平台模式/i18n 新功能）；剩余 9 个文件（apikeys/page.tsx 9处、useAccounts.ts 5处、model-catalog-modal.tsx 3处、account-client.ts 3处、runtime-capabilities.ts 3处、settings/page.tsx 2处、transport-web-commands.test.mjs 2处、logs/page.tsx 大范围、useManagedModels.ts 1处）正由子代理逐文件收敛提交。注意是多路嵌套冲突（HEAD + 82970aaa + cf306b11 + 49d70518 + fccf5a63），且存在跨文件依赖（useManagedModels 的价格规则方法依赖 account-client）。
+- ✅【已完成 2026-06-20】前端 conflict marker 收敛：13 个文件全部收敛并通过 `cd apps && npx tsc --noEmit`（exit 0）。提交清单：package.json/useApiKeys.ts/ko.ts/ru.ts（b4c5e092）、useManagedModels.ts/account-client.ts（99bff456）、runtime-capabilities.ts（aac5810f）、model-catalog-modal.tsx（4e851363）、web transport 命令组（3cb265c3）、logs/page.tsx（234a198c，采用上游模块抽取+保留限载常量）、settings/page.tsx（a3e8c970，采用 GatewayTabContent 组件抽取并补全 compact 转发规则接线）、useAccounts.ts（8ec6b3fa 融合分页架构与空结果保护，2d2561a3 修复 placeholderData 重复行语法错误）、apikeys/page.tsx（298d5933，9 处统一取 HEAD 分页硬化版本，俄/韩翻译在已收敛的 ru.ts/ko.ts）。收敛原则：HEAD 分页/限载优化为基底，融合上游 codexProfile/平台模式/i18n/空结果保护新功能。审计补充（0b2deaca）：tsc 暴露两处与冲突无关的预存构建破损并已修复——settings-page-helpers 丢失的 `formatRuntimeTimeZoneLabel`/`RuntimeTimeZone` 类型已补回，作者页依赖的 sponsor-links 类型与 `normalizeSponsorLinkItems`（无硬编码广告，DEFAULT 本就为空）已最小恢复。
 - 2026-06-19 只读诊断确认用量分析 / 区间消耗没有已结束日期缓存：现有 `request_token_stat_rollups` 只按 `(key_id, account_id, model)` 聚合，没有 `day_start`、用户、实际来源、状态桶、请求数维度；`dashboard/adminUsageSummary`、成员仪表盘趋势、日志今日摘要、配额今日用量仍会扫描 `request_token_stats` 或 join `request_logs`。后续应新增日级 rollup 表，已结束日读缓存，当前日读 live stats 并加短 TTL。
 - ✅【已完成 2026-06-19 commit 8c94c84c】`account/usage/aggregate` SQL 下推已接回：`read_usage_aggregate_summary()` 改为直接调用 `storage.usage_aggregate_summary()`，移除 `list_accounts()` + `latest_usage_snapshots_by_account()` 的 Rust 全量聚合。storage 层 `usage_aggregate_summary_matches_bucket_semantics` 测试覆盖 SQL 路径桶语义。审计备注：service 层保留的 `compute_usage_aggregate_summary` 及其测试仍验证旧 Rust 路径，两条路径缺交叉一致性测试，后续可补一个对照测试断言 SQL 与 Rust 结果一致以防回退。
 - 2026-06-19 只读诊断确认请求日志错误去重只做了用量刷新失败事件节流，日志页仍直出 `request_logs.error` 原文，没有错误类别聚合结果。后续应新增 `requestlog/errorSummary` 或扩展 summary，按规范化 error code / 账号 / 来源 / 6 小时窗口聚合，返回 count、lastSeen、代表样例，避免 401 token refresh、网络断开、stream transport 等重复错误淹没 UI。
@@ -817,3 +817,30 @@ task.md 累计 A–Y 共 **25 类**。本批新增 W（P2 迁移启动 69 次查
 task.md 累计 A–Z + AA–EE 共 **31 类条目**（含可优化项与正面确认）。本批新增 Z（P3 challenge 全量 lowercase），确认后台线程池/token 并发分片/P2C 路由/路由状态清理/无正则编译 共 5 个区域已优化良好。
 
 剩余高价值待实施项（按优先级）：H/J/account-usage-aggregate(P0)、I/N/T(P1)、K/O/W(P2)、Z(P3)。后续审计方向趋于收敛，可转向验证已记录 P0 项的当前实现状态，或前端 React 重渲染 / 错误码归一化聚合(E) 等仍未深入的维度。
+
+## 2026-06-20 持续架构审计（第八批：前端 — 整体健康，2 个边际点）
+
+### FF. listAggregateApis 硬编码 pageSize:500 静默截断风险（边界正确性，非性能）
+
+`account-client.ts:654` 的 `listAggregateApis()` 硬编码 `{ page: 1, pageSize: 500 }` 一次性拉取全部聚合 API，隐含假设总数 ≤ 500。后端 `aggregateApi/list` 已分页，超过 500 时只返回前 500 条，**静默丢弃其余**。
+
+影响：聚合 API 通常数量有限，触发罕见；但属正确性隐患——大量聚合 API 部署时下拉/选择列表会缺项。
+
+建议：要么用游标/循环翻页拉全量，要么在返回 `total > 500` 时告警/提示。优先级低（多数部署 < 500 聚合 API），但应记录避免误判为"已加载全部"。
+
+### GG. 无全局 QueryClient defaultOptions（前端 P3）
+
+各页面 useQuery 各自配 `staleTime`（logs 30-60s、models 60s 等，配置合理），但未见全局 `QueryClient({ defaultOptions: { queries: { staleTime, gcTime } } })`。遗漏 staleTime 的查询会落到 React Query 默认 `staleTime:0`（如 `platform-mode/use-platform-mode-state.ts:98` 显式 0），窗口聚焦/重新挂载即 refetch。
+
+建议：设全局 defaultOptions 兜底 staleTime（如 30s）+ gcTime，避免个别查询遗漏导致窗口聚焦狂刷 RPC。已显式需要实时的（platform-mode staleTime:0）保留覆盖。
+
+### 正面确认（前端已优化/合理）
+
+- **HH. 列表 DOM 规模由后端分页兜底**：account/apikey/requestlog 列表后端分页（默认 pageSize 20，`MAX_ACCOUNT_PAGE_SIZE=500` 仅为上限钳制），前端 `.map` 渲染当前页有限条数，无需虚拟化库。
+- **II. 列表查询 staleTime 合理**：日志页 30-60s、模型页 60s staleTime，配合前几批确认的 refetchInterval 降频（日志 10s→不后台刷、摘要不轮询），避免前端狂刷。
+
+### 审计进度小结
+
+task.md 累计 A–Z + AA–II 共 **35 类条目**。本批前端审计结论：**整体健康**，后端分页兜底 DOM 规模，React Query staleTime 配置合理，无严重前端性能热点；仅 2 个边际点（FF 聚合API 500硬编码截断、GG 无全局 query 默认配置）。
+
+审计已充分收敛。剩余高价值待实施项仍为后端 P0/P1：H/J/account-usage-aggregate(P0)、I/N/T(P1)。后续可转入"验证已记录 P0 项实现状态"或开始实际优化实施阶段（需用户确认是否从审计转入修改）。
