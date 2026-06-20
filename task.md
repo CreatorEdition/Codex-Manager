@@ -643,6 +643,8 @@ Err(err) => {
 
 ### 🔴 待处理（Z，本批新增，P0/P1，直接关联用户日志 >95% 的 refresh_token reused 401）
 
+> ✅【已完成 2026-06-20 commit 2823d671，CCD-Opus 实施 + 主代理审计】gateway bearer 兑换 refresh 兜底已改为复用后台 `refresh_and_persist_access_token`，与后台轮询共用同一把 per-account `TOKEN_REFRESH_LOCKS`，实现跨路径串行化 + 持锁 double-check + 竞态恢复，不再裸调 `refresh_access_token` 二次消费旧 refresh_token。失败分类与账号置不可用语义保持不变。验证：`cargo check -p codexmanager-service` 通过、`cargo test -p codexmanager-service --lib token` 107 项全过。审计备注：① 子代理报告称“唯一修改文件”但 `cargo fmt --all` 另引入 6 个文件的既有格式漂移收敛（已拆分到 commit 1c15d0ef 独立提交，无逻辑变更）；② exchange 锁与 refresh 锁未合并属预期（关注点不同，不在 Z 范围）；③ 跨路径并发“只消费一次 refresh_token”的端到端集成测试仍缺，记为可选技术债。
+
 - **Z（P0-P1 gateway 与后台 token 刷新用两个独立锁，跨路径并发消费同一 refresh_token 触发 "already used" 401）**：系统存在**两条独立的 token 刷新路径，各用各的 per-account 锁，互不互斥**：
   - **gateway 请求路径**：`account_token_exchange_lock`（`static ACCOUNT_TOKEN_EXCHANGE_LOCKS`，[token_exchange.rs:26](crates/service/src/gateway/auth/token_exchange.rs:26)），api_key 交换失败的 fallback 分支**裸调** `refresh_access_token(&token.refresh_token)`（[token_exchange.rs:269](crates/service/src/gateway/auth/token_exchange.rs:269)）消费 refresh_token，该 fallback 仅 double-check 了 api_key_access_token，**未** double-check refresh_token 是否已被后台刷新、也无 race recovery。
   - **后台用量轮询路径**：`token_refresh_lock_for_account`（`static TOKEN_REFRESH_LOCKS`，[usage_token_refresh.rs:14](crates/service/src/usage/usage_token_refresh.rs:14)），`refresh_and_persist_access_token` 有完善的持锁 double-check（重读最新 token，已变则复用）+ `recover_refresh_race_from_latest_token` 竞态恢复。
