@@ -983,3 +983,8 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - **OOO（P1）冷启动 4 个后台 loop 同时立即执行首轮全量，无错峰**：`run_dynamic_poll_loop`（[runner.rs:306](crates/service/src/usage/refresh/runner.rs:306)）进入循环立即调 `task()`，无前置 sleep；jitter 仅作用于后续轮次间隔。`ensure_usage_polling`/`ensure_gateway_keepalive`/`ensure_token_refresh_polling`/`ensure_warmup_cron` 启动瞬间同时触发首轮，多账号库下 CPU/DB/上游请求峰值叠加。治本：首轮加随机启动延迟（startup jitter）或错开 4 个 loop 的首次触发时刻。
 - **PPP（正面确认）后台 loop 调度健康**：`OnceLock` 防重复启动 + 独立命名线程 + 动态间隔 + 失败指数退避 + 后续轮次 jitter，仅缺首轮错峰（OOO）。
+
+### 第二十五批审计（请求体多次重复解析）
+
+- **QQQ（P1，热路径 CPU）请求 body 在校验/改写流水中被多次完整 JSON 解析**：单次网关请求在 `local_validation/request.rs` 中，同一 body 经 `inspect_service_tier_for_log`([:1691](crates/service/src/gateway/local_validation/request.rs:1691))、`parse_request_metadata`([:1700](crates/service/src/gateway/local_validation/request.rs:1700)/:1627/:2085)、`validate_text_input_limit_for_path`([:1781](crates/service/src/gateway/local_validation/request.rs:1781)/:1852/:2082)、`request_rewrite`([:720](crates/service/src/gateway/request/request_rewrite.rs:720)) 各自独立 `serde_json::from_slice::<Value>(body)`，同一请求体被完整解析 4+ 次。Codex 请求 body 常含长对话上下文（数十 KB～MB），重复全量解析放大热路径 CPU 与分配。治本：流水入口一次性 parse 成 `Value`，向各函数传 `&Value`（或解析结果结构）而非反复 `&[u8]` 重解析；改写完成后仅在 body 变更时再序列化一次。
+- **RRR（正面确认）解析本身防御正确**：各 `from_slice` 失败均走 `Ok(...) else`/`map_err` 优雅降级（如 request_rewrite.rs:720 解析失败直接返回原 body），无 unwrap panic 风险；问题仅在重复次数而非正确性。
