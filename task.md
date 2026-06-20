@@ -923,3 +923,9 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - **VV** 适配器转换逐帧推进不累积：`AnthropicSseReader`/`GeminiSseReader`/`ChatCompletionsFromResponsesSseReader` 的 `read()`（见 [anthropic.rs:617](crates/service/src/gateway/observability/http_bridge/stream_readers/anthropic.rs:617)）从 `out_cursor` 拉字节，读空才 `next_chunk()` 取下一上游帧并 `out_cursor = Cursor::new(next)` 替换（旧帧释放），内存只持当前帧 + 单帧转换输出。
 - **WW** 上游 pump 有界 channel 形成背压：`UpstreamSseFramePump::from_reader`（见 [common.rs](crates/service/src/gateway/observability/http_bridge/stream_readers/common.rs:87)）用 `mpsc::sync_channel(UPSTREAM_SSE_FRAME_CHANNEL_CAPACITY)`，pump 线程 send 帧到有界 channel，消费者慢时 send 阻塞，天然背压防止内存堆积。
 - **XX** read_all_bytes 仅非流式：delivery.rs 中所有 `read_all_bytes()` 调用均在 `if !is_stream` 分支（非流式才整体读入做 usage 解析/错误提取），流式分支走逐帧 reader。
+
+### 第十五批（索引覆盖审计）
+
+- ⚠️ **YY [P1] daily 聚合 COALESCE 包裹列致索引失效**：`summarize_request_token_stats_daily` 用 `COALESCE(r.created_at, t.created_at)` 做 WHERE 范围过滤，函数包裹列使 `idx_request_token_stats_created_at` 失效，SQLite 退化为全表扫 + 逐行计算 bucket。见 [request_token_stats.rs:760](crates/core/src/storage/request_token_stats.rs:760)。这是 D（daily cache）的索引层根因：即便不做缓存，先修 COALESCE（拆成 UNION 两路各走自己的 created_at 索引，或仅按 t.created_at 过滤）也能显著降低区间聚合 CPU。与 [D] 互补，可一并实施。
+- ✅ ZZ 对话绑定索引完美：`conversation_bindings` 主键 `(platform_key_hash, conversation_id)` 精确匹配网关热路径 `get_conversation_binding` 查询；account_id/last_used_at 删除路径各有独立索引，无全表扫描。
+- ✅ AAA request_token_stats 索引齐备：created_at、account_id+created_at、key_id+created_at、request_log_id(unique) 四索引覆盖主要查询路径，唯一缺口是 YY 的 COALESCE 用法使其在 daily 聚合失效。
