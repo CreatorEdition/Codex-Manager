@@ -772,3 +772,24 @@ task.md 已累计记录 A–S 共 **19 类**架构优化点 + 正面确认。本
 ### 审计进度小结
 
 task.md 累计 A–V 共 **22 类**。本批新增 T（P1 trace_log 全局锁竞争 + 无门控 format），确认 SSE keepalive / trace 异步写入已优化。后续方向：迁移脚本启动耗时、前端 React 重渲染、account/usage/aggregate 接回 SQL 下推（P0 J 关联）、错误码归一化聚合（E 项）。
+
+## 2026-06-20 持续架构审计（第六批：迁移启动开销）
+
+### W. 启动时 69 次串行 has_migration 查询（P2，新发现，仅影响启动）
+
+`Storage::init()`（`crates/core/src/storage/mod.rs:772`）顺序调用 69 次 `apply_sql_migration` / `apply_sql_or_compat_migration` / `apply_compat_migration`。每个内部先 `has_migration(version)`（mod.rs:1398），该函数每次都 `conn.prepare("SELECT 1 FROM schema_migrations WHERE version=?1 LIMIT 1")` + 查询。
+
+问题：对已完成全部迁移的老库，每次进程启动/每次新建 storage 都执行 **69 次 prepare statement + 69 次串行 SELECT**，纯属重复确认已知状态。虽然单查很快，但 prepare 编译 SQL + 往返累加在启动路径上，且连接池每开一个新连接走 init 时都重复付费。
+
+建议：`init()` 开头一次性 `SELECT version FROM schema_migrations` 载入 `HashSet<String>`，`has_migration` 改为内存 `set.contains(version)`；69 次 SQL 降为 1 次。或改用 `PRAGMA user_version` 整数版本号单值判断跳过已达版本。
+
+注意：与 task.md 已记录的"启动迁移轻量化"（不再在启动跑历史清理/VACUUM）是不同层面——那是避免重操作，这是避免重复的轻查询累加。
+
+### 正面确认（已优化/非问题）
+
+- **X. 迁移已幂等门控**：`apply_sql_migration` 先 `has_migration` 判断，已应用即跳过，不会重复执行 DDL；`apply_sql_or_compat_migration` 对历史库的"重复列/表"冲突有 compat fallback。逻辑正确，仅查询次数可优化（见 W）。
+- **Y. 协议适配无重复 parse**：`request_router.rs` 的 OpenAI→Anthropic(36) / Anthropic(111) / Gemini(173) 三处 `from_slice` 各属不同 adapter 函数，每请求只走其一，非对同一 body 重复解析。
+
+### 审计进度小结
+
+task.md 累计 A–Y 共 **25 类**。本批新增 W（P2 迁移启动 69 次查询），确认迁移幂等门控正确、协议适配无重复 parse。后续方向：account/usage/aggregate 接回 SQL 下推（P0 J 关联）、前端 React 重渲染热点、错误码归一化聚合（E 项）、上游重试退避策略（G 项关联）。
