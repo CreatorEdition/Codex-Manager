@@ -934,3 +934,11 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - ⚠️ **BBB [P1] 用户排行 charge 子查询缺 request_log_id 索引**：`summarize_request_token_stats_user_ranking_between` 的 `USER_OWNER_JOINS` 含子查询 `SELECT l.request_log_id, MIN(w.owner_id) FROM app_wallet_ledger_entries l JOIN app_wallets w ... WHERE l.entry_kind='request_charge' GROUP BY l.request_log_id`，按 request_log_id 分组并 `ON charge.request_log_id = r.id` JOIN。但 `app_wallet_ledger_entries` 仅有 `idx_app_wallet_ledger_wallet_created(wallet_id,created_at)` 与 `idx_app_wallet_ledger_api_key(api_key_id)`，**缺 request_log_id 与 entry_kind 索引**。每次 dashboard 用户排行（首页 30s stale）对整张账单流水表全表扫 + 无索引 GROUP BY，随流水增长放大 CPU。见 [request_token_stats.rs:91](crates/core/src/storage/request_token_stats.rs:91)、[057_account_manager.sql:74](crates/core/migrations/057_account_manager.sql:74)。建议加 `idx_app_wallet_ledger_request_charge(request_log_id) WHERE entry_kind='request_charge'`（部分索引）或 `(entry_kind, request_log_id)` 复合索引。
 - ✅ CCC 排行外层时间过滤走索引：用户/来源排行外层 `WHERE r.created_at >= ?1 AND r.created_at < ?2` 为裸列（非 YY 的 COALESCE），可走 request_logs created_at 索引；`LEFT JOIN request_token_stats t ON t.request_log_id=r.id` 走 unique 索引。外层查询计划良好，瓶颈在 BBB 的 owner 归属子查询。
+
+### 第十七批（排行/聚合索引收敛确认）
+
+本批延续索引层深挖来源排行与成员聚合，结论：除已记录 YY/BBB 外索引命中良好，**索引维度审计收敛**。
+
+- ✅ DDD 来源排行查询健康：`summarize_request_token_stats_source_ranking_between` 外层 `WHERE r.created_at` 裸列走 request_logs created_at 索引先缩小时间窗口，`source_id_expr` 是 request_logs 列的 CASE 表达式（actual_source_kind/actual_source_id/account_id/initial_aggregate_api_id），GROUP BY 表达式为聚合归类固有成本，无 BBB 那样的全表扫子查询。见 [request_token_stats.rs:140](crates/core/src/storage/request_token_stats.rs:140)。
+- ✅ EEE 成员 by_key_ids 聚合走索引：`summarize_request_token_stats_by_key_ids` 两路 UNION——`request_token_stats WHERE key_id IN(..)` 走 `idx_request_token_stats_key_id_created_at`，`request_token_stat_rollups WHERE key_id IN(..)` 走主键前缀 `(key_id,account_id,model)` + 独立 `idx_..key_id`，GROUP BY 在已过滤小子集上。见 [request_token_stats.rs:414](crates/core/src/storage/request_token_stats.rs:414)。
+- 📌 索引维度小结：dashboard CPU 三大根因已定位齐全——D（缺 daily cache，缓存层）、YY（COALESCE 致 created_at 索引失效，聚合查询层）、BBB（账单流水缺 request_log_id 索引，owner 子查询层）。其余排行/聚合查询索引命中良好，索引层深挖收敛。建议 D/YY/BBB 合并为"dashboard 聚合性能"专题实施。
