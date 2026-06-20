@@ -892,3 +892,9 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 #### ✅ 第十批正面确认（已优化，避免重复审计）
 - **MM** storage 层多步写入已广泛使用事务：account_manager/accounts/aggregate_apis/model_groups/model_options/plugins/quota_pools/request_logs 等关键多步写入均包 `transaction()`/`unchecked_transaction()`，事务纪律整体良好，仅 service 层批量导入循环（LL）是缺口。
+
+### 2026-06-14 持续架构审计第十一批（安全门禁）
+
+- **NN（P1，安全门禁）**：`all_interfaces` 暴露与 `WEB_AUTH_MODE_NONE` 缺少联动强制。`default_listener_bind_addr()` 默认 loopback 是安全默认（见 [service.rs:229](crates/service/src/app_settings/service.rs:229)），仅在用户显式开 `all_interfaces` 时绑 `0.0.0.0`。但 `current_web_auth_mode()` 未配置密码时默认 `WEB_AUTH_MODE_NONE`（见 [app_manager.rs:138](crates/service/src/auth/app_manager.rs:138)）。缺口：用户开 all_interfaces 把服务暴露到局域网/公网时，系统不强制要求认证，也无显著告警。建议开 all_interfaces 时若 auth_mode=none 则拒绝启动或强制提示，避免未授权暴露账号池/网关。
+
+- **正面确认 OO**：bind 默认安全。`normalize_service_bind_mode` 无配置默认 `LOOPBACK`，`0.0.0.0` 常量仅在显式 all_interfaces 下生效，非默认开放，见 [service.rs](crates/service/src/app_settings/service.rs:1)。
