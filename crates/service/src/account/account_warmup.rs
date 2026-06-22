@@ -1,9 +1,12 @@
 use codexmanager_core::storage::{now_ts, Account, Event, RequestLog, Storage, Token};
+use crossbeam_channel::unbounded;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::Serialize;
 use serde_json::json;
 use std::io::{BufRead, BufReader, Read};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -19,6 +22,10 @@ const WARMUP_UPSTREAM_URL: &str = "https://chatgpt.com/backend-api/codex/respons
 const DEFAULT_WARMUP_MODEL: &str = "gpt-5.3-codex";
 const WARMUP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const WARMUP_TOTAL_TIMEOUT: Duration = Duration::from_secs(90);
+
+static WARMUP_WORKERS: AtomicUsize = AtomicUsize::new(DEFAULT_WARMUP_WORKERS);
+const WARMUP_WORKERS_ENV: &str = "CODEXMANAGER_WARMUP_WORKERS";
+const DEFAULT_WARMUP_WORKERS: usize = 2;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,17 +70,58 @@ pub(crate) fn warmup_accounts(
     let client = build_warmup_client()?;
     let warmup_message = normalize_warmup_message(message);
     let warmup_model = resolve_warmup_model_slug(&storage);
-    let mut results = Vec::with_capacity(accounts.len());
-    let mut succeeded = 0usize;
+    let total = accounts.len();
+    let worker_count = warmup_worker_count();
 
+    let (task_tx, task_rx) = unbounded::<Account>();
+    let (result_tx, result_rx) = unbounded::<AccountWarmupItemResult>();
+
+    // 启动 worker 线程池
+    let worker_handles: Vec<_> = (0..worker_count)
+        .map(|_| {
+            let task_rx = task_rx.clone();
+            let result_tx = result_tx.clone();
+            let client = client.clone();
+            let warmup_model = warmup_model.clone();
+            let warmup_message = warmup_message.clone();
+
+            thread::spawn(move || {
+                // 每个 worker 独立获取 storage
+                let storage = match open_storage() {
+                    Some(s) => s,
+                    None => return,
+                };
+
+                while let Ok(account) = task_rx.recv() {
+                    let item = warmup_single_account(
+                        &storage,
+                        &client,
+                        account,
+                        warmup_model.as_str(),
+                        warmup_message.as_str(),
+                    );
+                    let _ = result_tx.send(item);
+                }
+            })
+        })
+        .collect();
+
+    // 分发任务
+    drop(result_tx);
     for account in accounts.drain(..) {
-        let item = warmup_single_account(
-            &storage,
-            &client,
-            account,
-            warmup_model.as_str(),
-            warmup_message.as_str(),
-        );
+        let _ = task_tx.send(account);
+    }
+    drop(task_tx);
+
+    // 等待所有 worker 完成
+    for handle in worker_handles {
+        let _ = handle.join();
+    }
+
+    // 收集结果
+    let mut results = Vec::with_capacity(total);
+    let mut succeeded = 0usize;
+    while let Ok(item) = result_rx.recv() {
         if item.ok {
             succeeded += 1;
         }
@@ -86,6 +134,21 @@ pub(crate) fn warmup_accounts(
         failed: results.len().saturating_sub(succeeded),
         results,
     })
+}
+
+fn warmup_worker_count() -> usize {
+    let loaded = WARMUP_WORKERS.load(Ordering::Relaxed);
+    if loaded == 0 {
+        let count = std::env::var(WARMUP_WORKERS_ENV)
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .unwrap_or(DEFAULT_WARMUP_WORKERS)
+            .max(1);
+        WARMUP_WORKERS.store(count, Ordering::Relaxed);
+        count
+    } else {
+        loaded.max(1)
+    }
 }
 
 fn resolve_target_accounts(
@@ -521,7 +584,8 @@ fn summarize_warmup_stream_error(value: &serde_json::Value) -> String {
 mod tests {
     use super::{
         build_warmup_headers, consume_warmup_stream, resolve_target_accounts,
-        resolve_warmup_model_slug, should_retry_warmup_with_refresh, DEFAULT_WARMUP_MODEL,
+        resolve_warmup_model_slug, should_retry_warmup_with_refresh, warmup_worker_count,
+        DEFAULT_WARMUP_MODEL, DEFAULT_WARMUP_WORKERS, WARMUP_WORKERS, WARMUP_WORKERS_ENV,
     };
     use crate::apikey_models::save_managed_model_catalog_with_storage;
     use codexmanager_core::rpc::types::{
@@ -529,6 +593,7 @@ mod tests {
     };
     use codexmanager_core::storage::{now_ts, Account, Storage, Token};
     use std::io::Cursor;
+    use std::sync::atomic::Ordering;
 
     fn make_model(slug: &str, sort_index: i64, supported_in_api: bool) -> ManagedModelCatalogEntry {
         ManagedModelCatalogEntry {
@@ -708,6 +773,27 @@ mod tests {
 
         let err = consume_warmup_stream(stream).expect_err("stream should fail");
         assert!(err.contains("quota exceeded"));
+    }
+
+    #[test]
+    fn warmup_worker_count_respects_env_var() {
+        std::env::set_var(WARMUP_WORKERS_ENV, "3");
+        WARMUP_WORKERS.store(0, Ordering::Relaxed);
+        assert_eq!(warmup_worker_count(), 3);
+
+        std::env::set_var(WARMUP_WORKERS_ENV, "0");
+        WARMUP_WORKERS.store(0, Ordering::Relaxed);
+        assert_eq!(warmup_worker_count(), 1);
+
+        std::env::remove_var(WARMUP_WORKERS_ENV);
+        WARMUP_WORKERS.store(0, Ordering::Relaxed);
+        assert_eq!(warmup_worker_count(), DEFAULT_WARMUP_WORKERS);
+    }
+
+    #[test]
+    fn warmup_worker_count_uses_cached_value() {
+        WARMUP_WORKERS.store(5, Ordering::Relaxed);
+        assert_eq!(warmup_worker_count(), 5);
     }
 }
 
