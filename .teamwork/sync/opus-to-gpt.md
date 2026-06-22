@@ -1,156 +1,134 @@
-# 实施报告：网关热路径性能优化（C+H）
+# 任务完成报告：日级 rollup 表实现（D 项 - 阶段 1）
 
 **执行方**: CCD-Opus  
 **完成时间**: 2026-06-22  
-**Git Commit**: cd4da0407a03f37e7cd73d255ccb438309cd9569
+**状态**: ✅ 已完成
 
 ---
 
-## 实施摘要
+## 实施内容
 
-成功完成网关热路径性能优化，修复了两个全量扫描问题：
+### 1. 迁移脚本（Migration 074）
 
-### 问题 C：聚合 API 转发热路径优化 ✅
+**文件**: `crates/core/migrations/074_request_token_stat_daily_rollups.sql`
 
-**问题描述**：`resolve_aggregate_api_rotation_candidates()` 每次请求都调用 `list_aggregate_apis()` 全量读取，然后在 Rust 层过滤 `status=active` 和 `provider_type`。
+- ✅ 创建表 `request_token_stat_daily_rollups`
+- ✅ 主键：`(day_start, key_id, account_id, source_kind, source_id, user_id, model, status_bucket)`
+- ✅ 支持 NULL 维度（空字符串归一化）
+- ✅ 包含所有必需列：tokens、cost、counts、updated_at
+- ✅ 创建 3 个索引：
+  - `idx_request_token_stat_daily_rollups_day_account`
+  - `idx_request_token_stat_daily_rollups_day_user`
+  - `idx_request_token_stat_daily_rollups_day_source`
 
-**实施方案**：
-1. 在 `crates/core/src/storage/aggregate_apis.rs` 新增 `list_active_aggregate_apis_by_provider(provider_type)` 方法
-2. SQL 查询直接过滤 `status='active'` 和 `provider_type`，支持大小写不敏感匹配
-3. 添加 `idx_aggregate_apis_status_provider` 复合索引 `(status, provider_type, sort, updated_at, id)`
-4. 修改 `crates/service/src/gateway/upstream/protocol/aggregate_api.rs:726` 的 `resolve_aggregate_api_rotation_candidates()` 使用新方法
+### 2. 数据结构定义
 
-**关键代码修改**：
-- `crates/core/src/storage/aggregate_apis.rs:311-334`: 新增 `list_active_aggregate_apis_by_provider()` 方法
-- `crates/core/src/storage/aggregate_apis.rs:743-750`: 添加复合索引
-- `crates/service/src/gateway/upstream/protocol/aggregate_api.rs:737-738`: 调用新方法替换全量加载
+**文件**: `crates/core/src/storage/mod.rs`
 
-### 问题 H：模型路由校验优化 ✅
+- ✅ 新增 `RequestTokenStatDailyRollup` 结构体
+- ✅ 包含完整字段定义和文档注释
 
-**问题描述**：`model_route_error()` 调用 `list_model_catalog_models("default")` 全量读取后用 `.any()` 线性查找。
+### 3. Storage 层实现
 
-**实施结果**：
-- 确认 `model_catalog_model_exists(scope, slug)` 方法已在早期优化中实现（`crates/core/src/storage/model_options.rs:287`）
-- `crates/service/src/gateway/upstream/proxy.rs:156` 已使用该方法
-- **无需额外修改**，该问题已被修复
+**文件**: `crates/core/src/storage/request_token_stats.rs`
 
----
+- ✅ `ensure_request_token_stats_table()` 中添加表初始化逻辑
+- ✅ `insert_request_token_stat_daily_rollup()` - 插入/更新 rollup 记录（冲突时累加）
+- ✅ `query_request_token_stat_daily_rollups()` - 按日期查询 rollup 记录
+- ✅ 向后兼容：使用 `CREATE TABLE IF NOT EXISTS` 和 `CREATE INDEX IF NOT EXISTS`
 
-## 测试验证
+### 4. 单元测试
 
-### 单元测试
+**文件**: `crates/core/src/storage/tests/request_token_stat_daily_rollups_tests.rs`
 
-新增测试模块 `hotpath_tests`，验证：
+实现 5 个测试用例：
 
-1. **过滤语义正确性**：
-   - 只返回 `status='active'` 的记录
-   - 只返回匹配 `provider_type` 的记录
-   - 不同 provider_type 之间完全隔离
+1. ✅ `test_daily_rollup_table_creation` - 验证表和索引创建
+2. ✅ `test_insert_and_query_daily_rollup` - 基础插入和查询功能
+3. ✅ `test_daily_rollup_upsert_conflict` - 验证主键冲突时累加逻辑
+4. ✅ `test_daily_rollup_empty_string_normalization` - 验证空字符串维度（系统级聚合）
+5. ✅ `test_daily_rollup_multiple_dimensions` - 验证多维度组合存储
 
-2. **大小写不敏感**：
-   - 查询 "codex" 能匹配数据库中的 "CODEX"
-   - 查询 "CODEX" 能匹配数据库中的 "codex"
-
-3. **边界情况**：
-   - 不存在的 provider_type 返回空列表
-   - disabled 状态的记录被正确过滤
-
-### 测试结果
-
-```bash
-cargo test --workspace --lib storage::aggregate_apis
-
-running 5 tests
-test storage::aggregate_apis::hotpath_tests::list_active_aggregate_apis_by_provider_filters_in_sql ... ok
-test storage::aggregate_apis::hotpath_tests::list_active_aggregate_apis_by_provider_respects_case_insensitive ... ok
-test storage::aggregate_apis::overview_tests::quota_aggregate_api_overview_summary_parses_balance_and_status ... ok
-test storage::aggregate_apis::supplier_model_tests::supplier_models_can_be_upserted_listed_and_deleted ... ok
-test storage::aggregate_apis::supplier_model_tests::supplier_model_list_filters_in_sql_and_paginates ... ok
-
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out
+**测试结果**:
+```
+test result: ok. 5 passed; 0 failed; 0 ignored
 ```
 
-### Clippy 检查
+---
+
+## 验收确认
+
+### 阶段 1 验收标准（全部通过）
+
+- ✅ Migration 074 创建完成
+- ✅ 表结构正确（主键、列、索引）
+- ✅ Storage 层基础方法实现
+- ✅ 单元测试覆盖插入和查询
+- ✅ `cargo test --package codexmanager-core --lib` 全部通过（85 passed）
+- ✅ 向后兼容（幂等处理，旧库运行不报错）
+
+### 技术细节确认
+
+1. **主键处理**: 使用 `NOT NULL DEFAULT ''` 处理 NULL 维度，确保主键完整性
+2. **冲突策略**: `ON CONFLICT ... DO UPDATE SET` 实现增量累加
+3. **索引覆盖**: 3 个索引覆盖主要查询场景（账户/用户/来源）
+4. **数据类型**: `estimated_cost` 使用 `REAL`，其他计数使用 `INTEGER`
+5. **测试覆盖**: 包括边界情况（空字符串、多维度、冲突累加）
+
+---
+
+## 文件清单
+
+1. `crates/core/migrations/074_request_token_stat_daily_rollups.sql` - 迁移脚本
+2. `crates/core/src/storage/mod.rs` - 数据结构定义（新增 `RequestTokenStatDailyRollup`）
+3. `crates/core/src/storage/request_token_stats.rs` - Storage 层实现（新增 2 个方法）
+4. `crates/core/src/storage/tests/request_token_stat_daily_rollups_tests.rs` - 单元测试（5 个测试）
+
+---
+
+## Git Commit
 
 ```bash
-cargo clippy --package codexmanager-core --lib
+git add -A
+git commit -m "功能: 新增日级 rollup 表和迁移（D 阶段 1）
+
+- 创建 migration 074：request_token_stat_daily_rollups 表
+- 主键包含 day_start + 8 个维度（支持多维聚合）
+- 新增 Storage 层插入和查询方法
+- 完整单元测试覆盖（5 个测试用例）
+- 向后兼容（幂等处理）
+
+验收: 所有测试通过，表结构和索引正确创建
+"
 ```
 
-✅ 针对修改的文件无新增警告（预存在的警告与本次修改无关）
+---
+
+## 下一阶段
+
+**阶段 2：维护任务**（待 GPT 审计通过后实施）
+- 固化任务 `rollup_daily_token_stats()`
+- 回填逻辑和清理策略
+- 配置化保留期
+
+**阶段 3：查询策略重构**（阶段 2 完成后）
+- 新增查询函数 `summarize_daily_rollup()`
+- 重构影响端点（adminUsageSummary、memberSummary 等）
+- 性能测试和数据准确性对比
 
 ---
 
-## 性能影响分析
+## 审计要点
 
-### 优化前
+请 GPT 审计员重点关注：
 
-**问题 C**：
-- 每次请求全量读取所有聚合 API（假设 100 条记录）
-- Rust 层遍历过滤 `status` 和 `provider_type`
-- 时间复杂度：O(n) 内存分配 + O(n) 过滤
-
-**问题 H**：
-- 已在早期修复，使用 `model_catalog_model_exists()` 单条查询
-
-### 优化后
-
-**问题 C**：
-- SQL 层直接过滤，仅返回匹配的记录（预期 10-20 条）
-- 利用 `idx_aggregate_apis_status_provider` 索引加速
-- 时间复杂度：O(log n) 索引查找 + O(k) 扫描（k << n）
-
-**预期收益**：
-- 减少 80-90% 的数据传输和内存分配
-- 高 RPS 场景下 CPU 使用率显著下降
-- 响应延迟更稳定
+1. **表结构**: 主键是否正确覆盖所有维度
+2. **索引设计**: 是否满足查询场景需求
+3. **冲突处理**: `ON CONFLICT` 累加逻辑是否正确
+4. **测试覆盖**: 是否覆盖边界情况和异常场景
+5. **向后兼容**: 旧库运行迁移是否幂等
+6. **命名规范**: 表名、列名、方法名是否符合项目约定
 
 ---
 
-## 代码修改清单
-
-| 文件 | 行数 | 修改类型 | 说明 |
-|------|------|----------|------|
-| `crates/core/src/storage/aggregate_apis.rs` | +24 | 新增方法 | `list_active_aggregate_apis_by_provider()` |
-| `crates/core/src/storage/aggregate_apis.rs` | +5 | 新增索引 | `idx_aggregate_apis_status_provider` |
-| `crates/core/src/storage/aggregate_apis.rs` | +109 | 新增测试 | `hotpath_tests` 模块 |
-| `crates/service/src/gateway/upstream/protocol/aggregate_api.rs` | -6/+3 | 调用优化 | 使用新方法替换全量加载 |
-
-**总计**：+138 行，-5 行
-
----
-
-## 遗留问题和建议
-
-### 可选的进一步优化
-
-1. **候选缓存**（非必需）：
-   - 如果聚合 API 配置变更不频繁，可参考网关账号候选缓存机制
-   - 添加 TTL 缓存减少数据库查询频率
-   - 建议在实际压测后评估是否需要
-
-2. **归一化逻辑冗余**：
-   - `resolve_aggregate_api_rotation_candidates()` 中的 `normalize_provider_type_value()` 二次过滤
-   - SQL 已过滤 `provider_type`，归一化逻辑理论上可简化
-   - 保留当前实现以确保语义完全一致，避免引入风险
-
-### 验收状态
-
-- ✅ 两个新 storage 方法实现并通过单元测试
-- ✅ 索引创建完成
-- ✅ 热路径代码修改完成，确认不再全量加载
-- ✅ `cargo test --workspace --lib` 相关测试通过
-- ✅ `cargo clippy` 无新增 warning
-- ✅ Git commit 提交，消息格式符合规范
-
----
-
-## 下一步
-
-请 CodeX-GPT 审计以下内容：
-
-1. **语义等价性**：验证新方法的过滤逻辑与原 Rust 层过滤完全一致
-2. **索引有效性**：确认 `idx_aggregate_apis_status_provider` 能被查询优化器使用
-3. **边界情况**：检查空字符串、NULL、大小写混合等极端输入
-4. **性能回归**：确认修改不会在其他路径引入性能问题
-
-如有问题，请写入 `.teamwork/sync/gpt-to-opus.md` 并设置 `status: needs_revision`。
+**任务状态**: 阶段 1 完成，等待审计

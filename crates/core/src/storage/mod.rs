@@ -390,6 +390,33 @@ pub struct SourceTokenUsageRanking {
     pub range_usage: TokenUsageRollup,
 }
 
+/// 结构体 `RequestTokenStatDailyRollup`
+///
+/// 中文注释：日级 token 统计 rollup 记录，缓存已结束日期的聚合数据。
+/// 主键包含 day_start + 多维度，支持按日期、账户、用户、来源、状态聚合查询。
+#[derive(Debug, Clone)]
+pub struct RequestTokenStatDailyRollup {
+    pub day_start: i64,
+    pub key_id: String,
+    pub account_id: String,
+    pub source_kind: String,
+    pub source_id: String,
+    pub user_id: String,
+    pub model: String,
+    pub status_bucket: String,
+    pub input_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub reasoning_output_tokens: i64,
+    pub estimated_cost: f64,
+    pub request_count: i64,
+    pub success_count: i64,
+    pub error_count: i64,
+    pub source_rows: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppUser {
     pub id: String,
@@ -1563,6 +1590,10 @@ mod migration_tests;
 #[cfg(test)]
 #[path = "tests/observability_migration_tests.rs"]
 mod observability_migration_tests;
+
+#[cfg(test)]
+#[path = "tests/request_token_stat_daily_rollups_tests.rs"]
+mod request_token_stat_daily_rollups_tests;
 
 pub(super) fn sqlite_placeholders(count: usize) -> String {
     vec!["?"; count].join(", ")

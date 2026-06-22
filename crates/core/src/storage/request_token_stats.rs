@@ -3,8 +3,9 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use super::{
     now_ts, sqlite_placeholders, sqlite_text_params, ApiKeyModelTokenUsageSummary,
-    ApiKeyTokenUsageSummary, DailyTokenUsageRollup, RequestLogTodaySummary, RequestTokenStat,
-    SourceTokenUsageRanking, SourceTokenUsageRollup, Storage, TokenUsageRollup, TokenUsageSummary,
+    ApiKeyTokenUsageSummary, DailyTokenUsageRollup, RequestLogTodaySummary,
+    RequestTokenStat, RequestTokenStatDailyRollup, SourceTokenUsageRanking,
+    SourceTokenUsageRollup, Storage, TokenUsageRollup, TokenUsageSummary,
     UserTokenUsageRanking, UserTokenUsageRollup,
 };
 
@@ -1139,6 +1140,160 @@ impl Storage {
                 [],
             )?;
         }
+
+        // 初始化日级 rollup 表（migration 074）
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS request_token_stat_daily_rollups (
+                day_start INTEGER NOT NULL,
+                key_id TEXT NOT NULL DEFAULT '',
+                account_id TEXT NOT NULL DEFAULT '',
+                source_kind TEXT NOT NULL DEFAULT '',
+                source_id TEXT NOT NULL DEFAULT '',
+                user_id TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                status_bucket TEXT NOT NULL DEFAULT '',
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+                estimated_cost REAL NOT NULL DEFAULT 0.0,
+                request_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                error_count INTEGER NOT NULL DEFAULT 0,
+                source_rows INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (day_start, key_id, account_id, source_kind, source_id, user_id, model, status_bucket)
+            )",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_token_stat_daily_rollups_day_account
+             ON request_token_stat_daily_rollups(day_start, account_id)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_token_stat_daily_rollups_day_user
+             ON request_token_stat_daily_rollups(day_start, user_id)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_token_stat_daily_rollups_day_source
+             ON request_token_stat_daily_rollups(day_start, source_kind, source_id)",
+            [],
+        )?;
+
         Ok(())
+    }
+
+    /// 函数 `insert_request_token_stat_daily_rollup`
+    ///
+    /// 作者: CCD-Opus
+    ///
+    /// 时间: 2026-06-22
+    ///
+    /// # 参数
+    /// - self: Storage 实例
+    /// - rollup: 日级 rollup 记录
+    ///
+    /// # 返回
+    /// 返回函数执行结果
+    pub fn insert_request_token_stat_daily_rollup(
+        &self,
+        rollup: &RequestTokenStatDailyRollup,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO request_token_stat_daily_rollups (
+                day_start, key_id, account_id, source_kind, source_id, user_id, model, status_bucket,
+                input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
+                estimated_cost, request_count, success_count, error_count, source_rows, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+             ON CONFLICT(day_start, key_id, account_id, source_kind, source_id, user_id, model, status_bucket) DO UPDATE SET
+                input_tokens = request_token_stat_daily_rollups.input_tokens + excluded.input_tokens,
+                cached_input_tokens = request_token_stat_daily_rollups.cached_input_tokens + excluded.cached_input_tokens,
+                output_tokens = request_token_stat_daily_rollups.output_tokens + excluded.output_tokens,
+                total_tokens = request_token_stat_daily_rollups.total_tokens + excluded.total_tokens,
+                reasoning_output_tokens = request_token_stat_daily_rollups.reasoning_output_tokens + excluded.reasoning_output_tokens,
+                estimated_cost = request_token_stat_daily_rollups.estimated_cost + excluded.estimated_cost,
+                request_count = request_token_stat_daily_rollups.request_count + excluded.request_count,
+                success_count = request_token_stat_daily_rollups.success_count + excluded.success_count,
+                error_count = request_token_stat_daily_rollups.error_count + excluded.error_count,
+                source_rows = request_token_stat_daily_rollups.source_rows + excluded.source_rows,
+                updated_at = excluded.updated_at",
+            params![
+                rollup.day_start,
+                &rollup.key_id,
+                &rollup.account_id,
+                &rollup.source_kind,
+                &rollup.source_id,
+                &rollup.user_id,
+                &rollup.model,
+                &rollup.status_bucket,
+                rollup.input_tokens,
+                rollup.cached_input_tokens,
+                rollup.output_tokens,
+                rollup.total_tokens,
+                rollup.reasoning_output_tokens,
+                rollup.estimated_cost,
+                rollup.request_count,
+                rollup.success_count,
+                rollup.error_count,
+                rollup.source_rows,
+                rollup.updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 函数 `query_request_token_stat_daily_rollups`
+    ///
+    /// 作者: CCD-Opus
+    ///
+    /// 时间: 2026-06-22
+    ///
+    /// # 参数
+    /// - self: Storage 实例
+    /// - day_start: 日期起始时间戳
+    ///
+    /// # 返回
+    /// 返回指定日期的所有 rollup 记录
+    pub fn query_request_token_stat_daily_rollups(
+        &self,
+        day_start: i64,
+    ) -> Result<Vec<RequestTokenStatDailyRollup>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                day_start, key_id, account_id, source_kind, source_id, user_id, model, status_bucket,
+                input_tokens, cached_input_tokens, output_tokens, total_tokens, reasoning_output_tokens,
+                estimated_cost, request_count, success_count, error_count, source_rows, updated_at
+             FROM request_token_stat_daily_rollups
+             WHERE day_start = ?1",
+        )?;
+        let mut rows = stmt.query(params![day_start])?;
+        let mut items = Vec::new();
+        while let Some(row) = rows.next()? {
+            items.push(RequestTokenStatDailyRollup {
+                day_start: row.get(0)?,
+                key_id: row.get(1)?,
+                account_id: row.get(2)?,
+                source_kind: row.get(3)?,
+                source_id: row.get(4)?,
+                user_id: row.get(5)?,
+                model: row.get(6)?,
+                status_bucket: row.get(7)?,
+                input_tokens: row.get::<_, i64>(8)?.max(0),
+                cached_input_tokens: row.get::<_, i64>(9)?.max(0),
+                output_tokens: row.get::<_, i64>(10)?.max(0),
+                total_tokens: row.get::<_, i64>(11)?.max(0),
+                reasoning_output_tokens: row.get::<_, i64>(12)?.max(0),
+                estimated_cost: row.get::<_, f64>(13)?.max(0.0),
+                request_count: row.get::<_, i64>(14)?.max(0),
+                success_count: row.get::<_, i64>(15)?.max(0),
+                error_count: row.get::<_, i64>(16)?.max(0),
+                source_rows: row.get::<_, i64>(17)?.max(0),
+                updated_at: row.get(18)?,
+            });
+        }
+        Ok(items)
     }
 }
