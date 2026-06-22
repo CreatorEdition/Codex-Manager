@@ -36,7 +36,6 @@ import {
   fromDateTimeLocalValue,
 } from "./page-helpers";
 import { buildSummaryPlaceholder } from "./page-cells";
-import { ErrorSummaryCard } from "./error-summary-card";
 import { AccountListResult, ApiKey, RequestLogListResult, StartupSnapshot } from "@/types";
 
 const REQUEST_LOG_LIST_REFETCH_INTERVAL_MS = 30_000;

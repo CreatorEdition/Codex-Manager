@@ -1638,7 +1638,7 @@ export function normalizeRequestLogErrorSummary(
       errorCode: asString(itemSource.errorCode, "unknown"),
       count: asInteger(itemSource.count, 0, 0),
       lastSeen: asInteger(itemSource.lastSeen, 0, 0),
-      sampleMessage: toNullableString(itemSource.sampleMessage),
+      sampleMessage: typeof itemSource.sampleMessage === "string" ? itemSource.sampleMessage : null,
     };
   });
   return { items };
