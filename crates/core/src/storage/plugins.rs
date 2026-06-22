@@ -1,5 +1,5 @@
 use super::{now_ts, PluginInstall, PluginRunLog, PluginTask, Storage};
-use rusqlite::{params, params_from_iter, types::Value, Result, Row};
+use rusqlite::{params, params_from_iter, types::Value, OptionalExtension, Result, Row};
 
 impl Storage {
     /// 函数 `upsert_plugin_install`
@@ -502,6 +502,34 @@ impl Storage {
         Ok(items)
     }
 
+    /// 函数 `next_plugin_task_due_at`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-06-22
+    ///
+    /// # 参数
+    /// - self: 参数 self
+    /// - now: 参数 now
+    ///
+    /// # 返回
+    /// 返回下一个到期任务的时间戳，如果没有则返回 None
+    pub fn next_plugin_task_due_at(&self, now: i64) -> Result<Option<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.next_run_at
+             FROM plugin_tasks t
+             INNER JOIN plugin_installs p ON p.plugin_id = t.plugin_id
+             WHERE t.enabled = 1
+               AND p.status = 'enabled'
+               AND t.schedule_kind <> 'manual'
+               AND t.next_run_at IS NOT NULL
+               AND t.next_run_at > ?1
+             ORDER BY t.next_run_at ASC
+             LIMIT 1",
+        )?;
+        stmt.query_row([now], |row| row.get(0)).optional()
+    }
+
     /// 函数 `insert_plugin_run_log`
     ///
     /// 作者: gaohongshun
@@ -842,5 +870,216 @@ mod tests {
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].id, "cleanup-banned-accounts::run");
         assert_eq!(due[0].plugin_id, "cleanup-banned-accounts");
+    }
+
+    /// 函数 `next_plugin_task_due_at_returns_earliest_future_task`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-06-22
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn next_plugin_task_due_at_returns_earliest_future_task() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+
+        let install = PluginInstall {
+            plugin_id: "test-plugin".to_string(),
+            source_url: Some("builtin://codexmanager".to_string()),
+            name: "测试插件".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("test".to_string()),
+            author: Some("CodexManager".to_string()),
+            homepage_url: None,
+            script_url: None,
+            script_body: "fn run(context) { context }".to_string(),
+            permissions_json: serde_json::json!(["test:run"]).to_string(),
+            manifest_json: serde_json::json!({ "id": "test-plugin" }).to_string(),
+            status: "enabled".to_string(),
+            installed_at: 1,
+            updated_at: 1,
+            last_run_at: None,
+            last_error: None,
+        };
+
+        let task1 = PluginTask {
+            id: "test-plugin::task1".to_string(),
+            plugin_id: install.plugin_id.clone(),
+            name: "任务1".to_string(),
+            description: Some("desc".to_string()),
+            entrypoint: "task1".to_string(),
+            schedule_kind: "interval".to_string(),
+            interval_seconds: Some(60),
+            enabled: true,
+            next_run_at: Some(1000),
+            last_run_at: None,
+            last_status: None,
+            last_error: None,
+            task_json: serde_json::json!({}).to_string(),
+            created_at: 1,
+            updated_at: 1,
+        };
+
+        let task2 = PluginTask {
+            id: "test-plugin::task2".to_string(),
+            plugin_id: install.plugin_id.clone(),
+            name: "任务2".to_string(),
+            description: Some("desc".to_string()),
+            entrypoint: "task2".to_string(),
+            schedule_kind: "interval".to_string(),
+            interval_seconds: Some(120),
+            enabled: true,
+            next_run_at: Some(500),
+            last_run_at: None,
+            last_status: None,
+            last_error: None,
+            task_json: serde_json::json!({}).to_string(),
+            created_at: 1,
+            updated_at: 1,
+        };
+
+        storage
+            .replace_plugin_install(&install, &[task1, task2])
+            .expect("seed plugin");
+
+        // 查询下一个到期任务，应该返回 500（task2 的时间戳）
+        let next = storage
+            .next_plugin_task_due_at(100)
+            .expect("query next due at");
+        assert_eq!(next, Some(500));
+
+        // 查询时间点在所有任务之后，应该返回 None
+        let next = storage
+            .next_plugin_task_due_at(2000)
+            .expect("query next due at");
+        assert_eq!(next, None);
+    }
+
+    /// 函数 `next_plugin_task_due_at_respects_filters`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-06-22
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn next_plugin_task_due_at_respects_filters() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+
+        let install_enabled = PluginInstall {
+            plugin_id: "enabled-plugin".to_string(),
+            source_url: Some("builtin://codexmanager".to_string()),
+            name: "启用插件".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("test".to_string()),
+            author: Some("CodexManager".to_string()),
+            homepage_url: None,
+            script_url: None,
+            script_body: "fn run(context) { context }".to_string(),
+            permissions_json: serde_json::json!(["test:run"]).to_string(),
+            manifest_json: serde_json::json!({ "id": "enabled-plugin" }).to_string(),
+            status: "enabled".to_string(),
+            installed_at: 1,
+            updated_at: 1,
+            last_run_at: None,
+            last_error: None,
+        };
+
+        let install_disabled = PluginInstall {
+            plugin_id: "disabled-plugin".to_string(),
+            source_url: Some("builtin://codexmanager".to_string()),
+            name: "禁用插件".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("test".to_string()),
+            author: Some("CodexManager".to_string()),
+            homepage_url: None,
+            script_url: None,
+            script_body: "fn run(context) { context }".to_string(),
+            permissions_json: serde_json::json!(["test:run"]).to_string(),
+            manifest_json: serde_json::json!({ "id": "disabled-plugin" }).to_string(),
+            status: "disabled".to_string(),
+            installed_at: 1,
+            updated_at: 1,
+            last_run_at: None,
+            last_error: None,
+        };
+
+        let task_enabled = PluginTask {
+            id: "enabled-plugin::task".to_string(),
+            plugin_id: install_enabled.plugin_id.clone(),
+            name: "启用任务".to_string(),
+            description: Some("desc".to_string()),
+            entrypoint: "task".to_string(),
+            schedule_kind: "interval".to_string(),
+            interval_seconds: Some(60),
+            enabled: true,
+            next_run_at: Some(1000),
+            last_run_at: None,
+            last_status: None,
+            last_error: None,
+            task_json: serde_json::json!({}).to_string(),
+            created_at: 1,
+            updated_at: 1,
+        };
+
+        let task_disabled = PluginTask {
+            id: "disabled-plugin::task".to_string(),
+            plugin_id: install_disabled.plugin_id.clone(),
+            name: "禁用任务".to_string(),
+            description: Some("desc".to_string()),
+            entrypoint: "task".to_string(),
+            schedule_kind: "interval".to_string(),
+            interval_seconds: Some(60),
+            enabled: true,
+            next_run_at: Some(500),
+            last_run_at: None,
+            last_status: None,
+            last_error: None,
+            task_json: serde_json::json!({}).to_string(),
+            created_at: 1,
+            updated_at: 1,
+        };
+
+        let task_manual = PluginTask {
+            id: "enabled-plugin::manual".to_string(),
+            plugin_id: install_enabled.plugin_id.clone(),
+            name: "手动任务".to_string(),
+            description: Some("desc".to_string()),
+            entrypoint: "manual".to_string(),
+            schedule_kind: "manual".to_string(),
+            interval_seconds: None,
+            enabled: true,
+            next_run_at: Some(300),
+            last_run_at: None,
+            last_status: None,
+            last_error: None,
+            task_json: serde_json::json!({}).to_string(),
+            created_at: 1,
+            updated_at: 1,
+        };
+
+        storage
+            .replace_plugin_install(&install_enabled, &[task_enabled, task_manual])
+            .expect("seed enabled plugin");
+        storage
+            .replace_plugin_install(&install_disabled, &[task_disabled])
+            .expect("seed disabled plugin");
+
+        // 应该只返回 enabled plugin 的 interval task (1000)
+        // 忽略 disabled plugin (500) 和 manual task (300)
+        let next = storage
+            .next_plugin_task_due_at(100)
+            .expect("query next due at");
+        assert_eq!(next, Some(1000));
     }
 }
