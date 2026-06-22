@@ -1049,3 +1049,35 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - **`cargo test -p codexmanager-service --test gateway_logs -- --test-threads=1` → 26 passed / 0 failed**（69.53s，回归保护成立，证明未破坏网关路由校验）。
 
 剩余风险：无功能性风险。task.md 早期条目（186/251/576/965/970/977 行）中"待新增 model_catalog_model_exists"的描述现已落地，后续不应再列为待办。
+
+## 2026-06-22 OpenAI Responses 516 reasoning token / Sidecar usage 完整性审计（【CodeX-GPT】实施）
+
+### ✅ 已处理：OpenAI Responses sidecar drain 超时过短
+
+- 对方审计指出 `OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT` 仅 50ms，结论成立：`OpenAIResponsesPassthroughSseReader` 主转发线程收到 raw EOF 后，只给 sidecar SSE 解析线程 50ms 排空事件；若最终 `response.completed` usage 已到达 raw 流但 sidecar 线程因调度/解析滞后未及时送入 channel，可能保留前一个 usage 快照。
+- 已将 drain 超时提高到 200ms，并补单元测试 `sidecar_drain_waits_for_delayed_final_usage_event`，模拟最终 usage 事件延迟 80ms 才进入 sidecar channel，确认最终 `reasoning_tokens=2048` 可被合并。
+
+### 📌 审计结论：`merge_usage` 不应贸然改成累加
+
+- `merge_usage()` 当前策略是"非空字段后到覆盖前值"，其中 `reasoning_output_tokens` 也是 last non-null wins。
+- 该策略对 OpenAI Responses / Chat Completions usage 更合理：usage 字段通常表示当前响应对象/最终响应对象的总量；若把多次事件里的 usage 直接累加，遇到累计快照会把 token 算重。
+- 因此本轮**不采用**"reasoning_tokens 累加"方案。若后续拿到真实 SSE trace 证明上游发送的是增量 usage，再单独改成按事件类型区分增量/快照；不能仅因出现 516 就改全局 merge 语义。
+
+### ⚠️ 待观察：516 异常值只能做观测，不能直接拦截或重试
+
+- `reasoning_tokens=516` 固定出现值得记录，但当前证据不足以证明它一定是 CE 解析错误；本地分析文件也记录过"官方客户端/SDK 也可能出现 516"的用户反馈，因此更可能同时存在上游预算/风控/动态限制因素。
+- 后续可加低风险观测：当 `reasoning_output_tokens == 516` 时写结构化 warn/metrics，带 request_id、model、last_sse_event_type，不记录 prompt/响应正文。
+- 不建议直接在 516 时自动重试或改写响应：这会增加费用、放大上游负载，并可能在 516 是服务端真实限额时制造重复请求。
+
+### 验证
+
+- `cargo test -p codexmanager-service --lib sidecar_drain -- --nocapture` → 2 passed。
+- `cargo test -p codexmanager-service --lib http_bridge::delivery::tests -- --nocapture` → 18 passed（同时修正当前未提交 `delivery.rs` JSON 单次解析优化后遗漏的测试调用签名）。
+
+## 2026-06-22 实施：Q 项网关非流式响应 JSON 重复 parse 收敛（【CodeX-GPT】收口）
+
+### ✅【已完成】Q（P1）：协议转换路径复用已解析 JSON
+
+- `delivery.rs` 中非流式成功响应的协议转换路径已改为入口解析一次 `serde_json::Value`，再把 `&Value` 传给 `convert_success_body_for_adapter()` 及各 adapter 转换函数，避免 usage 提取后又在 Anthropic/Gemini/Chat/Images 转换内重复 `serde_json::from_slice`。
+- 覆盖范围：`respond_with_upstream()` 与 `respond_with_stream_upstream()` 的非流式分支、Chat Completions compact 转换、Responses → Chat/Gemini/Images 转换；Passthrough 直通路径不受影响。
+- 同步修正 `delivery.rs` 测试调用签名，`cargo test -p codexmanager-service --lib http_bridge::delivery::tests -- --nocapture` 18 项全部通过。

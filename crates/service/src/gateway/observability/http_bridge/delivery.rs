@@ -506,10 +506,9 @@ fn restore_tool_name(name: &str, tool_name_restore_map: Option<&ToolNameRestoreM
 }
 
 fn convert_responses_body_to_anthropic_messages(
-    body: &[u8],
+    value: &Value,
     tool_name_restore_map: Option<&ToolNameRestoreMap>,
 ) -> Option<Vec<u8>> {
-    let value = serde_json::from_slice::<Value>(body).ok()?;
     let response_id = value
         .get("id")
         .and_then(Value::as_str)
@@ -616,11 +615,10 @@ fn convert_responses_body_to_anthropic_messages(
 }
 
 fn convert_responses_body_to_gemini_generate_content(
-    body: &[u8],
+    value: &Value,
     wrap_response_envelope: bool,
     tool_name_restore_map: Option<&ToolNameRestoreMap>,
 ) -> Option<Vec<u8>> {
-    let value = serde_json::from_slice::<Value>(body).ok()?;
     let mut parts = Vec::new();
     if let Some(output_items) = value.get("output").and_then(Value::as_array) {
         for item in output_items {
@@ -864,32 +862,32 @@ fn force_openai_responses_stream_content_type(
 
 fn convert_success_body_for_adapter(
     response_adapter: ResponseAdapter,
-    body: &[u8],
+    value: &Value,
     _request_path: &str,
     tool_name_restore_map: Option<&ToolNameRestoreMap>,
 ) -> Option<Vec<u8>> {
     match response_adapter {
         ResponseAdapter::AnthropicMessagesFromResponses => {
-            convert_responses_body_to_anthropic_messages(body, tool_name_restore_map)
+            convert_responses_body_to_anthropic_messages(value, tool_name_restore_map)
         }
         ResponseAdapter::ResponsesFromAnthropicMessages => None,
         ResponseAdapter::ChatCompletionsFromResponses => {
-            convert_responses_body_to_chat_completions(body)
+            convert_responses_body_to_chat_completions(value)
         }
         ResponseAdapter::CompactFromChatCompletions => {
-            convert_chat_completions_body_to_compact(body)
+            convert_chat_completions_body_to_compact(value)
         }
         ResponseAdapter::ImagesB64JsonFromResponses => {
-            convert_responses_body_to_images(body, ImagesResponseFormat::B64Json)
+            convert_responses_body_to_images(value, ImagesResponseFormat::B64Json)
         }
         ResponseAdapter::ImagesUrlFromResponses => {
-            convert_responses_body_to_images(body, ImagesResponseFormat::Url)
+            convert_responses_body_to_images(value, ImagesResponseFormat::Url)
         }
         ResponseAdapter::GeminiJson => {
-            convert_responses_body_to_gemini_generate_content(body, false, tool_name_restore_map)
+            convert_responses_body_to_gemini_generate_content(value, false, tool_name_restore_map)
         }
         ResponseAdapter::GeminiCliJson => {
-            convert_responses_body_to_gemini_generate_content(body, true, tool_name_restore_map)
+            convert_responses_body_to_gemini_generate_content(value, true, tool_name_restore_map)
         }
         ResponseAdapter::GeminiSse | ResponseAdapter::GeminiCliSse => None,
         ResponseAdapter::Passthrough => None,
@@ -954,9 +952,8 @@ fn responses_usage_to_chat_usage(usage: &Value) -> Value {
     mapped
 }
 
-fn convert_responses_body_to_chat_completions(body: &[u8]) -> Option<Vec<u8>> {
-    let value = serde_json::from_slice::<Value>(body).ok()?;
-    let response = value.get("response").unwrap_or(&value);
+fn convert_responses_body_to_chat_completions(value: &Value) -> Option<Vec<u8>> {
+    let response = value.get("response").unwrap_or(value);
     let mut text = String::new();
     if let Some(output_text) = response.get("output_text").and_then(Value::as_str) {
         text.push_str(output_text);
@@ -1036,8 +1033,7 @@ fn collect_chat_completion_message_text(value: &Value, out: &mut String) {
     }
 }
 
-fn convert_chat_completions_body_to_compact(body: &[u8]) -> Option<Vec<u8>> {
-    let value = serde_json::from_slice::<Value>(body).ok()?;
+fn convert_chat_completions_body_to_compact(value: &Value) -> Option<Vec<u8>> {
     let mut text = String::new();
     if let Some(message_content) = value
         .get("choices")
@@ -1065,11 +1061,10 @@ fn convert_chat_completions_body_to_compact(body: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn convert_responses_body_to_images(
-    body: &[u8],
+    value: &Value,
     response_format: ImagesResponseFormat,
 ) -> Option<Vec<u8>> {
-    let value = serde_json::from_slice::<Value>(body).ok()?;
-    let response = value.get("response").unwrap_or(&value);
+    let response = value.get("response").unwrap_or(value);
     serde_json::to_vec(&build_images_api_response(response, response_format)).ok()
 }
 
@@ -2055,18 +2050,20 @@ pub(crate) fn respond_with_upstream(
                 .map_err(|err| format!("read upstream body failed: {err}"))?;
             let detected_sse =
                 is_sse || (!is_json && looks_like_sse_payload(upstream_body.as_ref()));
-            let (body, usage) = if detected_sse {
+            let (body, usage, parsed_value) = if detected_sse {
                 let (synthesized, mut usage) =
                     collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
                 let body = synthesized.unwrap_or_else(|| upstream_body.to_vec());
                 merge_usage_from_body_without_output_text(&mut usage, &body);
-                (body, usage)
+                (body, usage, None)
             } else {
-                let usage = serde_json::from_slice::<Value>(upstream_body.as_ref())
-                    .ok()
-                    .map(|value| parse_usage_from_json(&value))
+                // 非流式成功响应：只 parse 一次 JSON
+                let parsed = serde_json::from_slice::<Value>(upstream_body.as_ref()).ok();
+                let usage = parsed
+                    .as_ref()
+                    .map(|value| parse_usage_from_json(value))
                     .unwrap_or_default();
-                (upstream_body.to_vec(), usage)
+                (upstream_body.to_vec(), usage, parsed)
             };
             let response_body = if status.0 >= 400 {
                 let message = with_upstream_debug_suffix(
@@ -2088,13 +2085,18 @@ pub(crate) fn respond_with_upstream(
                 .unwrap_or_else(|| "upstream compatibility bridge failed".to_string());
                 convert_error_body_for_adapter(response_adapter, &message)
             } else {
-                convert_success_body_for_adapter(
-                    response_adapter,
-                    &body,
-                    request_path,
-                    tool_name_restore_map,
-                )
-                .unwrap_or_else(|| body.clone())
+                // 优化：使用已解析的 Value，避免重复解析
+                parsed_value
+                    .as_ref()
+                    .and_then(|value| {
+                        convert_success_body_for_adapter(
+                            response_adapter,
+                            value,
+                            request_path,
+                            tool_name_restore_map,
+                        )
+                    })
+                    .unwrap_or_else(|| body.clone())
             };
             replace_content_type_header(&mut headers, "application/json");
             let len = Some(response_body.len());
@@ -2930,12 +2932,15 @@ pub(crate) fn respond_with_upstream(
             let upstream_body = upstream
                 .bytes()
                 .map_err(|err| format!("read upstream body failed: {err}"))?;
-            let usage = serde_json::from_slice::<Value>(upstream_body.as_ref())
-                .ok()
-                .map(|value| parse_usage_from_json(&value))
+            let parsed_value = serde_json::from_slice::<Value>(upstream_body.as_ref()).ok();
+            let usage = parsed_value
+                .as_ref()
+                .map(|value| parse_usage_from_json(value))
                 .unwrap_or_default();
             let response_body = if status.0 < 400 {
-                convert_chat_completions_body_to_compact(upstream_body.as_ref())
+                parsed_value
+                    .as_ref()
+                    .and_then(|value| convert_chat_completions_body_to_compact(value))
                     .unwrap_or_else(|| upstream_body.to_vec())
             } else {
                 upstream_body.to_vec()
@@ -3038,18 +3043,20 @@ pub(crate) fn respond_with_stream_upstream(
                 .map_err(|err| format!("read upstream body failed: {err}"))?;
             let detected_sse =
                 is_sse || (!is_json && looks_like_sse_payload(upstream_body.as_ref()));
-            let (body, usage) = if detected_sse {
+            let (body, usage, parsed_value) = if detected_sse {
                 let (synthesized, mut usage) =
                     collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
                 let body = synthesized.unwrap_or_else(|| upstream_body.to_vec());
                 merge_usage_from_body_without_output_text(&mut usage, &body);
-                (body, usage)
+                (body, usage, None)
             } else {
-                let usage = serde_json::from_slice::<Value>(upstream_body.as_ref())
-                    .ok()
-                    .map(|value| parse_usage_from_json(&value))
+                // 非流式成功响应：只 parse 一次 JSON
+                let parsed = serde_json::from_slice::<Value>(upstream_body.as_ref()).ok();
+                let usage = parsed
+                    .as_ref()
+                    .map(|value| parse_usage_from_json(value))
                     .unwrap_or_default();
-                (upstream_body.to_vec(), usage)
+                (upstream_body.to_vec(), usage, parsed)
             };
             let response_body = if status.0 >= 400 {
                 let message = with_upstream_debug_suffix(
@@ -3071,13 +3078,18 @@ pub(crate) fn respond_with_stream_upstream(
                 .unwrap_or_else(|| "upstream compatibility bridge failed".to_string());
                 convert_error_body_for_adapter(response_adapter, &message)
             } else {
-                convert_success_body_for_adapter(
-                    response_adapter,
-                    &body,
-                    request_path,
-                    tool_name_restore_map,
-                )
-                .unwrap_or_else(|| body.clone())
+                // 优化：使用已解析的 Value，避免重复解析
+                parsed_value
+                    .as_ref()
+                    .and_then(|value| {
+                        convert_success_body_for_adapter(
+                            response_adapter,
+                            value,
+                            request_path,
+                            tool_name_restore_map,
+                        )
+                    })
+                    .unwrap_or_else(|| body.clone())
             };
             replace_content_type_header(&mut headers, "application/json");
             let len = Some(response_body.len());
@@ -3226,8 +3238,12 @@ pub(crate) fn respond_with_stream_upstream(
                     collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
                 let body = synthesized.unwrap_or_else(|| upstream_body.to_vec());
                 merge_usage_from_body_without_output_text(&mut usage, &body);
-                let chat_body =
-                    convert_responses_body_to_chat_completions(&body).unwrap_or_else(|| body);
+                // 优化：解析一次并传递 &Value
+                let parsed_value = serde_json::from_slice::<Value>(&body).ok();
+                let chat_body = parsed_value
+                    .as_ref()
+                    .and_then(|value| convert_responses_body_to_chat_completions(value))
+                    .unwrap_or_else(|| body.clone());
                 let response_body = chat_completion_body_to_single_sse(&chat_body);
                 let len = Some(response_body.len());
                 let response = Response::new(
@@ -3858,12 +3874,15 @@ pub(crate) fn respond_with_stream_upstream(
             let upstream_body = upstream
                 .read_all_bytes()
                 .map_err(|err| format!("read upstream body failed: {err}"))?;
-            let usage = serde_json::from_slice::<Value>(upstream_body.as_ref())
-                .ok()
-                .map(|value| parse_usage_from_json(&value))
+            let parsed_value = serde_json::from_slice::<Value>(upstream_body.as_ref()).ok();
+            let usage = parsed_value
+                .as_ref()
+                .map(|value| parse_usage_from_json(value))
                 .unwrap_or_default();
             let response_body = if status.0 < 400 {
-                convert_chat_completions_body_to_compact(upstream_body.as_ref())
+                parsed_value
+                    .as_ref()
+                    .and_then(|value| convert_chat_completions_body_to_compact(value))
                     .unwrap_or_else(|| upstream_body.to_vec())
             } else {
                 upstream_body.to_vec()
@@ -4186,7 +4205,7 @@ mod tests {
                 "finish_reason": "stop"
             }]
         });
-        let converted = convert_chat_completions_body_to_compact(body.to_string().as_bytes())
+        let converted = convert_chat_completions_body_to_compact(&body)
             .expect("convert chat completions response");
 
         assert!(compact_success_body_is_valid(converted.as_slice()));
@@ -4274,12 +4293,8 @@ mod tests {
             "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
         });
 
-        let mapped = convert_responses_body_to_gemini_generate_content(
-            serde_json::to_vec(&body).expect("body").as_slice(),
-            false,
-            None,
-        )
-        .expect("convert gemini body");
+        let mapped = convert_responses_body_to_gemini_generate_content(&body, false, None)
+            .expect("convert gemini body");
         let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse mapped body");
 
         assert_eq!(
@@ -4305,10 +4320,8 @@ mod tests {
             "usage": { "input_tokens": 2, "output_tokens": 1, "total_tokens": 3 }
         });
 
-        let mapped = convert_responses_body_to_chat_completions(
-            serde_json::to_vec(&body).expect("body").as_slice(),
-        )
-        .expect("convert chat completion body");
+        let mapped = convert_responses_body_to_chat_completions(&body)
+            .expect("convert chat completion body");
         let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse mapped body");
 
         assert_eq!(
@@ -4341,10 +4354,8 @@ mod tests {
             "usage": { "input_tokens": 4, "output_tokens": 2, "total_tokens": 6 }
         });
 
-        let mapped = convert_responses_body_to_chat_completions(
-            serde_json::to_vec(&body).expect("body").as_slice(),
-        )
-        .expect("convert chat completion body");
+        let mapped = convert_responses_body_to_chat_completions(&body)
+            .expect("convert chat completion body");
         let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse mapped body");
 
         assert_eq!(value["choices"][0]["message"]["content"], "");
@@ -4375,10 +4386,8 @@ mod tests {
             }]
         });
 
-        let mapped = convert_responses_body_to_chat_completions(
-            serde_json::to_vec(&body).expect("body").as_slice(),
-        )
-        .expect("convert chat completion body");
+        let mapped = convert_responses_body_to_chat_completions(&body)
+            .expect("convert chat completion body");
         let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse mapped body");
 
         assert_eq!(value["choices"][0]["message"]["content"], "OK");
@@ -4401,7 +4410,9 @@ mod tests {
         );
         let (body, _) = collect_non_stream_json_from_sse_bytes(sse.as_bytes());
         let body = body.expect("synthesized response json");
-        let mapped = convert_responses_body_to_chat_completions(body.as_slice())
+        let body_value: serde_json::Value =
+            serde_json::from_slice(body.as_slice()).expect("parse synthesized response json");
+        let mapped = convert_responses_body_to_chat_completions(&body_value)
             .expect("convert chat completion body");
         let value: serde_json::Value =
             serde_json::from_slice(&mapped).expect("parse chat completion body");
@@ -4457,11 +4468,8 @@ mod tests {
             }
         });
 
-        let mapped = convert_responses_body_to_images(
-            serde_json::to_vec(&body).expect("body").as_slice(),
-            ImagesResponseFormat::B64Json,
-        )
-        .expect("convert images body");
+        let mapped = convert_responses_body_to_images(&body, ImagesResponseFormat::B64Json)
+            .expect("convert images body");
         let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse images body");
 
         assert_eq!(value["created"], 1775900000);
@@ -4485,11 +4493,8 @@ mod tests {
             }]
         });
 
-        let mapped = convert_responses_body_to_images(
-            serde_json::to_vec(&body).expect("body").as_slice(),
-            ImagesResponseFormat::Url,
-        )
-        .expect("convert images body");
+        let mapped = convert_responses_body_to_images(&body, ImagesResponseFormat::Url)
+            .expect("convert images body");
         let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse images body");
 
         assert_eq!(value["data"][0]["url"], "data:image/webp;base64,aGVsbG8=");
@@ -4509,12 +4514,8 @@ mod tests {
             "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
         });
 
-        let mapped = convert_responses_body_to_gemini_generate_content(
-            serde_json::to_vec(&body).expect("body").as_slice(),
-            false,
-            None,
-        )
-        .expect("convert gemini body");
+        let mapped = convert_responses_body_to_gemini_generate_content(&body, false, None)
+            .expect("convert gemini body");
         let value: serde_json::Value = serde_json::from_slice(&mapped).expect("parse mapped body");
 
         assert_eq!(

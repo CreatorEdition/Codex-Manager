@@ -16,7 +16,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const OPENAI_RESPONSES_SSE_CHANNEL_CAPACITY: usize = 128;
-const OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT: Duration = Duration::from_millis(50);
+const OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Debug)]
 enum OpenAIResponsesSidecarItem {
@@ -296,5 +296,78 @@ impl Read for OpenAIResponsesPassthroughSseReader {
             }
             self.out_cursor = Cursor::new(self.next_chunk()?);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    fn completed_usage_event(reasoning_tokens: i64) -> OpenAIResponsesEvent {
+        let payload = serde_json::json!({
+            "type": "response.completed",
+            "response": {
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 2,
+                    "total_tokens": 3,
+                    "output_tokens_details": {
+                        "reasoning_tokens": reasoning_tokens
+                    }
+                }
+            }
+        });
+        OpenAIResponsesEvent::parse(&[
+            "event: response.completed\n".to_string(),
+            format!("data: {payload}\n"),
+            "\n".to_string(),
+        ])
+        .expect("parse completed usage event")
+    }
+
+    #[test]
+    fn sidecar_drain_waits_for_delayed_final_usage_event() {
+        let (sidecar_tx, sidecar_rx) = mpsc::sync_channel::<OpenAIResponsesSidecarItem>(2);
+        let (_raw_tx, raw_rx) = mpsc::sync_channel::<GatewayByteStreamItem>(1);
+        let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
+        let delayed_event = completed_usage_event(2048);
+
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(80));
+            sidecar_tx
+                .send(OpenAIResponsesSidecarItem::Event(delayed_event))
+                .expect("send delayed usage event");
+            sidecar_tx
+                .send(OpenAIResponsesSidecarItem::Eof)
+                .expect("send sidecar eof");
+        });
+
+        let mut reader = OpenAIResponsesPassthroughSseReader {
+            raw_upstream: GatewayByteStream::from_receiver(raw_rx),
+            observer: OpenAIResponsesSidecarObserver { rx: sidecar_rx },
+            out_cursor: Cursor::new(Vec::new()),
+            usage_collector: Arc::clone(&usage_collector),
+            usage_text_state: OpenAIResponsesOutputTextState::default(),
+            keepalive_frame: SseKeepAliveFrame::OpenAIResponses,
+            request_started_at: Instant::now(),
+            last_upstream_activity: Instant::now(),
+            finished: false,
+        };
+
+        reader.drain_sidecar_with_deadline(OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT);
+
+        let collector = usage_collector.lock().expect("usage collector lock");
+        assert!(collector.saw_terminal);
+        assert_eq!(
+            collector.last_event_type.as_deref(),
+            Some("response.completed")
+        );
+        assert_eq!(collector.usage.reasoning_output_tokens, Some(2048));
+    }
+
+    #[test]
+    fn sidecar_drain_timeout_keeps_enough_margin_for_final_usage() {
+        assert!(OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT >= Duration::from_millis(200));
     }
 }
