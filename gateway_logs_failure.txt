@@ -1,0 +1,179 @@
+warning: unreachable pattern
+    --> crates\service\src\gateway\observability\http_bridge\delivery.rs:2391:44
+     |
+2235 |             ResponseAdapter::ResponsesFromAnthropicMessages => {
+     |             ----------------------------------------------- matches all the relevant values
+...
+2391 |             ResponseAdapter::Passthrough | ResponseAdapter::ResponsesFromAnthropicMessages => {}
+     |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no value can reach this
+     |
+     = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `DEFAULT_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS` is never used
+ --> crates\service\src\gateway\observability\maintenance.rs:4:7
+  |
+4 | const DEFAULT_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS: i64 = 900;
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `OBSERVABILITY_MAINTENANCE_INTERVAL_SECS_ENV` is never used
+ --> crates\service\src\gateway\observability\maintenance.rs:5:7
+  |
+5 | const OBSERVABILITY_MAINTENANCE_INTERVAL_SECS_ENV: &str =
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: static `OBSERVABILITY_MAINTENANCE_RUNNING` is never used
+ --> crates\service\src\gateway\observability\maintenance.rs:8:8
+  |
+8 | static OBSERVABILITY_MAINTENANCE_RUNNING: AtomicBool = AtomicBool::new(false);
+  |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: static `LAST_OBSERVABILITY_MAINTENANCE_SCHEDULED_AT` is never used
+ --> crates\service\src\gateway\observability\maintenance.rs:9:8
+  |
+9 | static LAST_OBSERVABILITY_MAINTENANCE_SCHEDULED_AT: AtomicI64 = AtomicI64::new(0);
+  |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `observability_maintenance_interval_secs` is never used
+  --> crates\service\src\gateway\observability\maintenance.rs:15:4
+   |
+15 | fn observability_maintenance_interval_secs() -> i64 {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `try_reserve_observability_maintenance_slot` is never used
+  --> crates\service\src\gateway\observability\maintenance.rs:31:4
+   |
+31 | fn try_reserve_observability_maintenance_slot(now: i64, interval_secs: i64) -> Option<i64> {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `try_reserve_observability_maintenance_slot_with_state` is never used
+  --> crates\service\src\gateway\observability\maintenance.rs:50:4
+   |
+50 | fn try_reserve_observability_maintenance_slot_with_state(
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `finish_observability_maintenance_slot` is never used
+  --> crates\service\src\gateway\observability\maintenance.rs:89:4
+   |
+89 | fn finish_observability_maintenance_slot(previous_last: i64, succeeded: bool) {
+   |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `finish_observability_maintenance_slot_with_state` is never used
+   --> crates\service\src\gateway\observability\maintenance.rs:108:4
+    |
+108 | fn finish_observability_maintenance_slot_with_state(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `schedule_observability_maintenance` is never used
+   --> crates\service\src\gateway\observability\maintenance.rs:127:15
+    |
+127 | pub(crate) fn schedule_observability_maintenance(now: i64) {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `run_observability_maintenance` is never used
+   --> crates\service\src\gateway\observability\maintenance.rs:153:4
+    |
+153 | fn run_observability_maintenance(now: i64, previous_last: i64) {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MINUTES_PER_HOUR` is never used
+ --> crates\service\src\usage\usage_aggregate.rs:9:7
+  |
+9 | const MINUTES_PER_HOUR: i64 = 60;
+  |       ^^^^^^^^^^^^^^^^
+
+warning: constant `MINUTES_PER_DAY` is never used
+  --> crates\service\src\usage\usage_aggregate.rs:10:7
+   |
+10 | const MINUTES_PER_DAY: i64 = 24 * MINUTES_PER_HOUR;
+   |       ^^^^^^^^^^^^^^^
+
+warning: constant `ROUNDING_BIAS` is never used
+  --> crates\service\src\usage\usage_aggregate.rs:11:7
+   |
+11 | const ROUNDING_BIAS: i64 = 3;
+   |       ^^^^^^^^^^^^^
+
+warning: function `compute_usage_aggregate_summary` is never used
+  --> crates\service\src\usage\usage_aggregate.rs:42:15
+   |
+42 | pub(crate) fn compute_usage_aggregate_summary(
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `normalize_percent` is never used
+   --> crates\service\src\usage\usage_aggregate.rs:129:4
+    |
+129 | fn normalize_percent(value: Option<f64>) -> Option<f64> {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `remaining_percent` is never used
+   --> crates\service\src\usage\usage_aggregate.rs:144:4
+    |
+144 | fn remaining_percent(value: Option<f64>) -> Option<f64> {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `average_percent` is never used
+   --> crates\service\src\usage\usage_aggregate.rs:160:4
+    |
+160 | fn average_percent(total: f64, count: i64) -> Option<i64> {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `is_long_window` is never used
+   --> crates\service\src\usage\usage_aggregate.rs:178:4
+    |
+178 | fn is_long_window(window_minutes: Option<i64>) -> bool {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `is_free_plan_usage` is never used
+   --> crates\service\src\usage\usage_aggregate.rs:193:4
+    |
+193 | fn is_free_plan_usage(raw: Option<&str>) -> bool {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_credits` is never used
+   --> crates\service\src\usage\usage_aggregate.rs:213:4
+    |
+213 | fn parse_credits(raw: Option<&str>) -> Option<Value> {
+    |    ^^^^^^^^^^^^^
+
+warning: function `extract_plan_type_recursive` is never used
+   --> crates\service\src\usage\usage_aggregate.rs:232:4
+    |
+232 | fn extract_plan_type_recursive(value: &Value) -> Option<String> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `codexmanager-service` (lib) generated 23 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.23s
+     Running tests\gateway_logs.rs (target\debug\deps\gateway_logs-42d1cddb74235e76.exe)
+
+running 26 tests
+test anthropic::gateway_aggregate_messages_passthrough_accepts_message_stop_for_non_claude_provider ... ok
+test anthropic::gateway_claude_failover_cross_workspace_strips_session_affinity_headers ... ok
+test anthropic::gateway_claude_failover_same_workspace_preserves_session_affinity_headers ... ok
+test anthropic::gateway_claude_messages_stay_on_chatgpt_codex_base ... ok
+test anthropic::gateway_claude_protocol_end_to_end_uses_codex_headers ... ok
+test anthropic::gateway_claude_protocol_rewrites_messages_path_with_sticky_prompt_cache_key ... ok
+test basic::gateway_applies_saved_model_forward_rules_to_codex_responses_request ... ok
+test basic::gateway_logs_invalid_api_key_error ... ok
+test basic::gateway_rejects_api_key_after_quota_limit ... ok
+test basic::gateway_reports_platform_model_route_errors ... ok
+test basic::gateway_reports_wallet_quota_exhaustion_in_chinese ... ok
+test basic::gateway_rewrites_account_pool_model_from_enabled_mapping ... ok
+test basic::gateway_tolerates_non_ascii_turn_metadata_header ... ok
+test images::gateway_images_generation_wraps_codex_sse_as_openai_images_json ... ok
+test images::native_codex_image_generation_responses_request_passthroughs_tool_and_sse ... ok
+test images::native_codex_responses_auto_injects_image_generation_tool ... ok
+test prompt_cache::gateway_previous_response_without_existing_pck_binding_does_not_create_binding ... ok
+test prompt_cache::gateway_prompt_cache_binding_accepts_short_client_key ... ok
+test prompt_cache::gateway_prompt_cache_binding_reuses_account_for_previous_response_chain ... ok
+test prompt_cache::gateway_turn_state_only_prompt_cache_route_reuses_existing_binding ... ok
+test prompt_cache::gateway_turn_state_previous_response_without_existing_pck_binding_does_not_create_binding ... ok
+test retry_logging::gateway_error_logging_writes_only_trace_log_file ... ok
+test retry_logging::gateway_request_log_keeps_only_final_result_for_multi_attempt_flow ... ok
+test retry_logging::gateway_stateless_retry_strips_encrypted_content_on_invalid_encrypted_content ... ok
+test usage_limit_failover::gateway_low_quota_account_is_skipped_on_first_request ... ok
+test usage_limit_failover::gateway_usage_limit_in_sse_marks_request_as_failover ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 62.75s
+

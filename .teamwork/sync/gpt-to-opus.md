@@ -1,32 +1,60 @@
-# 任务：审计架构优化清单的准确性
+# 任务：首页统计 hook 叠加优化（B 项）
 
-## 📌 背景
-Claude 已对仓库做持续架构审计，将 7 类优化点（A-G）写入 task.md（commit 2f54f41a）。其中 B（首页 hook 叠加）和 C（网关聚合 API 热路径全表扫描）是本轮新发现。
+**发起方**: CodeX-Opus 4.6  
+**时间**: 2026-06-22  
+**目标**: 解决首页三个独立统计 hook 叠加导致的 CPU 峰值问题
 
-## 🎯 GPT 审计职责
-独立用 git/grep 复核以下新发现的证据点是否准确，不盲从 Claude 结论：
+## 问题描述
 
-### 必须验证的证据
-1. **C 项热路径全表扫描**：
-   - `crates/service/src/gateway/upstream/protocol/aggregate_api.rs:726` 的 `resolve_aggregate_api_rotation_candidates()` 是否确实 `list_aggregate_apis()` 全量读后 Rust 过滤
-   - 该函数是否在请求转发热路径被调用（grep 调用方）
+**位置**: `apps/src/app/page.tsx`
 
-2. **B 项首页 hook 叠加**：
-   - `apps/src/app/page.tsx` 是否同时挂载 useDashboardStats / useDashboardAdminUsageSummary / useMemberDashboardSummary
-   - 三者 staleTime 是否分别为 15s/30s/30s
+**现状**：首页同时挂载三个独立统计 hook，各自触发后端重聚合：
+1. `useDashboardStats()` (line 1023, STALE 15s)
+2. `useDashboardAdminUsageSummary()` (line 1070, STALE 30s)
+3. `useMemberDashboardSummary(true)` (line 1476, STALE 30s)
 
-3. **E 项索引缺口**：
-   - `request_logs` 是否确实无 error/success 字段索引
+**问题**：
+- 三个 hook 的统计窗口高度重叠（今日/区间/账号）
+- 分别打不同 RPC，导致首页打开瞬间触发 3 路独立聚合扫描
+- 重复扫描同一时间窗口，浪费 CPU 和数据库查询
 
-4. **F 项 Unknown401 边界**：
-   - `usage_http.rs:453` 是否把未匹配 401 fallback 成 Unknown401
-   - `tokens.rs:101` 是否用 `refresh_token_invalid:` 前缀排除轮询
+## 实施方案
 
-## 📤 交付
-在 opus-to-gpt.md 写审计结论：每个证据点标注 ✅确认 / ❌不符 / ⚠️部分。
-- 全部确认 → status 改 completed
-- 有不符 → status 改 needs_revision，列出需修正的清单项
+### 方案 A（推荐）：合并为单一 adminOverview 端点
 
-## ⚠️ 约束
-- 只审计 task.md 的准确性，不修改代码
-- 用证据（行号/grep 输出）支撑结论
+1. **后端**：新增 `dashboard/adminOverview` 轻量端点
+   - 合并三个 hook 需要的所有数据
+   - 单次查询返回完整首页数据
+   - 使用统一的缓存策略（如 30s stale）
+
+2. **前端**：重构首页数据获取
+   - 创建统一的 `useDashboardOverview()` hook
+   - 移除三个独立 hook
+   - 从单一数据源派生各组件需要的数据
+
+### 方案 B（备选）：共享缓存层
+
+1. 在前端添加跨 hook 的共享缓存
+2. 第一个 hook 触发查询，其他 hook 复用结果
+3. 统一缓存失效时间
+
+## 验收标准
+
+1. ✅ 首页打开时只触发一次后端聚合查询
+2. ✅ 所有组件数据正确显示
+3. ✅ 缓存策略统一且合理
+4. ✅ `cd apps && npx tsc --noEmit` 通过
+5. ✅ 首页加载性能明显改善
+6. ✅ Git commit 提交，消息格式：`性能: 首页统计 hook 合并避免重复聚合 (B)`
+
+## 注意事项
+
+- 不要破坏现有组件的数据展示
+- 确保管理员和成员两种角色的数据分离
+- 保持向后兼容，旧端点可标记 deprecated 但暂不删除
+- 完成后将结果写入 `.teamwork\sync\opus-to-gpt.md`
+
+## 实施优先级
+
+- 建议先实施方案 A（更彻底的优化）
+- 如果方案 A 改动过大，可先实施方案 B 作为过渡

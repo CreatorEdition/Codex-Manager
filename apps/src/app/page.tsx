@@ -66,8 +66,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useDashboardStats } from "@/hooks/useDashboardStats";
-import { useDashboardAdminUsageSummary } from "@/hooks/useDashboardAdminUsageSummary";
+import { useDashboardAdminOverview } from "@/hooks/useDashboardAdminOverview";
 import { resolveSessionRole, useAppSession } from "@/hooks/useAppSession";
 import { useLocalDayRange } from "@/hooks/useLocalDayRange";
 import { useMemberDashboardSummary } from "@/hooks/useMemberDashboardSummary";
@@ -85,6 +84,8 @@ import { useI18n } from "@/lib/i18n/provider";
 import { cn } from "@/lib/utils";
 import { buildStaticRouteUrl } from "@/lib/utils/static-routes";
 import { formatLocalDateTimeFromSeconds } from "@/lib/utils/time";
+import { pickCurrentAccount, pickBestRecommendations } from "@/lib/utils/usage";
+
 import {
   Area,
   AreaChart,
@@ -1019,8 +1020,6 @@ function AdminUsageAnalyticsCard({
 
 function AdminDashboard() {
   const { t } = useI18n();
-  const { stats, currentAccount, recommendations, requestLogs, isLoading, isServiceReady } =
-    useDashboardStats();
   const { isDirectAccountMode } = useCodexProfileModeStatus({
     enabled: true,
     refetchIntervalMs: 10_000,
@@ -1063,17 +1062,19 @@ function AdminDashboard() {
     localDayRange.dayStartTs,
   ]);
 
+  // 使用统一的 hook 获取所有数据
   const {
-    data: adminUsageSummary,
-    isLoading: isAdminUsageLoading,
-    isError: isAdminUsageError,
-  } = useDashboardAdminUsageSummary(
+    data: overview,
+    isLoading,
+    isServiceReady,
+  } = useDashboardAdminOverview(
     {
       startTs: adminUsageRangeParams.startTs,
       endTs: adminUsageRangeParams.endTs,
     },
     true,
   );
+
   const { data: quotaModelPools, isLoading: isQuotaModelPoolsLoading } = useQuery({
     queryKey: ["quota", "model-pools", "summary"],
     queryFn: () =>
@@ -1086,6 +1087,78 @@ function AdminDashboard() {
   });
   usePageTransitionReady("/", !isServiceReady || !isLoading);
 
+  // 从统一数据派生各组件需要的数据
+  const stats = overview
+    ? {
+        apiKeyCount: overview.apiKeyTotal,
+        total: overview.accountTotal,
+        available: overview.accountAvailable,
+        unavailable: Math.max(0, overview.accountTotal - overview.accountAvailable),
+        todayTokens: overview.requestLogTodaySummary.todayTokens || 0,
+        cachedTokens: overview.requestLogTodaySummary.cachedInputTokens || 0,
+        reasoningTokens: overview.requestLogTodaySummary.reasoningOutputTokens || 0,
+        todayCost: overview.requestLogTodaySummary.estimatedCost || 0,
+        poolRemain: {
+          primary: overview.usageAggregateSummary.primaryRemainPercent ?? null,
+          secondary: overview.usageAggregateSummary.secondaryRemainPercent ?? null,
+          primaryKnownCount: overview.usageAggregateSummary.primaryKnownCount ?? 0,
+          primaryBucketCount: overview.usageAggregateSummary.primaryBucketCount ?? 0,
+          secondaryKnownCount: overview.usageAggregateSummary.secondaryKnownCount ?? 0,
+          secondaryBucketCount: overview.usageAggregateSummary.secondaryBucketCount ?? 0,
+        },
+      }
+    : {
+        apiKeyCount: 0,
+        total: 0,
+        available: 0,
+        unavailable: 0,
+        todayTokens: 0,
+        cachedTokens: 0,
+        reasoningTokens: 0,
+        todayCost: 0,
+        poolRemain: {
+          primary: null,
+          secondary: null,
+          primaryKnownCount: 0,
+          primaryBucketCount: 0,
+          secondaryKnownCount: 0,
+          secondaryBucketCount: 0,
+        },
+      };
+
+  const accounts = overview?.accounts || [];
+  const requestLogs = overview?.requestLogs || [];
+  const currentAccount = overview
+    ? pickCurrentAccount(accounts, requestLogs)
+    : null;
+  const recommendations = overview
+    ? pickBestRecommendations(accounts)
+    : { primaryPick: null, secondaryPick: null };
+
+  const adminUsageSummary = overview
+    ? {
+        rangeStartTs: overview.rangeStartTs,
+        rangeEndTs: overview.rangeEndTs,
+        todayStartTs: overview.todayStartTs,
+        todayEndTs: overview.todayEndTs,
+        todayUsage: {
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          reasoningOutputTokens: 0,
+          totalTokens: 0,
+          estimatedCostUsd: 0,
+          requestCount: 0,
+          successCount: 0,
+          errorCount: 0,
+        },
+        dailyUsage: overview.dailyUsage,
+        users: overview.users,
+        openaiAccounts: overview.openaiAccounts,
+        aggregateApis: overview.aggregateApis,
+      }
+    : undefined;
+
   const poolPrimary = stats.poolRemain?.primary ?? 0;
   const poolSecondary = stats.poolRemain?.secondary ?? 0;
   const allModelPoolItems = quotaModelPools?.items ?? [];
@@ -1097,6 +1170,9 @@ function AdminDashboard() {
       const endTs = parseDateInputEndTs(adminUsageRangeEndInput);
       return startTs == null || endTs == null || endTs <= startTs;
     })();
+
+  const isAdminUsageLoading = isLoading;
+  const isAdminUsageError = !overview && !isLoading && isServiceReady;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700">

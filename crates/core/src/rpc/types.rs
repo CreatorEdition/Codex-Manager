@@ -1649,6 +1649,38 @@ pub struct DashboardAdminUsageSummaryResult {
     pub aggregate_apis: Vec<DashboardSourceUsageSummary>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardAdminOverviewResult {
+    // 来自 StartupSnapshot 的基础统计
+    #[serde(default)]
+    pub account_total: i64,
+    #[serde(default)]
+    pub account_available: i64,
+    #[serde(default)]
+    pub api_key_total: i64,
+    pub accounts: Vec<AccountSummary>,
+    pub usage_snapshots: Vec<UsageSnapshotResult>,
+    #[serde(default)]
+    pub usage_aggregate_summary: UsageAggregateSummaryResult,
+    pub manual_preferred_account_id: Option<String>,
+    pub request_log_today_summary: RequestLogTodaySummaryResult,
+    pub request_logs: Vec<RequestLogSummary>,
+    // 来自 AdminUsageSummary 的聚合数据
+    pub range_start_ts: i64,
+    pub range_end_ts: i64,
+    pub today_start_ts: i64,
+    pub today_end_ts: i64,
+    #[serde(default)]
+    pub daily_usage: Vec<DashboardDailyUsagePoint>,
+    #[serde(default)]
+    pub users: Vec<DashboardUserUsageSummary>,
+    #[serde(default)]
+    pub openai_accounts: Vec<DashboardSourceUsageSummary>,
+    #[serde(default)]
+    pub aggregate_apis: Vec<DashboardSourceUsageSummary>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemberDashboardWalletResult {

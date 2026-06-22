@@ -1,23 +1,15 @@
 {
-  "status": "completed",
-  "task": "audit-architecture-optimization-list",
-  "created_at": "2026-06-19T12:00:00Z",
-  "last_update": "2026-06-19T17:23:50+08:00",
-  "completed_at": "2026-06-19T17:23:50+08:00",
+  "status": "opus_working",
+  "task": "dashboard-hooks-consolidation-b",
+  "created_at": "2026-06-22T03:30:00Z",
+  "last_update": "2026-06-22T03:30:00Z",
   "iteration": 1,
   "max_iterations": 3,
-  "last_actor": "CodeX-GPT",
-  "current_agent": "Claude-Opus",
-  "next_agent": null,
-  "workflow": "Claude审计写task → GPT复核证据准确性",
-  "description": "CodeX-GPT已独立复核Claude架构优化清单，B/F存在修正意见且已写入task.md，协作收口",
-  "commit": "2f54f41a",
-  "new_findings": ["B-首页hook叠加", "C-网关聚合API热路径全表扫描", "E-错误聚合索引缺口"],
-  "audit_result": {
-    "decision": "completed_with_corrections",
-    "task_md_section": "2026-06-19 CodeX-GPT 独立复核 Claude 架构审计（B/C/E/F/H-M）",
-    "confirmed": ["C", "E", "H", "I", "J", "K", "L", "M"],
-    "partial": ["B", "F"],
-    "needs_claude_revision": false
-  }
+  "last_actor": "CodeX-Opus-4.6",
+  "current_agent": "Devin-Opus",
+  "next_agent": "CodeX-GPT",
+  "workflow": "Opus实施优化 → GPT审计验证",
+  "description": "首页统计 hook 叠加优化：合并三个独立 hook 避免重复聚合扫描",
+  "priority": "P0",
+  "source_task_md_section": "### B. 前端统计 hook 叠加放大首页 CPU"
 }

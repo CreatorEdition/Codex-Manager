@@ -1025,3 +1025,114 @@ fn build_alerts(
 
     alerts
 }
+
+/// 合并 AdminDashboard 所需的所有数据，避免多次聚合查询
+///
+/// 此函数合并了 StartupSnapshot 和 AdminUsageSummary 的数据，
+/// 解决首页同时调用多个 hook 导致的重复聚合扫描问题
+pub(crate) fn read_admin_overview(
+    actor: &RpcActor,
+    request_log_limit: Option<i64>,
+    day_start_ts: Option<i64>,
+    day_end_ts: Option<i64>,
+    account_limit: Option<i64>,
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    ranking_limit: Option<i64>,
+) -> Result<codexmanager_core::rpc::types::DashboardAdminOverviewResult, String> {
+    use codexmanager_core::rpc::types::DashboardAdminOverviewResult;
+
+    if !actor.is_admin() {
+        return Err("permission_denied: admin overview requires admin session".to_string());
+    }
+
+    crate::initialize_storage_if_needed()?;
+    let storage = storage_helpers::open_storage()
+        .ok_or_else(|| "open storage failed".to_string())?;
+
+    // 计算时间范围
+    let (today_start, today_end) = local_day_bounds_ts()?;
+    let range_start = start_ts
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| today_start.saturating_sub((ADMIN_USAGE_RANGE_DAYS - 1) * DAY_SECONDS));
+    let range_end = end_ts
+        .filter(|value| *value > range_start)
+        .unwrap_or(today_end);
+    let ranking_limit_value = normalize_admin_usage_ranking_limit(ranking_limit);
+
+    // 从 StartupSnapshot 获取基础数据
+    let snapshot = crate::startup_snapshot::read_startup_snapshot(
+        request_log_limit,
+        day_start_ts,
+        day_end_ts,
+        account_limit,
+        None, // api_key_limit
+        crate::startup_snapshot::StartupSnapshotOptions {
+            include_usage_aggregate: true,
+            include_today_summary: true,
+            include_recent_logs: true,
+            include_api_models: false,
+        },
+    )?;
+
+    // 获取管理员用量聚合数据
+    let daily_usage = fill_daily_usage(
+        range_start,
+        range_end,
+        DAY_SECONDS,
+        storage
+            .summarize_request_token_stats_daily(range_start, range_end, DAY_SECONDS)
+            .map_err(|err| format!("summarize daily usage failed: {err}"))?,
+    );
+
+    let users = read_dashboard_user_summaries(
+        &storage,
+        today_start,
+        today_end,
+        range_start,
+        range_end,
+        ranking_limit_value,
+    )?;
+
+    let openai_accounts = read_dashboard_source_summaries(
+        &storage,
+        "openai_account",
+        today_start,
+        today_end,
+        range_start,
+        range_end,
+        ranking_limit_value,
+    )?;
+
+    let aggregate_apis = read_dashboard_source_summaries(
+        &storage,
+        "aggregate_api",
+        today_start,
+        today_end,
+        range_start,
+        range_end,
+        ranking_limit_value,
+    )?;
+
+    Ok(DashboardAdminOverviewResult {
+        // StartupSnapshot 数据
+        account_total: snapshot.account_total,
+        account_available: snapshot.account_available,
+        api_key_total: snapshot.api_key_total,
+        accounts: snapshot.accounts,
+        usage_snapshots: snapshot.usage_snapshots,
+        usage_aggregate_summary: snapshot.usage_aggregate_summary,
+        manual_preferred_account_id: snapshot.manual_preferred_account_id,
+        request_log_today_summary: snapshot.request_log_today_summary,
+        request_logs: snapshot.request_logs,
+        // AdminUsageSummary 数据
+        range_start_ts: range_start,
+        range_end_ts: range_end,
+        today_start_ts: today_start,
+        today_end_ts: today_end,
+        daily_usage,
+        users,
+        openai_accounts,
+        aggregate_apis,
+    })
+}

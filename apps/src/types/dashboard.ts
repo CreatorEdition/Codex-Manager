@@ -1,5 +1,11 @@
 import type { ModelInfo } from "@/types/model";
 import type { RequestLog } from "@/types/request-log";
+import type {
+  Account,
+  AccountUsage,
+  UsageAggregateSummary,
+} from "@/types/account";
+import type { RequestLogTodaySummary } from "@/types/request-log";
 
 export interface DashboardTokenUsage {
   inputTokens: number;
@@ -51,6 +57,34 @@ export interface DashboardAdminUsageSummary {
   openaiAccounts: DashboardSourceUsageSummary[];
   aggregateApis: DashboardSourceUsageSummary[];
 }
+
+/**
+ * 合并的管理员 Dashboard 数据
+ * 包含 StartupSnapshot 和 AdminUsageSummary 的所有字段
+ * 避免首页同时调用多个 hook 导致的重复聚合查询
+ */
+export interface DashboardAdminOverview {
+  // 来自 StartupSnapshot 的基础统计
+  accountTotal: number;
+  accountAvailable: number;
+  apiKeyTotal: number;
+  accounts: Account[];
+  usageSnapshots: AccountUsage[];
+  usageAggregateSummary: UsageAggregateSummary;
+  manualPreferredAccountId: string | null;
+  requestLogTodaySummary: RequestLogTodaySummary;
+  requestLogs: RequestLog[];
+  // 来自 AdminUsageSummary 的聚合数据
+  rangeStartTs: number;
+  rangeEndTs: number;
+  todayStartTs: number;
+  todayEndTs: number;
+  dailyUsage: DashboardDailyUsagePoint[];
+  users: DashboardUserUsageSummary[];
+  openaiAccounts: DashboardSourceUsageSummary[];
+  aggregateApis: DashboardSourceUsageSummary[];
+}
+
 
 export interface MemberDashboardWallet {
   id: string;

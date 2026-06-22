@@ -1,7 +1,13 @@
 import { invoke, withAddr } from "./transport";
-import { normalizeModelCatalog, normalizeRequestLogs } from "./normalize";
+import {
+  normalizeModelCatalog,
+  normalizeRequestLogs,
+  normalizeAccountList,
+  normalizeUsageList,
+} from "./normalize";
 import type {
   DashboardAdminUsageSummary,
+  DashboardAdminOverview,
   DashboardDailyUsagePoint,
   DashboardSourceUsageSummary,
   DashboardTokenUsage,
@@ -272,6 +278,103 @@ function readMemberDashboardSummary(value: unknown): MemberDashboardSummary {
   };
 }
 
+function readAdminOverview(value: unknown): DashboardAdminOverview {
+  const source = asRecord(value);
+  const usageAggregateSummarySource = asRecord(
+    source.usageAggregateSummary ?? source.usage_aggregate_summary,
+  );
+  const requestLogTodaySummarySource = asRecord(
+    source.requestLogTodaySummary ?? source.request_log_today_summary,
+  );
+  return {
+    // 来自 StartupSnapshot 的基础统计
+    accountTotal: asNumber(source.accountTotal ?? source.account_total),
+    accountAvailable: asNumber(source.accountAvailable ?? source.account_available),
+    apiKeyTotal: asNumber(source.apiKeyTotal ?? source.api_key_total),
+    accounts: normalizeAccountList({ items: asArray(source.accounts) }).items,
+    usageSnapshots: normalizeUsageList(asArray(source.usageSnapshots ?? source.usage_snapshots)),
+    usageAggregateSummary: {
+      primaryRemainPercent: nullableNumber(
+        usageAggregateSummarySource.primaryRemainPercent ??
+          usageAggregateSummarySource.primary_remain_percent,
+      ),
+      secondaryRemainPercent: nullableNumber(
+        usageAggregateSummarySource.secondaryRemainPercent ??
+          usageAggregateSummarySource.secondary_remain_percent,
+      ),
+      primaryKnownCount: asNumber(
+        usageAggregateSummarySource.primaryKnownCount ??
+          usageAggregateSummarySource.primary_known_count,
+      ),
+      primaryBucketCount: asNumber(
+        usageAggregateSummarySource.primaryBucketCount ??
+          usageAggregateSummarySource.primary_bucket_count,
+      ),
+      secondaryKnownCount: asNumber(
+        usageAggregateSummarySource.secondaryKnownCount ??
+          usageAggregateSummarySource.secondary_known_count,
+      ),
+      secondaryBucketCount: asNumber(
+        usageAggregateSummarySource.secondaryBucketCount ??
+          usageAggregateSummarySource.secondary_bucket_count,
+      ),
+      primaryUnknownCount: asNumber(
+        usageAggregateSummarySource.primaryUnknownCount ??
+          usageAggregateSummarySource.primary_unknown_count,
+      ),
+      secondaryUnknownCount: asNumber(
+        usageAggregateSummarySource.secondaryUnknownCount ??
+          usageAggregateSummarySource.secondary_unknown_count,
+      ),
+    },
+    manualPreferredAccountId: nullableString(
+      source.manualPreferredAccountId ?? source.manual_preferred_account_id,
+    ),
+    requestLogTodaySummary: {
+      todayTokens: asNumber(
+        requestLogTodaySummarySource.todayTokens ??
+          requestLogTodaySummarySource.today_tokens,
+      ),
+      inputTokens: asNumber(
+        requestLogTodaySummarySource.inputTokens ??
+          requestLogTodaySummarySource.input_tokens,
+      ),
+      outputTokens: asNumber(
+        requestLogTodaySummarySource.outputTokens ??
+          requestLogTodaySummarySource.output_tokens,
+      ),
+      cachedInputTokens: asNumber(
+        requestLogTodaySummarySource.cachedInputTokens ??
+          requestLogTodaySummarySource.cached_input_tokens,
+      ),
+      reasoningOutputTokens: asNumber(
+        requestLogTodaySummarySource.reasoningOutputTokens ??
+          requestLogTodaySummarySource.reasoning_output_tokens,
+      ),
+      estimatedCost: asNumber(
+        requestLogTodaySummarySource.estimatedCost ??
+          requestLogTodaySummarySource.estimated_cost,
+      ),
+    },
+    requestLogs: normalizeRequestLogs(source.requestLogs ?? source.request_logs),
+    // 来自 AdminUsageSummary 的聚合数据
+    rangeStartTs: asNumber(source.rangeStartTs ?? source.range_start_ts),
+    rangeEndTs: asNumber(source.rangeEndTs ?? source.range_end_ts),
+    todayStartTs: asNumber(source.todayStartTs ?? source.today_start_ts),
+    todayEndTs: asNumber(source.todayEndTs ?? source.today_end_ts),
+    dailyUsage: asArray(source.dailyUsage ?? source.daily_usage).map(readDailyUsagePoint),
+    users: asArray(source.users)
+      .map(readUserUsageSummary)
+      .filter((item): item is DashboardUserUsageSummary => Boolean(item)),
+    openaiAccounts: asArray(source.openaiAccounts ?? source.openai_accounts)
+      .map(readSourceUsageSummary)
+      .filter((item): item is DashboardSourceUsageSummary => Boolean(item)),
+    aggregateApis: asArray(source.aggregateApis ?? source.aggregate_apis)
+      .map(readSourceUsageSummary)
+      .filter((item): item is DashboardSourceUsageSummary => Boolean(item)),
+  };
+}
+
 export const dashboardClient = {
   async getAdminUsageSummary(params?: {
     startTs?: number | null;
@@ -287,6 +390,29 @@ export const dashboardClient = {
       }),
     );
     return readAdminUsageSummary(result);
+  },
+  async getAdminOverview(params?: {
+    requestLogLimit?: number | null;
+    dayStartTs?: number | null;
+    dayEndTs?: number | null;
+    accountLimit?: number | null;
+    startTs?: number | null;
+    endTs?: number | null;
+    rankingLimit?: number | null;
+  }): Promise<DashboardAdminOverview> {
+    const result = await invoke<unknown>(
+      "dashboard/adminOverview",
+      withAddr({
+        requestLogLimit: params?.requestLogLimit ?? null,
+        dayStartTs: params?.dayStartTs ?? null,
+        dayEndTs: params?.dayEndTs ?? null,
+        accountLimit: params?.accountLimit ?? null,
+        startTs: params?.startTs ?? null,
+        endTs: params?.endTs ?? null,
+        rankingLimit: params?.rankingLimit ?? null,
+      }),
+    );
+    return readAdminOverview(result);
   },
   async getMemberSummary(params?: {
     userId?: string | null;
