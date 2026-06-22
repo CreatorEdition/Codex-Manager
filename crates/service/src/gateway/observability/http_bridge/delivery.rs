@@ -2092,7 +2092,12 @@ pub(crate) fn respond_with_upstream(
                 convert_error_body_for_adapter(response_adapter, &message)
             } else {
                 // 优化：使用已解析的 Value，避免重复解析
-                parsed_value
+                // 当 detected_sse=true 时 parsed_value=None，需要按需解析 body
+                let value_for_adapter = parsed_value
+                    .as_ref()
+                    .cloned()
+                    .or_else(|| serde_json::from_slice::<Value>(&body).ok());
+                value_for_adapter
                     .as_ref()
                     .and_then(|value| {
                         convert_success_body_for_adapter(
@@ -3091,7 +3096,12 @@ pub(crate) fn respond_with_stream_upstream(
                 convert_error_body_for_adapter(response_adapter, &message)
             } else {
                 // 优化：使用已解析的 Value，避免重复解析
-                parsed_value
+                // 当 detected_sse=true 时 parsed_value=None，需要按需解析 body
+                let value_for_adapter = parsed_value
+                    .as_ref()
+                    .cloned()
+                    .or_else(|| serde_json::from_slice::<Value>(&body).ok());
+                value_for_adapter
                     .as_ref()
                     .and_then(|value| {
                         convert_success_body_for_adapter(
