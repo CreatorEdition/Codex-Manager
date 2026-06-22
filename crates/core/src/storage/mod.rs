@@ -1156,6 +1156,14 @@ impl Storage {
             include_str!("../../migrations/073_request_logs_error_code.sql"),
             |s| s.ensure_request_logs_error_code_column(),
         )?;
+        self.apply_sql_migration(
+            "074_request_token_stat_daily_rollups",
+            include_str!("../../migrations/074_request_token_stat_daily_rollups.sql"),
+        )?;
+        self.apply_sql_migration(
+            "075_app_wallet_ledger_request_charge_index",
+            include_str!("../../migrations/075_app_wallet_ledger_request_charge_index.sql"),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_supplier_model_tables()?;

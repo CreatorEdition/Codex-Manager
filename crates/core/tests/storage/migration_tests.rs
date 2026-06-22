@@ -1694,3 +1694,80 @@ fn model_catalog_model_exists_uses_primary_key_point_lookup() {
         .model_catalog_model_exists("other-scope", "gpt-5.3-codex")
         .expect("query mismatched scope"));
 }
+
+/// 函数 `app_wallet_ledger_request_charge_index_migration_creates_partial_index`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-06-22
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+///
+/// 说明: 验证 075 migration 成功创建部分索引，优化用户排行 charge 子查询性能
+#[test]
+fn app_wallet_ledger_request_charge_index_migration_creates_partial_index() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    // 验证索引存在
+    let index_exists: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type='index' AND name='idx_app_wallet_ledger_request_charge'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("query index existence");
+    assert_eq!(index_exists, 1, "索引应该存在");
+
+    // 验证索引 SQL 包含 WHERE 条件（部分索引）
+    let index_sql: String = storage
+        .conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_app_wallet_ledger_request_charge'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("query index sql");
+    assert!(
+        index_sql.contains("WHERE entry_kind = 'request_charge'") ||
+        index_sql.contains("WHERE entry_kind='request_charge'"),
+        "索引应该是部分索引，包含 WHERE entry_kind='request_charge' 条件"
+    );
+
+    // 验证索引列是 request_log_id
+    assert!(
+        index_sql.contains("(request_log_id)"),
+        "索引应该覆盖 request_log_id 列"
+    );
+
+    // 验证查询计划使用新索引
+    let query = "
+        SELECT l.request_log_id, MIN(w.owner_id)
+        FROM app_wallet_ledger_entries l
+        JOIN app_wallets w ON l.wallet_id = w.id
+        WHERE l.entry_kind='request_charge'
+        GROUP BY l.request_log_id
+    ";
+    let explain_query = format!("EXPLAIN QUERY PLAN {}", query);
+    let mut stmt = storage.conn.prepare(&explain_query).expect("prepare explain query");
+    let mut rows = stmt.query([]).expect("execute explain query");
+
+    let mut found_index_usage = false;
+    while let Some(row) = rows.next().expect("iterate rows") {
+        let detail: String = row.get(3).expect("get detail");
+        if detail.contains("idx_app_wallet_ledger_request_charge") {
+            found_index_usage = true;
+            break;
+        }
+    }
+
+    assert!(
+        found_index_usage,
+        "查询计划应该使用 idx_app_wallet_ledger_request_charge 索引"
+    );
+}
