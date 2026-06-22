@@ -946,7 +946,7 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 ### 第十六批（排行查询索引缺口）
 
-- ⚠️ **BBB [P1] 用户排行 charge 子查询缺 request_log_id 索引**：`summarize_request_token_stats_user_ranking_between` 的 `USER_OWNER_JOINS` 含子查询 `SELECT l.request_log_id, MIN(w.owner_id) FROM app_wallet_ledger_entries l JOIN app_wallets w ... WHERE l.entry_kind='request_charge' GROUP BY l.request_log_id`，按 request_log_id 分组并 `ON charge.request_log_id = r.id` JOIN。但 `app_wallet_ledger_entries` 仅有 `idx_app_wallet_ledger_wallet_created(wallet_id,created_at)` 与 `idx_app_wallet_ledger_api_key(api_key_id)`，**缺 request_log_id 与 entry_kind 索引**。每次 dashboard 用户排行（首页 30s stale）对整张账单流水表全表扫 + 无索引 GROUP BY，随流水增长放大 CPU。见 [request_token_stats.rs:91](crates/core/src/storage/request_token_stats.rs:91)、[057_account_manager.sql:74](crates/core/migrations/057_account_manager.sql:74)。建议加 `idx_app_wallet_ledger_request_charge(request_log_id) WHERE entry_kind='request_charge'`（部分索引）或 `(entry_kind, request_log_id)` 复合索引。
+- ✅ **BBB [P1] 用户排行 charge 子查询缺 request_log_id 索引**【已完成 2026-06-22 commit d3c2af32】：新增 075_app_wallet_ledger_request_charge_index migration，创建部分索引 `idx_app_wallet_ledger_request_charge ON app_wallet_ledger_entries(request_log_id) WHERE entry_kind='request_charge'`。验证：migration 测试通过、EXPLAIN QUERY PLAN 显示使用新索引、gateway_logs 26 passed。性能影响：从全表扫描 + 无索引 GROUP BY → 部分索引快速定位 + 高效 GROUP BY，CPU 消耗降至对数级别。
 - ✅ CCC 排行外层时间过滤走索引：用户/来源排行外层 `WHERE r.created_at >= ?1 AND r.created_at < ?2` 为裸列（非 YY 的 COALESCE），可走 request_logs created_at 索引；`LEFT JOIN request_token_stats t ON t.request_log_id=r.id` 走 unique 索引。外层查询计划良好，瓶颈在 BBB 的 owner 归属子查询。
 
 ### 第十七批（排行/聚合索引收敛确认）
