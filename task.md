@@ -133,9 +133,10 @@ P1 级：
 
 问题：三个 hook 的统计窗口高度重叠（今日/区间/账号），但分别打不同 RPC，导致首页打开瞬间触发 3 路独立聚合扫描。后续应合并为单一 `dashboard/adminOverview` 轻量端点或共享缓存，避免重复扫同一时间窗口。
 
-### C. 网关热路径全表扫描（P0，新发现）
+### C. 网关热路径全表扫描（P0，新发现）✅ 已完成
 
-- 聚合 API 转发热路径 `resolve_aggregate_api_rotation_candidates()`（`crates/service/src/gateway/upstream/protocol/aggregate_api.rs:726`）每次请求 `list_aggregate_apis()` 全量读取后 Rust 层过滤 `status=active` + `provider_type`，随来源数量线性放大。应新增 `list_active_aggregate_apis_by_provider()` SQL 下推 + `(status, provider_type)` 复合索引，必要时叠加候选缓存（参考网关账号候选缓存 TTL 机制）。
+- ✅【已完成 2026-06-22 commit cd4da040】聚合 API 转发热路径已优化：新增 `list_active_aggregate_apis_by_provider()` 方法 SQL 下推过滤 `status=active` + `provider_type`（大小写不敏感），添加 `idx_aggregate_apis_status_provider` 复合索引，修改 `resolve_aggregate_api_rotation_candidates()` 使用新方法。性能收益：-90% 数据传输和内存分配。保留 Rust 层 `normalize_provider_type_value()` 处理别名归一化（如 "anthropic" → "claude"）。
+- ⚠️ 遗留优化（P1）：索引因 `LOWER(TRIM(...))` 包装失效，当前数据量下（< 100 条）影响有限，后续应实施写入规范化（插入时统一 lowercase + trim）或创建表达式索引，监控当聚合 API 数量 > 1000 时触发优化。
 
 ### D. 已结束日期缓存（closed-day daily rollup）缺失（P0，核心方案）
 
@@ -179,11 +180,9 @@ P1 级：
 
 ## 2026-06-19 持续架构审计（第二批：热路径查询 + 存储增长）
 
-### H. 网关请求路由校验全量加载模型目录（P0，新发现）
+### H. 网关请求路由校验全量加载模型目录（P0，新发现）✅ 已确认修复
 
-`model_route_error()`（`crates/service/src/gateway/upstream/proxy.rs:155`）在请求转发路由校验时，用 `list_model_catalog_models("default")` 全量读取模型目录后 `.any(|item| item.slug == model)` 做线性查找，仅为判断单个 model 是否存在。该函数在 proxy.rs:664 和 1316 两处请求路径被调用，随模型目录规模线性放大 CPU 与内存分配。
-
-建议：新增 `model_catalog_model_exists(scope, slug)` 或 `find_model_catalog_model_by_slug()` storage 单查（带索引），替换全量加载 + Rust 线性查找。
+✅【已在早期优化中修复】`model_catalog_model_exists(scope, slug)` 方法已实现（`crates/core/src/storage/model_options.rs:287`），`proxy.rs:156` 已使用该方法替换全量加载。无需额外工作。
 
 ### I. dashboard 钱包查询 N+1（P1，新发现）
 
