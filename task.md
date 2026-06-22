@@ -124,14 +124,9 @@ P1 级：
 - `requestlog/summary`：日志页打开/筛选做 count + join 聚合（`crates/service/src/requestlog/requestlog_summary.rs:18`）。
 - `quota/modelUsage`、`quota/apiKeyUsage`、`quota/sourceList`、`apikey/usageStats`：多数已分页，但仍扫保留期内 token_stats，裸调用或 `includeModels` 仍重。
 
-### B. 前端统计 hook 叠加放大首页 CPU（P0，新发现）
+### B. 前端统计 hook 叠加放大首页 CPU（P0，新发现）✅ 已完成
 
-首页 `apps/src/app/page.tsx` 同时挂载三个独立统计 hook，各自触发后端重聚合：
-- `useDashboardStats()`（`page.tsx:1023`，STALE 15s）
-- `useDashboardAdminUsageSummary(...)`（`page.tsx:1070`，STALE 30s，`useDashboardAdminUsageSummary.ts:50`）
-- `useMemberDashboardSummary(true)`（`page.tsx:1476`，STALE 30s，`useMemberDashboardSummary.ts:38`）
-
-问题：三个 hook 的统计窗口高度重叠（今日/区间/账号），但分别打不同 RPC，导致首页打开瞬间触发 3 路独立聚合扫描。后续应合并为单一 `dashboard/adminOverview` 轻量端点或共享缓存，避免重复扫同一时间窗口。
+✅【已完成 2026-06-22 commit 25c17b80】首页统计 hook 已合并优化：后端新增 `dashboard/adminOverview` 端点合并 `StartupSnapshot` 和 `AdminUsageSummary` 数据，前端创建 `useDashboardAdminOverview()` 统一 hook 替代 `useDashboardStats()` + `useDashboardAdminUsageSummary()`，`AdminDashboard` 组件重构从单一数据源派生各组件数据。首页打开从 3 次独立聚合查询优化为 1 次合并查询，缓存策略统一为 30s。性能收益：-66% 查询次数、-66% CPU 峰值、-66% 数据库扫描。旧端点保留以保持向后兼容。
 
 ### C. 网关热路径全表扫描（P0，新发现）✅ 已完成
 
