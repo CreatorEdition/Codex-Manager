@@ -451,7 +451,7 @@ Err(err) => {
 
 ### ⚠️ 待处理（N-P，本批新增）
 
-- **N（P1 调度器冗余全量）**：插件调度器 `run_due_tasks_once()` 已用 `list_due_plugin_tasks(now, 100)` SQL 下推取到期任务，但随后又调 `list_plugin_installs()` 全量 + `list_plugin_tasks(None)` 全量，仅为计算下次 sleep 秒数，见 [scheduler.rs](crates/service/src/plugin/scheduler.rs:39) 与 [plugins.rs:303](crates/core/src/storage/plugins.rs:303)。优化：新增 SQL 直接查 `MIN(next_run_at)`（限 enabled + 非 manual + 已安装插件），避免每个调度 tick 把全部 installs/tasks 搬入内存。当前无该 SQL（已确认），需新增 `next_plugin_task_due_at()`。
+- ✅ **N（P1 调度器冗余全量）**【已完成 2026-06-22 commit 5b497639】：新增 `next_plugin_task_due_at(now)` 方法，使用单条 SQL 直接查询 `MIN(next_run_at)`，替换 `list_plugin_installs()` + `list_plugin_tasks(None)` 全量加载。验证：core plugins 测试 4 passed、service plugin 测试 7 passed、gateway_logs 26 passed。性能影响：每个调度 tick 从"3 个查询 + 内存过滤"降至"2 个查询"，消除全量加载内存开销。
 
 - **O（P0 失败冷却不分类，用户重点关注）**：✅【已完成 2026-06-20 commit 2ca96974，CCD-Opus 实施 + 主代理审计】`schedule_token_refresh_failure_retry()` 已改为接收错误文本并按性质分流：永久无效（reused/invalidated/expired/invalid_grant/app_session_terminated）施加长冷却（默认 6 小时）并清零计数；临时失败（Unknown401 及网络/5xx/超时）走短退避。复用 `refresh_token_auth_error_reason_from_message()`（消息分类器，比 `classify_refresh_token_auth_error_reason()` 更适合失败路径的 `err: String`），新增 `RefreshTokenAuthErrorReason::is_permanent()` 助手。审计修正：永久失败用例原用裸 user_message 串致分类器漏判，已改为生产真实错误串（带 "refresh token failed with status 401:" 前缀）。原始问题如下：`schedule_token_refresh_failure_retry()` 对所有 token refresh 失败统一施加固定冷却（默认 6 小时 `DEFAULT_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS`），不区分错误性质，见 [refresh/mod.rs:780](crates/service/src/usage/refresh/mod.rs:780)。
 
