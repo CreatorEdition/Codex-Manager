@@ -467,9 +467,9 @@ Err(err) => {
 
 ## 2026-06-14 持续架构审计（第五批：JSON 重复 parse + 前端/SSE 正面确认）
 
-### ⚠️ 待处理（Q，本批新增）
+### ✅ Q（P1 网关非流式响应 JSON 重复 parse）已完成
 
-- **Q（P1 网关非流式响应 JSON 重复 parse）**：跨协议转换路径（ResponseAdapter != Passthrough）的非流式成功响应中，同一个 upstream body 被 `serde_json::from_slice::<Value>` 解析多次：① 提取 usage 时 parse 一次（`parse_usage_from_json` 前的 from_slice，或 `merge_usage_from_body_without_output_text` 内 parse）；② `convert_success_body_for_adapter()` 内部各 adapter 函数（`convert_responses_body_to_anthropic_messages` / `_to_gemini_generate_content` / `_to_chat_completions`）又各自 `from_slice` 一次；③ 错误路径还会 `extract_error_message_from_json_bytes` 再 parse。见 [delivery.rs:2058-2098](crates/service/src/gateway/observability/http_bridge/delivery.rs:2058) 与 [delivery.rs:865](crates/service/src/gateway/observability/http_bridge/delivery.rs:865)。大 body（长响应）下重复 parse 浪费 CPU。优化：在分支入口 parse 一次为 `Value`，把 `&Value` 传给 usage 提取与 adapter 转换函数（改签名 `body: &[u8]` → `value: &Value`），消除重复解析。影响范围仅 Claude/Gemini→Codex 等协议转换请求；Passthrough 直通路径不受影响（不解析）。
+- ✅【已完成 2026-06-23 commit 2603c3c8 + 3443514e】：错误路径复用已解析 `Value` 避免 `extract_error_message_from_json_bytes` 重复 parse；修复 SSE→JSON 协议转换路径 images 回归（detected_sse=true 时 parsed_value=None 导致 adapter 未调用）。验证：gateway_logs 26/26 passed。
 
 ### ✅ 正面确认（本批，记录避免重复审计）
 
