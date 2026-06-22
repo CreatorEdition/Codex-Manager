@@ -17,6 +17,7 @@ use std::time::Instant;
 
 use crate::apikey_profile::normalize_upstream_base_url;
 use crate::gateway;
+use crate::gateway::upstream::protocol::aggregate_api::invalidate_aggregate_api_candidate_cache;
 use crate::storage_helpers::{generate_aggregate_api_id, open_storage};
 
 pub(crate) const AGGREGATE_API_PROVIDER_CODEX: &str = "codex";
@@ -2782,6 +2783,10 @@ pub(crate) fn create_aggregate_api(
             ));
         }
     }
+
+    // 清空聚合 API 候选缓存
+    invalidate_aggregate_api_candidate_cache();
+
     Ok(AggregateApiCreateResult {
         id,
         key: if record.auth_type == AGGREGATE_API_AUTH_APIKEY {
@@ -3026,6 +3031,10 @@ pub(crate) fn update_aggregate_api(
             .set_quota_source_model_assignments("aggregate_api", api_id, model_slugs.as_slice())
             .map_err(|err| err.to_string())?;
     }
+
+    // 清空聚合 API 候选缓存
+    invalidate_aggregate_api_candidate_cache();
+
     Ok(())
 }
 
@@ -3047,7 +3056,12 @@ pub(crate) fn delete_aggregate_api(api_id: &str) -> Result<(), String> {
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     storage
         .delete_aggregate_api(api_id)
-        .map_err(|err| err.to_string())
+        .map_err(|err| err.to_string())?;
+
+    // 清空聚合 API 候选缓存
+    invalidate_aggregate_api_candidate_cache();
+
+    Ok(())
 }
 
 /// 函数 `read_aggregate_api_secret`

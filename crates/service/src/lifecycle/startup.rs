@@ -70,6 +70,7 @@ pub fn start_one_shot_server() -> std::io::Result<ServerHandle> {
 pub fn start_server(addr: &str) -> std::io::Result<()> {
     crate::portable::bootstrap_current_process();
     crate::gateway::reload_runtime_config_from_env();
+    crate::gateway::upstream::protocol::aggregate_api::init_aggregate_api_candidate_cache_config();
     if let Err(err) = crate::storage_helpers::initialize_storage() {
         log::warn!("storage startup init skipped: {}", err);
     }

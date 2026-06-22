@@ -118,7 +118,7 @@ mod thread_anchor;
 mod token_exchange;
 #[path = "observability/trace_log.rs"]
 mod trace_log;
-mod upstream;
+pub(crate) mod upstream;
 
 pub(crate) use concurrency::current_gateway_concurrency_recommendation;
 use metrics::{

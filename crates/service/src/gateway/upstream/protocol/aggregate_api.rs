@@ -3,7 +3,9 @@ use codexmanager_core::storage::{AggregateApi, Storage};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::Deserialize;
 use std::collections::HashSet;
-use std::time::Instant;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tiny_http::Request;
 
 use super::super::GatewayUpstreamResponse;
@@ -16,6 +18,22 @@ use crate::gateway::request_log::RequestLogUsage;
 use serde_json::Value;
 
 const AGGREGATE_API_RETRY_ATTEMPTS_PER_CHANNEL: usize = 3;
+const DEFAULT_AGGREGATE_API_CANDIDATE_CACHE_TTL_MS: u64 = 5_000;
+const AGGREGATE_API_CANDIDATE_CACHE_TTL_ENV: &str =
+    "CODEXMANAGER_AGGREGATE_API_CANDIDATE_CACHE_TTL_MS";
+
+/// 聚合 API 候选缓存，类比账号候选缓存
+static AGGREGATE_API_CANDIDATE_CACHE: OnceLock<Mutex<Option<AggregateApiCandidateCache>>> =
+    OnceLock::new();
+static AGGREGATE_API_CANDIDATE_CACHE_TTL_MS: AtomicU64 =
+    AtomicU64::new(DEFAULT_AGGREGATE_API_CANDIDATE_CACHE_TTL_MS);
+
+#[derive(Clone)]
+struct AggregateApiCandidateCache {
+    provider_type: String,
+    expires_at: Instant,
+    candidates: Vec<AggregateApi>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -734,13 +752,21 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
         _ => AGGREGATE_API_PROVIDER_CODEX,
     };
 
-    let mut candidates = storage
-        .list_active_aggregate_apis_by_provider(provider_type)
-        .map_err(|err| err.to_string())?
-        .into_iter()
-        .filter(|api| normalize_provider_type_value(api.provider_type.as_str()) == provider_type)
-        .collect::<Vec<_>>();
-    candidates = normalize_candidate_order(candidates);
+    // 尝试从缓存读取候选
+    let mut candidates = if let Some(cached) = read_aggregate_api_candidate_cache(provider_type) {
+        cached
+    } else {
+        // 缓存未命中，从数据库查询并写入缓存
+        let candidates = storage
+            .list_active_aggregate_apis_by_provider(provider_type)
+            .map_err(|err| err.to_string())?
+            .into_iter()
+            .filter(|api| normalize_provider_type_value(api.provider_type.as_str()) == provider_type)
+            .collect::<Vec<_>>();
+        let normalized = normalize_candidate_order(candidates);
+        write_aggregate_api_candidate_cache(provider_type, normalized.clone());
+        normalized
+    };
 
     if let Some(api_id) = aggregate_api_id
         .map(str::trim)
@@ -761,6 +787,81 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
         ))
     } else {
         Ok(candidates)
+    }
+}
+
+/// 从缓存读取聚合 API 候选
+fn read_aggregate_api_candidate_cache(provider_type: &str) -> Option<Vec<AggregateApi>> {
+    let ttl = aggregate_api_candidate_cache_ttl();
+    if ttl.is_zero() {
+        return None;
+    }
+    let now = Instant::now();
+    let mutex = AGGREGATE_API_CANDIDATE_CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::warn!("aggregate api candidate cache lock poisoned; dropping cache");
+            let mut guard = poisoned.into_inner();
+            *guard = None;
+            guard
+        }
+    };
+    let cached = guard.as_ref()?;
+    if cached.provider_type != provider_type || cached.expires_at <= now {
+        *guard = None;
+        return None;
+    }
+    Some(cached.candidates.clone())
+}
+
+/// 写入聚合 API 候选缓存
+fn write_aggregate_api_candidate_cache(provider_type: &str, candidates: Vec<AggregateApi>) {
+    let ttl = aggregate_api_candidate_cache_ttl();
+    if ttl.is_zero() {
+        return;
+    }
+    let expires_at = Instant::now() + ttl;
+    let mutex = AGGREGATE_API_CANDIDATE_CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::warn!("aggregate api candidate cache lock poisoned; recovering");
+            poisoned.into_inner()
+        }
+    };
+    *guard = Some(AggregateApiCandidateCache {
+        provider_type: provider_type.to_string(),
+        expires_at,
+        candidates,
+    });
+}
+
+/// 获取聚合 API 候选缓存 TTL
+fn aggregate_api_candidate_cache_ttl() -> Duration {
+    let ttl_ms = AGGREGATE_API_CANDIDATE_CACHE_TTL_MS.load(Ordering::Relaxed);
+    Duration::from_millis(ttl_ms)
+}
+
+/// 初始化聚合 API 候选缓存配置（从环境变量）
+pub(crate) fn init_aggregate_api_candidate_cache_config() {
+    if let Ok(value) = std::env::var(AGGREGATE_API_CANDIDATE_CACHE_TTL_ENV) {
+        if let Ok(ttl_ms) = value.parse::<u64>() {
+            AGGREGATE_API_CANDIDATE_CACHE_TTL_MS.store(ttl_ms, Ordering::Relaxed);
+            log::info!(
+                "聚合 API 候选缓存 TTL 设置为 {} ms",
+                ttl_ms
+            );
+        }
+    }
+}
+
+/// 清空聚合 API 候选缓存（在聚合 API 变更时调用）
+pub(crate) fn invalidate_aggregate_api_candidate_cache() {
+    if let Some(mutex) = AGGREGATE_API_CANDIDATE_CACHE.get() {
+        if let Ok(mut guard) = mutex.lock() {
+            *guard = None;
+        }
     }
 }
 
