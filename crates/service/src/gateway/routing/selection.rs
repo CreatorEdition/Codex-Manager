@@ -2,7 +2,7 @@ use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotR
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::usage_account_meta::{derive_account_meta, patch_account_meta_in_place};
@@ -80,7 +80,7 @@ struct CandidateSnapshotCache {
     db_path: String,
     low_quota_mode: LowQuotaCandidateMode,
     expires_at: Instant,
-    candidates: Vec<(Account, Token)>,
+    candidates: Arc<Vec<(Account, Token)>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,7 +111,7 @@ pub(crate) fn collect_gateway_candidates_with_low_quota_mode(
     low_quota_mode: LowQuotaCandidateMode,
 ) -> Result<Vec<(Account, Token)>, String> {
     if let Some(cached) = read_candidate_cache(low_quota_mode) {
-        return Ok(cached);
+        return Ok(Arc::unwrap_or_clone(cached));
     }
 
     let candidates = collect_gateway_candidates_uncached(storage, low_quota_mode)?;
@@ -320,7 +320,7 @@ fn parse_bool_env(raw: &str, fallback: bool) -> bool {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn read_candidate_cache(low_quota_mode: LowQuotaCandidateMode) -> Option<Vec<(Account, Token)>> {
+fn read_candidate_cache(low_quota_mode: LowQuotaCandidateMode) -> Option<Arc<Vec<(Account, Token)>>> {
     let ttl = candidate_cache_ttl();
     if ttl.is_zero() {
         return None;
@@ -345,7 +345,7 @@ fn read_candidate_cache(low_quota_mode: LowQuotaCandidateMode) -> Option<Vec<(Ac
         *guard = None;
         return None;
     }
-    Some(cached.candidates.clone())
+    Some(Arc::clone(&cached.candidates))
 }
 
 /// 函数 `write_candidate_cache`
@@ -380,7 +380,7 @@ fn write_candidate_cache(low_quota_mode: LowQuotaCandidateMode, candidates: Vec<
         db_path,
         low_quota_mode,
         expires_at,
-        candidates,
+        candidates: Arc::new(candidates),
     });
 }
 
