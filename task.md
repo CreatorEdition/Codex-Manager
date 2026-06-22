@@ -659,9 +659,15 @@ Err(err) => {
 
 ## 2026-06-14 持续架构审计（第十六批：定时warmup全账号串行 + 登录回调/Client复用正面确认）
 
-### ⚠️ 待处理（AA，本批新增，P2）
+### ✅ AA（P2 定时 warmup 全账号串行）已完成
 
-- **AA（P2 定时 warmup 全账号串行发上游请求，单轮可能耗时数小时）**：`warmup_cron_loop`（[runner.rs:121](crates/service/src/usage/refresh/runner.rs:121)）定时调 `warmup_accounts(Vec::new(), "")`，空 account_ids 经 `resolve_target_accounts` 解析为**全部候选账号**；`warmup_accounts`（[account_warmup.rs:53](crates/service/src/account/account_warmup.rs:53)）对账号**串行** `for account in accounts.drain(..)` 逐个 `warmup_single_account`——每个是一次完整上游 inference 请求 + SSE 流消费（可能数秒）。几百上千账号串行，单轮总耗时 = N × 单账号时间，可能数小时，长期占用一个后台线程，甚至上一轮未跑完下一轮信号又到。对比：用量刷新/ token refresh 已有多 worker 并发模型（`USAGE_REFRESH_WORKERS` + `token_refresh_worker_count`），warmup 却单线程串行——**并发模型不一致**。优化：warmup 复用类似的 worker 池并发（带并发上限，避免上游限流；可复用 USAGE_REFRESH_WORKERS 或单独 `WARMUP_WORKERS` 配置）。注意：Client 已复用（`build_warmup_client` 一次传引用，无需改）；并发上限需保守以防触发上游限流/封禁。次要点：`resolve_target_accounts` 指定 account_ids 时先 `list_gateway_candidates()` 全量加载再 `accounts.iter().find()` 线性查找（O(候选数 × 请求数)），warmup 低频影响有限，可一并优化为按 ID 直查。
+✅【已完成 2026-06-22 commit 7b2174c8】将 `warmup_accounts` 从串行执行改为有界并发：
+- 新增 `WARMUP_WORKERS` 配置（默认 2，环境变量 `CODEXMANAGER_WARMUP_WORKERS`）
+- 使用 crossbeam_channel + worker 池模式并发执行
+- 每个 worker 独立获取 storage 连接，共享 Client 连接池
+- 理论加速 N 倍（N = workers 数），保守并发避免上游限流
+
+验证：单元测试 17 passed、gateway_logs 26 passed。性能改进：总时间从 O(N×单账号时间) 降至 O(N×单账号时间/workers)。
 
 ### ✅ 正面确认（本批）
 
