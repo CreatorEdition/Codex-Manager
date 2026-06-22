@@ -133,15 +133,26 @@ P1 级：
 - ✅【已完成 2026-06-22 commit cd4da040】聚合 API 转发热路径已优化：新增 `list_active_aggregate_apis_by_provider()` 方法 SQL 下推过滤 `status=active` + `provider_type`（大小写不敏感），添加 `idx_aggregate_apis_status_provider` 复合索引，修改 `resolve_aggregate_api_rotation_candidates()` 使用新方法。性能收益：-90% 数据传输和内存分配。保留 Rust 层 `normalize_provider_type_value()` 处理别名归一化（如 "anthropic" → "claude"）。
 - ⚠️ 遗留优化（P1）：索引因 `LOWER(TRIM(...))` 包装失效，当前数据量下（< 100 条）影响有限，后续应实施写入规范化（插入时统一 lowercase + trim）或创建表达式索引，监控当聚合 API 数量 > 1000 时触发优化。
 
-### D. 已结束日期缓存（closed-day daily rollup）缺失（P0，核心方案）
+### D. 已结束日期缓存（closed-day daily rollup）缺失（P0，核心方案）✅ 阶段 1 已完成
 
-现状：`request_token_stat_rollups` 主键仅 `(key_id, account_id, model)`，无日期/用户/来源/状态桶维度（`crates/core/src/storage/request_token_stats.rs:1094`），无法回答"某天/某区间"缓存查询。
+✅【已完成 2026-06-22 commit c6ce98d7】**阶段 1：建表和迁移**已完成并通过审计：
+- 新增 migration 074 创建 `request_token_stat_daily_rollups` 表
+- 主键：`(day_start, key_id, account_id, source_kind, source_id, user_id, model, status_bucket)` 8 个维度
+- 3 个索引：day_account、day_user、day_source 覆盖主要查询场景
+- Storage 层新增 `insert_request_token_stat_daily_rollup()` (UPSERT 累加) 和 `query_request_token_stat_daily_rollups()` 方法
+- 5 个单元测试全部通过（表创建、插入查询、冲突累加、空维度、多维度）
+- 审计结论：表结构合理，索引设计正确，向后兼容良好
 
-建议方案（一次性下发）：
-1. 新增 `request_token_stat_daily_rollups` 表：主键 `(day_start, key_id, account_id, source_kind, source_id, user_id, model, status_bucket)`，列含 input/cached/output/total/reasoning tokens、estimated_cost、request_count、success_count、error_count、source_rows、updated_at。
-2. 维护任务把"已结束自然日"的 `request_token_stats` 固化进日级表后再清理明细。
-3. 查询策略改为：历史已结束日读日级 rollup（命中即返回），当前日读 live `request_token_stats` 并加 30-60 秒短 TTL；区间 = 历史天缓存 + 今日 live 拼接。
-4. `dashboard/adminUsageSummary`、`memberSummary` 趋势、`requestlog` 今日摘要、`quota` 今日用量统一走该策略，避免反复全窗口聚合。
+**阶段 2（待实施）：维护任务和固化逻辑**
+- 后台任务 `rollup_daily_token_stats()` 固化已结束日的 `request_token_stats` 到日级表
+- 回填逻辑处理历史数据
+- 清理策略：固化后清理明细表（保留最近 N 天）
+- 配置化保留期
+
+**阶段 3（待实施）：查询策略重构**
+- 新增查询函数按日期范围智能路由（历史日读 rollup，当前日读 live）
+- 重构影响端点：`dashboard/adminUsageSummary`、`memberSummary` 趋势、`requestlog` 今日摘要、`quota` 今日用量
+- 性能测试和数据准确性验证（rollup vs live 对比）
 
 ### E. 错误聚合查询缺索引支撑（P1/P2，关联错误去重需求）✅ 后端已完成
 
