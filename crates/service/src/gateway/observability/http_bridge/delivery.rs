@@ -2054,8 +2054,14 @@ pub(crate) fn respond_with_upstream(
                 let (synthesized, mut usage) =
                     collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
                 let body = synthesized.unwrap_or_else(|| upstream_body.to_vec());
-                merge_usage_from_body_without_output_text(&mut usage, &body);
-                (body, usage, None)
+                // 优化：SSE 合成 body 只 parse 一次，同时用于 usage 提取和 adapter 转换
+                let parsed = serde_json::from_slice::<Value>(&body).ok();
+                if let Some(ref value) = parsed {
+                    let mut parsed_usage = parse_usage_from_json(value);
+                    parsed_usage.output_text = None;
+                    merge_usage(&mut usage, parsed_usage);
+                }
+                (body, usage, parsed)
             } else {
                 // 非流式成功响应：只 parse 一次 JSON
                 let parsed = serde_json::from_slice::<Value>(upstream_body.as_ref()).ok();
@@ -2091,8 +2097,7 @@ pub(crate) fn respond_with_upstream(
                 .unwrap_or_else(|| "upstream compatibility bridge failed".to_string());
                 convert_error_body_for_adapter(response_adapter, &message)
             } else {
-                // 优化：使用已解析的 Value，避免重复解析
-                // 当 detected_sse=true 时 parsed_value=None，需要按需解析 body
+                // 优化：使用已解析的 Value，避免重复解析（含 SSE 路径）
                 let value_for_adapter = parsed_value
                     .as_ref()
                     .cloned()
@@ -3058,8 +3063,14 @@ pub(crate) fn respond_with_stream_upstream(
                 let (synthesized, mut usage) =
                     collect_non_stream_json_from_sse_bytes(upstream_body.as_ref());
                 let body = synthesized.unwrap_or_else(|| upstream_body.to_vec());
-                merge_usage_from_body_without_output_text(&mut usage, &body);
-                (body, usage, None)
+                // 优化：SSE 合成 body 只 parse 一次，同时用于 usage 提取和 adapter 转换
+                let parsed = serde_json::from_slice::<Value>(&body).ok();
+                if let Some(ref value) = parsed {
+                    let mut parsed_usage = parse_usage_from_json(value);
+                    parsed_usage.output_text = None;
+                    merge_usage(&mut usage, parsed_usage);
+                }
+                (body, usage, parsed)
             } else {
                 // 非流式成功响应：只 parse 一次 JSON
                 let parsed = serde_json::from_slice::<Value>(upstream_body.as_ref()).ok();
@@ -3095,8 +3106,7 @@ pub(crate) fn respond_with_stream_upstream(
                 .unwrap_or_else(|| "upstream compatibility bridge failed".to_string());
                 convert_error_body_for_adapter(response_adapter, &message)
             } else {
-                // 优化：使用已解析的 Value，避免重复解析
-                // 当 detected_sse=true 时 parsed_value=None，需要按需解析 body
+                // 优化：使用已解析的 Value，避免重复解析（含 SSE 路径）
                 let value_for_adapter = parsed_value
                     .as_ref()
                     .cloned()
