@@ -758,15 +758,17 @@ impl Storage {
             return Ok(Vec::new());
         }
         let bucket_seconds = bucket_seconds.max(1);
-        let created_at_expr = "COALESCE(r.created_at, t.created_at)";
+        // 直接使用 t.created_at 以命中索引 idx_request_token_stats_created_at
+        // request_token_stats.request_log_id 是 NOT NULL + UNIQUE，created_at 也是 NOT NULL
+        // LEFT JOIN 保证所有 token_stats 记录都能被包含，无需 COALESCE
         let sql = format!(
             "SELECT
-                ?1 + CAST(({created_at_expr} - ?1) / ?3 AS INTEGER) * ?3 AS bucket_start,
-                MIN(?1 + (CAST(({created_at_expr} - ?1) / ?3 AS INTEGER) + 1) * ?3, ?2) AS bucket_end,
+                ?1 + CAST((t.created_at - ?1) / ?3 AS INTEGER) * ?3 AS bucket_start,
+                MIN(?1 + (CAST((t.created_at - ?1) / ?3 AS INTEGER) + 1) * ?3, ?2) AS bucket_end,
                 {TOKEN_ROLLUP_COLUMNS}
              FROM request_token_stats t
              LEFT JOIN request_logs r ON r.id = t.request_log_id
-             WHERE {created_at_expr} >= ?1 AND {created_at_expr} < ?2
+             WHERE t.created_at >= ?1 AND t.created_at < ?2
              GROUP BY bucket_start
              ORDER BY bucket_start ASC"
         );
