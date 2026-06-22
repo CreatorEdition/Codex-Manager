@@ -75,12 +75,8 @@ pub fn start_server(addr: &str) -> std::io::Result<()> {
         log::warn!("storage startup init skipped: {}", err);
     }
     crate::sync_runtime_settings_from_storage();
-    match crate::app_settings::sync_gateway_user_agent_version_from_codex_latest() {
-        Ok(version) => {
-            log::info!("codex latest client_version synced at startup: version={version}")
-        }
-        Err(err) => log::warn!("codex latest client_version startup sync failed: {err}"),
-    }
+    // 版本信息已从持久化存储恢复（sync_runtime_settings_from_storage），
+    // 网络拉取完全交给后台线程异步首刷，避免阻塞启动主路径。
     crate::app_settings::ensure_codex_latest_version_sync();
     crate::usage_refresh::ensure_usage_polling();
     crate::usage_refresh::ensure_gateway_keepalive();
