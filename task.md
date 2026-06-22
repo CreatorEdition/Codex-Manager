@@ -148,16 +148,10 @@ P1 级：
 3. 查询策略改为：历史已结束日读日级 rollup（命中即返回），当前日读 live `request_token_stats` 并加 30-60 秒短 TTL；区间 = 历史天缓存 + 今日 live 拼接。
 4. `dashboard/adminUsageSummary`、`memberSummary` 趋势、`requestlog` 今日摘要、`quota` 今日用量统一走该策略，避免反复全窗口聚合。
 
-### E. 错误聚合查询缺索引支撑（P1/P2，关联错误去重需求）
+### E. 错误聚合查询缺索引支撑（P1/P2，关联错误去重需求）✅ 后端已完成
 
-现状：`request_logs` 已有 created_at / status_code / method / key_id / account_id / trace_id / actual_source 等多组复合索引（`request_logs.rs:49-815`），但无 `error`、`success` 字段索引。
-
-影响：用户要的"450 条压成 5 类"错误去重汇总，若新增 `requestlog/errorSummary` 按规范化 error code GROUP BY，当前需全表扫描 error 文本。
-
-建议：
-1. 写入时落规范化列 `error_code`（复用网关 `errors/mod.rs:65` 与 `usage_http.rs` 的归类逻辑），而非运行时正则匹配原文。
-2. 新增 `(error_code, created_at DESC)` 索引支撑错误聚合。
-3. `requestlog/errorSummary` 返回 `{error_code, count, last_seen, sample_message}`，日志页展示去重结果。
+✅【已完成 2026-06-21 commit 45c02c5d】后端已实现 `requestlog/errorSummary` RPC，新增 `error_code` 列与 `(error_code, created_at DESC)` 索引，写入时通过 `error_codes::code_for_message` 落规范化错误码，聚合查询按 error_code GROUP BY 返回 count、last_seen、代表样例。
+- ⚠️ 待处理：前端日志页尚未接入 errorSummary 展示，当前仍直出 `request_logs.error` 原文。如需前端展示"450 条压成 5 类"的去重结果，应在日志页添加错误摘要卡片调用 `requestlog/errorSummary`。
 
 ### F. Token refresh 永久判死边界（P1，正确性 > 性能）
 
