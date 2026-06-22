@@ -42,6 +42,8 @@ import {
   RequestLogFilterSummary,
   RequestLogListResult,
   RequestLogTodaySummary,
+  RequestLogErrorSummaryResult,
+  RequestLogErrorCodeSummaryItem,
   StartupSnapshot,
   UsageAggregateSummary,
 } from "@/types";
@@ -1624,6 +1626,22 @@ export function normalizeRequestLogFilterSummary(
     totalTokens: asInteger(source.totalTokens, 0, 0),
     totalCostUsd: Math.max(0, toNullableNumber(source.totalCostUsd) ?? 0),
   };
+}
+
+export function normalizeRequestLogErrorSummary(
+  payload: unknown
+): RequestLogErrorSummaryResult {
+  const source = asObject(payload);
+  const items = asArray(source.items).map((item): RequestLogErrorCodeSummaryItem => {
+    const itemSource = asObject(item);
+    return {
+      errorCode: asString(itemSource.errorCode, "unknown"),
+      count: asInteger(itemSource.count, 0, 0),
+      lastSeen: asInteger(itemSource.lastSeen, 0, 0),
+      sampleMessage: toNullableString(itemSource.sampleMessage),
+    };
+  });
+  return { items };
 }
 
 /**

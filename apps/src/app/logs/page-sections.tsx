@@ -42,7 +42,8 @@ import {
   resolveDisplayedStatusCode,
   SummaryCard,
 } from "./page-helpers";
-import type { AggregateApi, ApiKey, RequestLog, RequestLogFilterSummary } from "@/types";
+import { ErrorSummaryCard } from "./error-summary-card";
+import type { AggregateApi, ApiKey, RequestLog, RequestLogFilterSummary, RequestLogErrorSummaryResult } from "@/types";
 
 export function RequestLogsTabContent({
   t,
@@ -59,6 +60,8 @@ export function RequestLogsTabContent({
   pageSize,
   currentFilterLabel,
   summary,
+  errorSummary,
+  isErrorSummaryLoading,
   logs,
   isLogsLoading,
   currentPage,
@@ -93,6 +96,8 @@ export function RequestLogsTabContent({
   pageSize: string;
   currentFilterLabel: string;
   summary: RequestLogFilterSummary;
+  errorSummary: RequestLogErrorSummaryResult | undefined;
+  isErrorSummaryLoading: boolean;
   logs: RequestLog[];
   isLogsLoading: boolean;
   currentPage: number;
@@ -308,6 +313,14 @@ export function RequestLogsTabContent({
           toneClass="bg-amber-500/12 text-amber-500"
         />
       </div>
+
+      {isAdminMode && errorSummary && errorSummary.items.length > 0 ? (
+        <ErrorSummaryCard
+          t={t}
+          items={errorSummary.items}
+          isLoading={isErrorSummaryLoading}
+        />
+      ) : null}
 
       <Card className="glass-card overflow-hidden gap-0 py-0 shadow-sm">
         <CardHeader className="flex min-h-1 items-center border-b border-border/40 bg-[var(--table-section-bg)] py-3">

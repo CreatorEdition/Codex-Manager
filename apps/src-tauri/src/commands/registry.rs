@@ -78,6 +78,7 @@ macro_rules! invoke_handler {
             crate::commands::requestlog::service_requestlog_summary,
             crate::commands::requestlog::service_requestlog_clear,
             crate::commands::requestlog::service_requestlog_today_summary,
+            crate::commands::requestlog::service_requestlog_error_summary,
             // plugin
             crate::commands::plugin::service_plugin_catalog_list,
             crate::commands::plugin::service_plugin_catalog_refresh,

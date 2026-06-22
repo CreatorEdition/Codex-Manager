@@ -17,6 +17,7 @@ import {
   normalizeBackgroundTasks,
   normalizeRequestLogFilterSummary,
   normalizeRequestLogListResult,
+  normalizeRequestLogErrorSummary,
   normalizeStartupSnapshot,
   normalizeTodaySummary,
 } from "./normalize";
@@ -25,6 +26,7 @@ import {
   RequestLogFilterSummary,
   RequestLogListResult,
   RequestLogTodaySummary,
+  RequestLogErrorSummaryResult,
   ServiceInitializationResult,
   StartupSnapshot,
 } from "../../types";
@@ -182,6 +184,21 @@ export const serviceClient = {
     return normalizeRequestLogFilterSummary(result);
   },
   clearRequestLogs: () => invoke("service_requestlog_clear", withAddr()),
+  async getErrorSummary(params?: {
+    startTs?: number | null;
+    endTs?: number | null;
+    limit?: number;
+  }): Promise<RequestLogErrorSummaryResult> {
+    const result = await invoke<unknown>(
+      "service_requestlog_error_summary",
+      withAddr({
+        startTs: params?.startTs ?? null,
+        endTs: params?.endTs ?? null,
+        limit: params?.limit ?? null,
+      })
+    );
+    return normalizeRequestLogErrorSummary(result);
+  },
   async getTodaySummary(params?: {
     dayStartTs?: number;
     dayEndTs?: number;

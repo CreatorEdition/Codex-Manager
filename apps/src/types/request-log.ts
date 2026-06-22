@@ -71,3 +71,14 @@ export interface RequestLogTodaySummary {
   todayTokens: number;
   estimatedCost: number;
 }
+
+export interface RequestLogErrorCodeSummaryItem {
+  errorCode: string;
+  count: number;
+  lastSeen: number;
+  sampleMessage: string | null;
+}
+
+export interface RequestLogErrorSummaryResult {
+  items: RequestLogErrorCodeSummaryItem[];
+}

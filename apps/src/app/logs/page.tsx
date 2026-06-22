@@ -36,6 +36,7 @@ import {
   fromDateTimeLocalValue,
 } from "./page-helpers";
 import { buildSummaryPlaceholder } from "./page-cells";
+import { ErrorSummaryCard } from "./error-summary-card";
 import { AccountListResult, ApiKey, RequestLogListResult, StartupSnapshot } from "@/types";
 
 const REQUEST_LOG_LIST_REFETCH_INTERVAL_MS = 30_000;
@@ -136,6 +137,19 @@ function LogsPageContent() {
       (canUseStartupLogsPlaceholder
         ? buildSummaryPlaceholder(startupRequestLogs)
         : undefined),
+  });
+
+  const { data: errorSummaryResult, isLoading: isErrorSummaryLoading } = useQuery({
+    queryKey: ["logs", "error-summary", startTs, endTs],
+    queryFn: () =>
+      serviceClient.getErrorSummary({
+        startTs,
+        endTs,
+        limit: 20,
+      }),
+    enabled: areLogQueriesEnabled && isPageActive && isAdminMode && filter !== "2xx",
+    staleTime: 30_000,
+    retry: 1,
   });
 
   const clearMutation = useMutation({
@@ -414,6 +428,8 @@ function LogsPageContent() {
             pageSize={pageSize}
             currentFilterLabel={currentFilterLabel}
             summary={summary}
+            errorSummary={errorSummaryResult}
+            isErrorSummaryLoading={isErrorSummaryLoading}
             logs={logs}
             isLogsLoading={isLogsLoading}
             currentPage={currentPage}

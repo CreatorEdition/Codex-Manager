@@ -99,3 +99,30 @@ pub async fn service_requestlog_today_summary(
 ) -> Result<serde_json::Value, String> {
     rpc_call_in_background("requestlog/today_summary", addr, None).await
 }
+
+/// 函数 `service_requestlog_error_summary`
+///
+/// 中文注释：获取请求日志错误去重汇总，按 error_code 分组聚合。
+///
+/// # 参数
+/// - addr: 服务地址
+/// - start_ts: 起始时间戳（秒）
+/// - end_ts: 结束时间戳（秒）
+/// - limit: 返回的错误类别上限
+///
+/// # 返回
+/// 返回错误聚合列表
+#[tauri::command]
+pub async fn service_requestlog_error_summary(
+    addr: Option<String>,
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    limit: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+        "startTs": start_ts,
+        "endTs": end_ts,
+        "limit": limit
+    });
+    rpc_call_in_background("requestlog/errorSummary", addr, Some(params)).await
+}
