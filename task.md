@@ -501,9 +501,9 @@ Err(err) => {
 
 ## 2026-06-14 持续架构审计（第七批：候选缓存深拷贝 + HTTP客户端/env正面确认）
 
-### ⚠️ 待处理（T，本批新增）
+### ✅ T（P1 网关候选缓存命中深拷贝）已完成
 
-- **T（P1 网关候选缓存命中深拷贝整列表）**：`read_candidate_cache()` 缓存命中时执行 `cached.candidates.clone()`，深拷贝整个候选列表 `Vec<(Account, Token)>`——每个网关请求都克隆全部候选账号（Account+Token 均含多个 String 字段）。大账号池（几千账号）下，虽然缓存已避免 DB 查询，但缓存命中后的全列表深拷贝本身就是每请求的 CPU + 堆分配开销。此外 `collect_gateway_candidates_with_low_quota_mode` 在 uncached 路径还会 `write_candidate_cache(mode, candidates.clone())` 再深拷贝一份给缓存。见 [selection.rs:103](crates/service/src/gateway/routing/selection.rs:103) 与 [selection.rs:347](crates/service/src/gateway/routing/selection.rs:347)。优化：缓存内部存 `Arc<Vec<(Account, Token)>>`，命中时 clone Arc（仅原子计数 +1 的浅拷贝），`collect_gateway_candidates*` 返回 `Arc<...>`，调用方改为只读遍历。可消除每请求的全列表深拷贝，大账号池下收益显著。需适配调用方（确认均为只读选择，不 mutate 候选）。
+✅【已完成 2026-06-22 commit 3a953f81】缓存内部改存 `Arc<Vec<(Account, Token)>>`，命中时 clone Arc（仅原子计数+1），消除每请求深拷贝。大账号池下内存分配从 O(请求数×账号数) 降至 O(缓存重建次数×账号数)。验证：gateway_logs 26 passed。
 
 ### ✅ 正面确认（本批）
 
