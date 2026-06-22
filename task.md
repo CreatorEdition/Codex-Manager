@@ -154,10 +154,14 @@ P1 级：
 - 重构影响端点：`dashboard/adminUsageSummary`、`memberSummary` 趋势、`requestlog` 今日摘要、`quota` 今日用量
 - 性能测试和数据准确性验证（rollup vs live 对比）
 
-### E. 错误聚合查询缺索引支撑（P1/P2，关联错误去重需求）✅ 后端已完成
+### E. 错误聚合查询缺索引支撑（P1/P2，关联错误去重需求）✅ 已完成
 
-✅【已完成 2026-06-21 commit 45c02c5d】后端已实现 `requestlog/errorSummary` RPC，新增 `error_code` 列与 `(error_code, created_at DESC)` 索引，写入时通过 `error_codes::code_for_message` 落规范化错误码，聚合查询按 error_code GROUP BY 返回 count、last_seen、代表样例。
-- ⚠️ 待处理：前端日志页尚未接入 errorSummary 展示，当前仍直出 `request_logs.error` 原文。如需前端展示"450 条压成 5 类"的去重结果，应在日志页添加错误摘要卡片调用 `requestlog/errorSummary`。
+✅【已完成 2026-06-22】
+- **后端**（commit 45c02c5d）：实现 `requestlog/errorSummary` RPC，新增 `error_code` 列与 `(error_code, created_at DESC)` 索引，写入时通过 `error_codes::code_for_message` 落规范化错误码，聚合查询按 error_code GROUP BY 返回 count、last_seen、代表样例
+- **前端**（commit ea4d8c5b）：日志页新增 `ErrorSummaryCard` 组件，调用 `requestlog/errorSummary` 展示错误摘要卡片，显示"N 类错误，共 M 次"，点击展开查看代表样例
+- **修复**（commit 391748be）：修正 normalize.ts 类型错误（`string | null`）和删除未使用 import
+
+验证：前端类型检查通过（`npx tsc --noEmit`）。功能：前端展示"450 条压成 5 类"的去重结果，避免重复错误原文淹没 UI。
 
 ### F. Token refresh 永久判死边界（P1，正确性 > 性能）
 
