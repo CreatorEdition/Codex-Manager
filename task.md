@@ -699,9 +699,22 @@ Err(err) => {
 
 ## 2026-06-14 持续架构审计（第十七批：聚合API候选每请求全量加载无下推无缓存 + keepalive正面确认）
 
-### ⚠️ 待处理（BB，本批新增，P1）
+### ✅ BB（P1 聚合 API 路由候选优化）已完成
 
-- **BB（P1 聚合 API 路由候选每请求全量加载 + Rust 过滤 + 无缓存）**：`resolve_aggregate_api_rotation_candidates`（[aggregate_api.rs:726](crates/service/src/gateway/upstream/protocol/aggregate_api.rs:726)）在**每个走聚合 API 的网关请求**热路径调 `storage.list_aggregate_apis()` **全量加载所有聚合 API**（含全部 provider_type、全部 status），再在 Rust 层 `.filter(status=="active" && provider_type 匹配)` + `normalize_candidate_order`。问题：① **过滤未下推 SQL**——已确认无 `list_active_aggregate_apis_by_provider` 类按 provider_type+status 过滤的查询函数（虽有 `list_aggregate_apis_active_paginated` 但未按 provider 过滤且 rotation 路径未用）；② **无候选缓存**——对比账号候选有 `CANDIDATE_SNAPSHOT_CACHE`（短 TTL），聚合 API 候选完全无缓存，每请求重新全量 list + filter。聚合 API supplier 多（几十上百）时，每个聚合路由请求都全量搬运 + Rust 过滤，CPU 与内存分配随 supplier 数线性放大。见 [aggregate_apis.rs:116](crates/core/src/storage/aggregate_apis.rs:116)。优化：① 新增 SQL 下推查询 `list_active_aggregate_apis_by_provider(provider_type)`（`WHERE status='active' AND provider_type=? ORDER BY ...`），替换全量 list + Rust filter；② 可选加短 TTL 候选缓存（类比账号候选 CANDIDATE_SNAPSHOT_CACHE），账号/聚合 API 变更时失效。与 H/T 同属"热路径用全量加载替代点查/缓存"模式族。
+✅【已完成 2026-06-22，两阶段实施】
+- **阶段 1**（commit cd4da040）：SQL 下推 + 索引优化
+  - 新增 `list_active_aggregate_apis_by_provider(provider_type)` 方法
+  - SQL 层过滤 `status='active' AND provider_type=?`
+  - 添加 `idx_aggregate_apis_status_provider` 复合索引
+  - 编写单元测试验证过滤语义
+  
+- **阶段 2**（commit 97e08f98）：候选缓存
+  - 新增 `AGGREGATE_API_CANDIDATE_CACHE` 全局缓存
+  - 默认 TTL 5000ms，按 provider_type 隔离
+  - 聚合 API 变更时自动失效缓存
+  - 热路径每请求节省 1 次 SQLite 查询
+  
+验证：gateway_logs 26 passed，编译无错误。预期收益：缓存命中率 >95%，多 supplier 场景收益显著。
 
 ### ✅ 正面确认（本批）
 
