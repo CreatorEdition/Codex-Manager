@@ -541,9 +541,9 @@ Err(err) => {
 
 ## 2026-06-14 持续架构审计（第九批：启动同步网络阻塞 + WebSocket/流式线程正面确认）
 
-### ⚠️ 待处理（U，本批新增）
+### ✅ U（P1 服务启动主路径同步网络阻塞）已完成
 
-- **U（P1 服务启动主路径同步网络阻塞，最多 10 秒）**：`start_server()` 启动序列第 5 步 `sync_gateway_user_agent_version_from_codex_latest()` 在主线程**同步**发起网络请求到 npm registry（`fetch_codex_latest_version_from_url(CODEX_NPM_LATEST_URL)`，`.timeout(10s)`），阻塞服务直到网络返回或超时——npm registry 国内访问慢/不可达时，服务端口监听被白白拖延最多 10 秒。而紧接着第 6 步 `ensure_codex_latest_version_sync()` **已 spawn 名为 "codex-latest-version-sync" 的后台线程**（`codex_latest_version_sync_loop`）持续同步版本，使第 5 步的启动时同步拉取**冗余**。见 [lifecycle/startup.rs:76](crates/service/src/lifecycle/startup.rs:76) 与 [app_settings/gateway.rs:414](crates/service/src/app_settings/gateway.rs:414) 与 [codex_latest_sync.rs:11](crates/service/src/app_settings/codex_latest_sync.rs:11)。优化：删除第 5 步同步拉取（或改为仅读存储中已持久化的上次版本作为启动初值——`set_gateway_user_agent_version` 已持久化到 app_settings），网络拉取完全交给第 6 步后台线程异步首刷。可消除启动路径上最多 10 秒的网络阻塞，服务更快开始监听端口。Service 版/桌面端冷启动体验受益明显。
+✅【已完成 2026-06-22 commit 20c18e27】移除 `start_server()` 第 5 步的同步 npm registry 请求（最多阻塞 10 秒），版本信息由前一步 `sync_runtime_settings_from_storage()` 从已持久化的 app_settings 恢复，后台线程 `ensure_codex_latest_version_sync()` 异步首刷获取最新版本。验证：gateway_logs 26 passed。性能影响：消除冷启动最多 10 秒的网络阻塞。
 
 ### ✅ 正面确认（本批）
 
