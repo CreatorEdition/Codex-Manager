@@ -306,6 +306,33 @@ impl Storage {
         Ok(out)
     }
 
+    /// 列出活跃的聚合 API，按 provider_type 过滤。
+    /// 用于网关热路径候选解析，避免全量加载后在 Rust 层过滤。
+    ///
+    /// # 参数
+    /// - provider_type: 提供商类型（如 "codex", "claude", "gemini"）
+    ///
+    /// # 返回
+    /// 返回匹配的活跃聚合 API 列表，按 sort、updated_at、id 排序
+    pub fn list_active_aggregate_apis_by_provider(
+        &self,
+        provider_type: &str,
+    ) -> Result<Vec<AggregateApi>> {
+        let sql = format!(
+            "{AGGREGATE_API_SELECT_SQL}
+             WHERE LOWER(TRIM(status)) = 'active'
+               AND LOWER(TRIM(provider_type)) = LOWER(TRIM(?1))
+             ORDER BY sort ASC, updated_at DESC, id ASC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query([provider_type])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push(map_aggregate_api_row(row)?);
+        }
+        Ok(out)
+    }
+
     /// 函数 `find_aggregate_api_by_id`
     ///
     /// 作者: gaohongshun
@@ -743,6 +770,11 @@ impl Storage {
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_aggregate_apis_balance_due
              ON aggregate_apis(balance_query_enabled, status, last_balance_status, last_balance_at, id)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_aggregate_apis_status_provider
+             ON aggregate_apis(status, provider_type, sort, updated_at, id)",
             [],
         )?;
         self.ensure_column("aggregate_apis", "provider_type", "TEXT")?;
@@ -1251,5 +1283,109 @@ mod supplier_model_tests {
         assert_eq!(page.len(), 2);
         assert!(page.iter().all(|item| item.supplier_key == "target"));
         assert_eq!(page[0].upstream_model, "target-2");
+    }
+}
+
+#[cfg(test)]
+mod hotpath_tests {
+    use super::*;
+
+    fn sample_aggregate_api_with_provider(
+        id: &str,
+        provider_type: &str,
+        status: &str,
+    ) -> AggregateApi {
+        let now = now_ts();
+        AggregateApi {
+            id: id.to_string(),
+            provider_type: provider_type.to_string(),
+            supplier_name: Some(id.to_string()),
+            sort: 0,
+            url: format!("https://example.com/{id}"),
+            auth_type: "bearer".to_string(),
+            auth_params_json: None,
+            action: None,
+            model_override: None,
+            status: status.to_string(),
+            created_at: now,
+            updated_at: now,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_error: None,
+            balance_query_enabled: false,
+            balance_query_template: None,
+            balance_query_base_url: None,
+            balance_query_user_id: None,
+            balance_query_config_json: None,
+            last_balance_at: None,
+            last_balance_status: None,
+            last_balance_error: None,
+            last_balance_json: None,
+        }
+    }
+
+    #[test]
+    fn list_active_aggregate_apis_by_provider_filters_in_sql() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+
+        // 插入测试数据：不同 provider_type 和 status
+        for api in [
+            sample_aggregate_api_with_provider("codex-active-1", "codex", "active"),
+            sample_aggregate_api_with_provider("codex-active-2", "codex", "active"),
+            sample_aggregate_api_with_provider("codex-disabled", "codex", "disabled"),
+            sample_aggregate_api_with_provider("claude-active", "claude", "active"),
+            sample_aggregate_api_with_provider("gemini-active", "gemini", "active"),
+        ] {
+            storage
+                .insert_aggregate_api(&api)
+                .expect("insert aggregate api");
+        }
+
+        // 测试过滤 codex + active
+        let codex_apis = storage
+            .list_active_aggregate_apis_by_provider("codex")
+            .expect("list codex active");
+        assert_eq!(codex_apis.len(), 2);
+        assert!(codex_apis.iter().all(|api| api.provider_type == "codex"
+            && api.status == "active"));
+
+        // 测试过滤 claude + active
+        let claude_apis = storage
+            .list_active_aggregate_apis_by_provider("claude")
+            .expect("list claude active");
+        assert_eq!(claude_apis.len(), 1);
+        assert_eq!(claude_apis[0].provider_type, "claude");
+        assert_eq!(claude_apis[0].status, "active");
+
+        // 测试不存在的 provider_type
+        let empty = storage
+            .list_active_aggregate_apis_by_provider("nonexistent")
+            .expect("list nonexistent");
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn list_active_aggregate_apis_by_provider_respects_case_insensitive() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+
+        storage
+            .insert_aggregate_api(&sample_aggregate_api_with_provider(
+                "test",
+                "CODEX",
+                "ACTIVE",
+            ))
+            .expect("insert");
+
+        let result = storage
+            .list_active_aggregate_apis_by_provider("codex")
+            .expect("list with lowercase");
+        assert_eq!(result.len(), 1);
+
+        let result_upper = storage
+            .list_active_aggregate_apis_by_provider("CODEX")
+            .expect("list with uppercase");
+        assert_eq!(result_upper.len(), 1);
     }
 }

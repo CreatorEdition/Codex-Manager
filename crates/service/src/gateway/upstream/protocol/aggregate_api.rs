@@ -735,13 +735,10 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
     };
 
     let mut candidates = storage
-        .list_aggregate_apis()
+        .list_active_aggregate_apis_by_provider(provider_type)
         .map_err(|err| err.to_string())?
         .into_iter()
-        .filter(|api| {
-            api.status == "active"
-                && normalize_provider_type_value(api.provider_type.as_str()) == provider_type
-        })
+        .filter(|api| normalize_provider_type_value(api.provider_type.as_str()) == provider_type)
         .collect::<Vec<_>>();
     candidates = normalize_candidate_order(candidates);
 
