@@ -2075,7 +2075,13 @@ pub(crate) fn respond_with_upstream(
                         upstream_auth_error.as_deref(),
                         upstream_identity_error_code.as_deref(),
                     )
-                    .or_else(|| extract_error_message_from_json_bytes(&body)),
+                    .or_else(|| {
+                        // 优化：如果已有解析好的 Value，直接使用，避免重复 parse
+                        parsed_value
+                            .as_ref()
+                            .and_then(|v| extract_error_message_from_json(v))
+                            .or_else(|| extract_error_message_from_json_bytes(&body))
+                    }),
                     None,
                     upstream_request_id.as_deref(),
                     upstream_cf_ray.as_deref(),
@@ -3068,7 +3074,13 @@ pub(crate) fn respond_with_stream_upstream(
                         upstream_auth_error.as_deref(),
                         upstream_identity_error_code.as_deref(),
                     )
-                    .or_else(|| extract_error_message_from_json_bytes(&body)),
+                    .or_else(|| {
+                        // 优化：如果已有解析好的 Value，直接使用，避免重复 parse
+                        parsed_value
+                            .as_ref()
+                            .and_then(|v| extract_error_message_from_json(v))
+                            .or_else(|| extract_error_message_from_json_bytes(&body))
+                    }),
                     None,
                     upstream_request_id.as_deref(),
                     upstream_cf_ray.as_deref(),
