@@ -1081,3 +1081,17 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - `delivery.rs` 中非流式成功响应的协议转换路径已改为入口解析一次 `serde_json::Value`，再把 `&Value` 传给 `convert_success_body_for_adapter()` 及各 adapter 转换函数，避免 usage 提取后又在 Anthropic/Gemini/Chat/Images 转换内重复 `serde_json::from_slice`。
 - 覆盖范围：`respond_with_upstream()` 与 `respond_with_stream_upstream()` 的非流式分支、Chat Completions compact 转换、Responses → Chat/Gemini/Images 转换；Passthrough 直通路径不受影响。
 - 同步修正 `delivery.rs` 测试调用签名，`cargo test -p codexmanager-service --lib http_bridge::delivery::tests -- --nocapture` 18 项全部通过。
+
+## 2026-06-23 CodeX-GPT 复核：Q images 回归补修 + T 项状态校准
+
+### ✅ Q 补修：OpenAI Images 非流式请求的 Responses SSE 上游路径
+
+- 独立复核发现，前一轮报告中的 Q/images 回归并未完全收口：`/v1/images/generations` 客户端传 `stream:false` 时，请求体会被改写为 `/v1/responses` 且上游必须按 SSE 读取；但候选执行链里的 `UpstreamRequestContext` 仍来自原始 tiny_http request path，transport 层可能按原始路径判断上游形态。
+- 本轮修复：`UpstreamRequestContext` 改为使用已改写的上游逻辑路径构造，保证 transport 的 async stream 包装、压缩、challenge 快速关闭等判断都基于真实上游路径。
+- 同时修复本地/测试环境代理污染：未显式配置 `CODEXMANAGER_UPSTREAM_PROXY_URL` / proxy pool 时，blocking 与 async reqwest client 禁用默认代理继承；显式配置代理时仍按配置使用代理。
+- 验证：`gateway_images_generation_wraps_codex_sse_as_openai_images_json` 通过；`http_bridge::delivery::tests` 18/18 通过；`cargo check -p codexmanager-service` 通过；`gateway_logs --test-threads=1` 输出 26/26 通过（测试结果已打印，cargo 包装进程随后未自然退出，已清理残留 cargo 进程）。
+
+### ⚠️ T 项返工：候选缓存 Arc 化当前仍会命中后深拷贝
+
+- `task.md` 旧记录把 T 标为已完成，但当前实现仍在 `collect_gateway_candidates_with_low_quota_mode()` 命中缓存时执行 `Arc::unwrap_or_clone(cached)`。由于缓存本身持有另一个 Arc，命中路径几乎总是 clone 整个 `Vec<(Account, Token)>`，并未达到“每请求只 clone Arc”的性能目标。
+- 后续返工方向：不要仅把缓存字段改成 `Arc<Vec<_>>`；需要把调用链改成可借用/Arc 传递，或在执行阶段按候选逐项 clone，避免命中后一次性深拷贝整个候选列表。

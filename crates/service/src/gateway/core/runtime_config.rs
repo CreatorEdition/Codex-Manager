@@ -349,6 +349,8 @@ fn build_upstream_client_with_proxy(proxy_url: Option<&str>) -> Client {
             }
         };
         builder = builder.proxy(proxy);
+    } else {
+        builder = builder.no_proxy();
     }
     builder.build().unwrap_or_else(|err| {
         log::warn!("event=gateway_upstream_client_build_failed err={}", err);
@@ -375,6 +377,8 @@ fn build_async_upstream_client_with_proxy(proxy_url: Option<&str>) -> reqwest::C
             }
         };
         builder = builder.proxy(proxy);
+    } else {
+        builder = builder.no_proxy();
     }
     builder.build().unwrap_or_else(|err| {
         log::warn!(

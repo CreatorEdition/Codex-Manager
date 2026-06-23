@@ -5,7 +5,6 @@ use rand::Rng;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tiny_http::Request;
 use tokio::runtime::Builder;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::{
@@ -27,20 +26,10 @@ pub(in super::super) struct UpstreamRequestContext<'a> {
 }
 
 impl<'a> UpstreamRequestContext<'a> {
-    /// 函数 `from_request`
-    ///
-    /// 作者: gaohongshun
-    ///
-    /// 时间: 2026-04-02
-    ///
-    /// # 参数
-    /// - in super: 参数 in super
-    ///
-    /// # 返回
-    /// 返回函数执行结果
-    pub(in super::super) fn from_request(request: &'a Request, protocol_type: &'a str) -> Self {
+    /// 使用已改写的上游逻辑路径构造请求上下文。
+    pub(in super::super) fn from_path(request_path: &'a str, protocol_type: &'a str) -> Self {
         Self {
-            request_path: request.url(),
+            request_path,
             protocol_type,
         }
     }
