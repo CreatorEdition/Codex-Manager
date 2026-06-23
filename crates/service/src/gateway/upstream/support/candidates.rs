@@ -47,30 +47,40 @@ pub(crate) fn prepare_gateway_candidates(
     low_quota_mode: super::super::super::LowQuotaCandidateMode,
 ) -> Result<Vec<(Account, Token)>, String> {
     // 中文注释：保持账号原始顺序（按账户排序字段）作为候选顺序，失败时再依次切下一个。
-    let mut candidates = super::super::super::collect_gateway_candidates_with_low_quota_mode(
+    let snapshot = super::super::super::collect_gateway_candidates_with_low_quota_mode(
         storage,
         low_quota_mode,
     )?;
     let normalized_filter = account_plan_filter
         .map(str::trim)
         .filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("all"));
-    if let Some(plan_filter) = normalized_filter {
-        candidates.retain(|(account, token)| {
-            crate::account_plan::account_matches_plan_filter(
+    let normalized_model = request_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let account_source_ids = if let Some(model) = normalized_model {
+        let _ = crate::apikey_models::bootstrap_account_pool_model_routes(storage, false);
+        Some(account_source_ids_for_model(storage, model)?)
+    } else {
+        None
+    };
+    let mut candidates = Vec::with_capacity(snapshot.len());
+    for (account, token) in snapshot.iter() {
+        if let Some(plan_filter) = normalized_filter {
+            if !crate::account_plan::account_matches_plan_filter(
                 storage,
                 account.id.as_str(),
                 token,
                 Some(plan_filter),
-            )
-        });
-    }
-    let normalized_model = request_model
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(model) = normalized_model {
-        let _ = crate::apikey_models::bootstrap_account_pool_model_routes(storage, false);
-        let account_source_ids = account_source_ids_for_model(storage, model)?;
-        candidates.retain(|(account, _)| account_source_ids.contains(&account.id));
+            ) {
+                continue;
+            }
+        }
+        if let Some(account_source_ids) = account_source_ids.as_ref() {
+            if !account_source_ids.contains(&account.id) {
+                continue;
+            }
+        }
+        candidates.push((account.clone(), token.clone()));
     }
     Ok(candidates)
 }

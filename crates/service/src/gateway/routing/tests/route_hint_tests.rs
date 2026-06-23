@@ -100,6 +100,13 @@ fn account_ids(candidates: &[(Account, Token)]) -> Vec<String> {
         .collect()
 }
 
+fn account_ids_by_indices(candidates: &[(Account, Token)], indices: &[usize]) -> Vec<String> {
+    indices
+        .iter()
+        .map(|index| candidates[*index].0.id.clone())
+        .collect()
+}
+
 /// 函数 `defaults_to_ordered_strategy`
 ///
 /// 作者: gaohongshun
@@ -199,6 +206,47 @@ fn balanced_round_robin_rotates_start_by_key_and_model() {
             "acc-a".to_string(),
             "acc-b".to_string()
         ]
+    );
+
+    if let Some(value) = previous {
+        std::env::set_var(ROUTE_STRATEGY_ENV, value);
+    } else {
+        std::env::remove_var(ROUTE_STRATEGY_ENV);
+    }
+    reload_from_env();
+}
+
+#[test]
+fn indexed_route_strategy_matches_owned_candidate_order() {
+    let _guard = crate::test_env_guard();
+    let previous = std::env::var(ROUTE_STRATEGY_ENV).ok();
+    std::env::set_var(ROUTE_STRATEGY_ENV, "balanced");
+    reload_from_env();
+    clear_route_state_for_tests();
+
+    let mut owned = candidate_list();
+    let owned_application =
+        apply_route_strategy_with_source(&mut owned, "gk-indexed", Some("gpt-5.3-codex"));
+    let owned_ids = account_ids(&owned);
+
+    clear_route_state_for_tests();
+    let snapshot = candidate_list();
+    let mut indices = (0..snapshot.len()).collect::<Vec<_>>();
+    let indexed_application = apply_route_strategy_to_candidate_indices(
+        snapshot.as_slice(),
+        indices.as_mut_slice(),
+        "gk-indexed",
+        Some("gpt-5.3-codex"),
+    );
+
+    assert_eq!(
+        indexed_application.strategy_label,
+        owned_application.strategy_label
+    );
+    assert_eq!(indexed_application.source, owned_application.source);
+    assert_eq!(
+        account_ids_by_indices(snapshot.as_slice(), indices.as_slice()),
+        owned_ids
     );
 
     if let Some(value) = previous {

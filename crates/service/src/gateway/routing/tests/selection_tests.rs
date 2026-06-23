@@ -6,6 +6,7 @@ use super::{
 };
 use crate::account_status::mark_account_unavailable_for_gateway_error;
 use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
+use std::sync::Arc;
 
 /// 默认候选缓存 TTL 不能是亚秒级，否则几千账号场景下会频繁重建候选池。
 #[test]
@@ -97,6 +98,10 @@ fn candidate_snapshot_cache_reuses_recent_snapshot() {
         .expect("mark inactive");
     let second = collect_gateway_candidates(&storage).expect("second candidates");
     assert_eq!(second.len(), 1);
+    assert!(
+        Arc::ptr_eq(&first, &second),
+        "缓存命中应只克隆 Arc 快照，不能深拷贝整个候选列表"
+    );
 
     clear_candidate_cache_for_tests();
     if let Some(value) = previous_ttl {

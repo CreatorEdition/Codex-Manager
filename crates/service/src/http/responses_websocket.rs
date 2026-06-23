@@ -870,7 +870,7 @@ async fn connect_upstream_websocket(
         &context.api_key.id,
         model,
     )?;
-    if routed.candidates.is_empty() {
+    if routed.is_empty() {
         return Err(WsSessionError::service_unavailable_bilingual(
             "没有可用的上游账号",
             "no available upstream accounts",
@@ -880,7 +880,7 @@ async fn connect_upstream_websocket(
     let ws_url = build_upstream_websocket_url(&context.effective_upstream_base)?;
     let mut last_error = None;
     ensure_rustls_crypto_provider();
-    for (account, mut token) in routed.candidates {
+    for (account, mut token) in routed.iter_cloned() {
         let bearer = match resolve_bearer_token_for_websocket(account.clone(), token).await {
             Ok((bearer, resolved_token)) => {
                 token = resolved_token;
@@ -1704,10 +1704,7 @@ async fn try_rotate_ws_upstream_after_terminal(
             return false;
         }
     };
-    let Some((account, token)) = routed
-        .candidates
-        .into_iter()
-        .find(|(account, _)| account.id != current_account_id)
+    let Some((account, token)) = routed.first_cloned_except_account(current_account_id.as_str())
     else {
         return false;
     };

@@ -122,6 +122,37 @@ pub(crate) fn apply_route_strategy_with_source(
     default_application
 }
 
+pub(crate) fn apply_route_strategy_to_candidate_indices(
+    candidates: &[(Account, Token)],
+    indices: &mut [usize],
+    key_id: &str,
+    model: Option<&str>,
+) -> RouteStrategyApplication {
+    ensure_route_config_loaded();
+    let default_application = RouteStrategyApplication {
+        strategy_label: route_mode_label(route_mode()),
+        source: "route_strategy",
+    };
+    if indices.len() <= 1 {
+        return default_application;
+    }
+
+    if rotate_indices_to_manual_preferred_account(candidates, indices) {
+        return RouteStrategyApplication {
+            strategy_label: "manual_preferred_account",
+            source: "manual_preferred_account",
+        };
+    }
+
+    let mode = route_mode();
+    if mode == ROUTE_MODE_BALANCED_ROUND_ROBIN {
+        apply_balanced_round_robin(indices, key_id, model);
+    }
+
+    apply_health_p2c_to_indices(candidates, indices, key_id, model, mode);
+    default_application
+}
+
 /// 函数 `apply_balanced_round_robin`
 ///
 /// 作者: gaohongshun
@@ -171,6 +202,25 @@ fn rotate_to_manual_preferred_account(candidates: &mut [(Account, Token)]) -> bo
     };
     if index > 0 {
         candidates.rotate_left(index);
+    }
+    true
+}
+
+fn rotate_indices_to_manual_preferred_account(
+    candidates: &[(Account, Token)],
+    indices: &mut [usize],
+) -> bool {
+    let Some(account_id) = get_manual_preferred_account() else {
+        return false;
+    };
+    let Some(index) = indices
+        .iter()
+        .position(|candidate_index| candidates[*candidate_index].0.id == account_id)
+    else {
+        return false;
+    };
+    if index > 0 {
+        indices.rotate_left(index);
     }
     true
 }
@@ -410,6 +460,30 @@ fn apply_health_p2c(
     if challenger_score > current_score {
         // 中文注释：只交换头部候选，避免“整段 rotate”过度扰动既有顺序与轮询语义。
         candidates.swap(0, challenger_idx);
+    }
+}
+
+fn apply_health_p2c_to_indices(
+    candidates: &[(Account, Token)],
+    indices: &mut [usize],
+    key_id: &str,
+    model: Option<&str>,
+    mode: u8,
+) {
+    if !route_health_p2c_enabled() {
+        return;
+    }
+    let window = route_health_window(mode).min(indices.len());
+    if window <= 1 {
+        return;
+    }
+    let Some(challenger_idx) = p2c_challenger_index(key_id, model, window) else {
+        return;
+    };
+    let current_score = route_health_score(candidates[indices[0]].0.id.as_str());
+    let challenger_score = route_health_score(candidates[indices[challenger_idx]].0.id.as_str());
+    if challenger_score > current_score {
+        indices.swap(0, challenger_idx);
     }
 }
 

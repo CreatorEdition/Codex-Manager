@@ -52,7 +52,8 @@ pub(crate) fn fetch_models_for_picker() -> Result<ModelsResponse, String> {
     }
     let storage = super::open_storage()
         .ok_or_else(|| crate::gateway::bilingual_error("存储不可用", "storage unavailable"))?;
-    let mut candidates = super::collect_gateway_candidates(&storage)?;
+    let snapshot = super::collect_gateway_candidates(&storage)?;
+    let mut candidates = snapshot.as_ref().clone();
     if candidates.is_empty() {
         return Err(crate::gateway::bilingual_error(
             "无可用账号 Token，请重新登录或导入 AT/RT",

@@ -1095,3 +1095,21 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - `task.md` 旧记录把 T 标为已完成，但当前实现仍在 `collect_gateway_candidates_with_low_quota_mode()` 命中缓存时执行 `Arc::unwrap_or_clone(cached)`。由于缓存本身持有另一个 Arc，命中路径几乎总是 clone 整个 `Vec<(Account, Token)>`，并未达到“每请求只 clone Arc”的性能目标。
 - 后续返工方向：不要仅把缓存字段改成 `Arc<Vec<_>>`；需要把调用链改成可借用/Arc 传递，或在执行阶段按候选逐项 clone，避免命中后一次性深拷贝整个候选列表。
+
+## 2026-06-24 T 项候选缓存 Arc 化返工收口（【CodeX-GPT】接手实施）
+
+### ✅【已完成】T（P1）：缓存命中不再全量深拷贝候选 Vec
+
+- `collect_gateway_candidates_with_low_quota_mode()` 返回共享 `GatewayCandidateSnapshot = Arc<Vec<(Account, Token)>>`；缓存命中直接返回 `Arc`，不再 `Arc::unwrap_or_clone(cached)`。
+- `prepare_gateway_candidates()` 在共享快照上执行账号计划筛选与模型筛选，只 clone 通过过滤的候选，避免入口处无条件复制全量候选池。
+- WebSocket 路由路径不再把共享快照立即复制成完整 `Vec`：`GatewayRoutedCandidates` 改为持有共享快照 + 路由后的索引，连接尝试时通过 `iter_cloned()` 逐项 clone，故障切换时通过 `first_cloned_except_account()` 只 clone 下一个候选。
+- `model_picker` 属于模型拉取/预热/管理路径，仍需要完整排序和遍历；本轮保留显式 `snapshot.as_ref().clone()`，把成本显式留在低频路径，不再伪装成 `Arc::unwrap_or_clone`。
+- 补充 `indexed_route_strategy_matches_owned_candidate_order`，验证索引路由与原拥有式候选排序结果一致；补强 `candidate_snapshot_cache_reuses_recent_snapshot`，用 `Arc::ptr_eq` 验证缓存命中复用同一快照。
+
+验证：
+- `cargo test -p codexmanager-service --lib candidate_snapshot_cache -- --nocapture` → 4 passed。
+- `cargo test -p codexmanager-service --lib indexed_route_strategy_matches_owned_candidate_order -- --nocapture` → 1 passed。
+- `cargo test -p codexmanager-service --test gateway_logs images::gateway_images_generation_wraps_codex_sse_as_openai_images_json -- --exact --nocapture` → 1 passed。
+- `cargo check -p codexmanager-service` → Finished（仅既有 warning）。
+
+协作备注：原 Opus 子代理只完成阶段性半成品，未写 `.teamwork/sync/opus-to-gpt.md`、未更新状态、未提交；CodeX-GPT 已关闭该子代理并接手完成实现与审计。后续不应再把 2026-06-22 的旧 T 完成记录视为充分依据，应以本节返工收口为准。

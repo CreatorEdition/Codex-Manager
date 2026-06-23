@@ -80,8 +80,10 @@ struct CandidateSnapshotCache {
     db_path: String,
     low_quota_mode: LowQuotaCandidateMode,
     expires_at: Instant,
-    candidates: Arc<Vec<(Account, Token)>>,
+    candidates: GatewayCandidateSnapshot,
 }
+
+pub(crate) type GatewayCandidateSnapshot = Arc<Vec<(Account, Token)>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LowQuotaCandidateMode {
@@ -102,20 +104,21 @@ pub(crate) enum LowQuotaCandidateMode {
 /// 返回函数执行结果
 pub(crate) fn collect_gateway_candidates(
     storage: &Storage,
-) -> Result<Vec<(Account, Token)>, String> {
+) -> Result<GatewayCandidateSnapshot, String> {
     collect_gateway_candidates_with_low_quota_mode(storage, LowQuotaCandidateMode::NormalOnly)
 }
 
 pub(crate) fn collect_gateway_candidates_with_low_quota_mode(
     storage: &Storage,
     low_quota_mode: LowQuotaCandidateMode,
-) -> Result<Vec<(Account, Token)>, String> {
+) -> Result<GatewayCandidateSnapshot, String> {
     if let Some(cached) = read_candidate_cache(low_quota_mode) {
-        return Ok(Arc::unwrap_or_clone(cached));
+        return Ok(cached);
     }
 
     let candidates = collect_gateway_candidates_uncached(storage, low_quota_mode)?;
-    write_candidate_cache(low_quota_mode, candidates.clone());
+    let candidates = Arc::new(candidates);
+    write_candidate_cache(low_quota_mode, Arc::clone(&candidates));
     Ok(candidates)
 }
 
@@ -320,7 +323,7 @@ fn parse_bool_env(raw: &str, fallback: bool) -> bool {
 ///
 /// # 返回
 /// 返回函数执行结果
-fn read_candidate_cache(low_quota_mode: LowQuotaCandidateMode) -> Option<Arc<Vec<(Account, Token)>>> {
+fn read_candidate_cache(low_quota_mode: LowQuotaCandidateMode) -> Option<GatewayCandidateSnapshot> {
     let ttl = candidate_cache_ttl();
     if ttl.is_zero() {
         return None;
@@ -359,7 +362,10 @@ fn read_candidate_cache(low_quota_mode: LowQuotaCandidateMode) -> Option<Arc<Vec
 ///
 /// # 返回
 /// 无
-fn write_candidate_cache(low_quota_mode: LowQuotaCandidateMode, candidates: Vec<(Account, Token)>) {
+fn write_candidate_cache(
+    low_quota_mode: LowQuotaCandidateMode,
+    candidates: GatewayCandidateSnapshot,
+) {
     let ttl = candidate_cache_ttl();
     if ttl.is_zero() {
         return;
@@ -380,7 +386,7 @@ fn write_candidate_cache(low_quota_mode: LowQuotaCandidateMode, candidates: Vec<
         db_path,
         low_quota_mode,
         expires_at,
-        candidates: Arc::new(candidates),
+        candidates,
     });
 }
 

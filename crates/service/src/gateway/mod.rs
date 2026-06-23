@@ -384,7 +384,7 @@ use openai_fallback::try_openai_fallback;
 pub(crate) use request_entry::handle_gateway_request;
 use request_gate::{request_gate_lock, RequestGateAcquireError};
 pub(crate) use request_log::write_request_log;
-use route_hint::{apply_route_strategy, apply_route_strategy_with_source};
+use route_hint::{apply_route_strategy, apply_route_strategy_to_candidate_indices};
 use route_quality::record_route_quality;
 pub(crate) use runtime_config::fresh_upstream_client;
 pub(crate) use runtime_config::front_proxy_max_body_bytes;
@@ -395,7 +395,7 @@ use runtime_config::{
     upstream_client_for_account, upstream_stream_timeout, upstream_total_timeout,
     DEFAULT_GATEWAY_DEBUG,
 };
-use selection::collect_gateway_candidates;
+use selection::{collect_gateway_candidates, GatewayCandidateSnapshot};
 pub(crate) use selection::{
     collect_gateway_candidates_with_low_quota_mode, current_quota_guard_config,
     invalidate_candidate_cache, set_quota_guard_config, LowQuotaCandidateMode, QuotaGuardConfig,
@@ -1022,12 +1022,46 @@ pub(crate) fn gateway_supports_official_responses_websocket(
 /// # 返回
 /// 返回函数执行结果
 pub(crate) struct GatewayRoutedCandidates {
-    pub(crate) candidates: Vec<(
-        codexmanager_core::storage::Account,
-        codexmanager_core::storage::Token,
-    )>,
+    snapshot: GatewayCandidateSnapshot,
+    ordered_indices: Vec<usize>,
     pub(crate) route_strategy: &'static str,
     pub(crate) route_source: &'static str,
+}
+
+impl GatewayRoutedCandidates {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.ordered_indices.is_empty()
+    }
+
+    pub(crate) fn iter_cloned(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            codexmanager_core::storage::Account,
+            codexmanager_core::storage::Token,
+        ),
+    > + '_ {
+        self.ordered_indices
+            .iter()
+            .map(|index| self.snapshot[*index].clone())
+    }
+
+    pub(crate) fn first_cloned_except_account(
+        &self,
+        current_account_id: &str,
+    ) -> Option<(
+        codexmanager_core::storage::Account,
+        codexmanager_core::storage::Token,
+    )> {
+        self.ordered_indices.iter().find_map(|index| {
+            let (account, token) = &self.snapshot[*index];
+            if account.id == current_account_id {
+                None
+            } else {
+                Some((account.clone(), token.clone()))
+            }
+        })
+    }
 }
 
 pub(crate) fn gateway_collect_routed_candidates_with_log_source(
@@ -1035,10 +1069,17 @@ pub(crate) fn gateway_collect_routed_candidates_with_log_source(
     key_id: &str,
     model: Option<&str>,
 ) -> Result<GatewayRoutedCandidates, String> {
-    let mut candidates = collect_gateway_candidates(storage)?;
-    let application = apply_route_strategy_with_source(&mut candidates, key_id, model);
+    let snapshot = collect_gateway_candidates(storage)?;
+    let mut ordered_indices = (0..snapshot.len()).collect::<Vec<_>>();
+    let application = apply_route_strategy_to_candidate_indices(
+        snapshot.as_slice(),
+        ordered_indices.as_mut_slice(),
+        key_id,
+        model,
+    );
     Ok(GatewayRoutedCandidates {
-        candidates,
+        snapshot,
+        ordered_indices,
         route_strategy: application.strategy_label,
         route_source: application.source,
     })
