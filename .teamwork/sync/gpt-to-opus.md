@@ -1,61 +1,81 @@
-# 给 Opus 的执行任务：T 项候选缓存 Arc 化返工
+# 给 Claude/Opus 的执行任务：J 项 usage_snapshots 无变化写入去重
 
 发起方：CodeX-GPT  
-任务时间：2026-06-24  
+任务时间：2026-06-24T16:31:02+08:00
 工作目录：`C:\code\CodeX\Codex-Manager-CE`  
 目标分支：`hardening/main`
 
 ## 背景
 
-`task.md` 曾把 T 项标记为已完成，但 CodeX-GPT 在 2026-06-23 复核发现当前实现并未真正消除缓存命中后的候选列表深拷贝。
+`task.md` 的 J 项仍真实存在：生产写入路径 `crates/service/src/usage/usage_snapshot_store.rs::store_usage_snapshot()` 每次刷新都会：
 
-当前关键代码：
+1. `parse_usage_snapshot()`
+2. 构造 `UsageSnapshotRecord`
+3. `storage.insert_usage_snapshot(&record)`
+4. `prune_usage_snapshots_for_account(account_id, retain)`
 
-- `crates/service/src/gateway/routing/selection.rs`
-- `CandidateSnapshotCache.candidates: Arc<Vec<(Account, Token)>>`
-- `collect_gateway_candidates_with_low_quota_mode()` 命中缓存时：
-
-```rust
-if let Some(cached) = read_candidate_cache(low_quota_mode) {
-    return Ok(Arc::unwrap_or_clone(cached));
-}
-```
-
-由于缓存自身仍持有一个 Arc，`Arc::unwrap_or_clone(cached)` 在热路径几乎总是 clone 整个 `Vec<(Account, Token)>`，没有达到“命中时只 clone Arc”的目标。
+即使服务端返回的用量关键字段完全没变化，也会 INSERT 新行再 prune。大账号池 + 高频刷新时会造成 `usage_snapshots` 和 WAL 写放大。
 
 ## 目标
 
-完成 T 项返工：候选缓存命中路径不得再一次性深拷贝整个 `Vec<(Account, Token)>`。
+完成 J 项：用量快照在关键字段未变化时不要 append 新行。
 
 ## 约束
 
-1. 不要盲目改成 `Arc<Vec<_>>` 后又在入口 `unwrap_or_clone`。
-2. 保持候选顺序、quota guard、账号计划筛选、模型路由筛选、failover 行为不变。
-3. 不要引入全局锁长期持有；缓存读锁/互斥只允许保护快照读取，不得覆盖上游请求执行。
-4. 不要 `git add .`；只暂存本任务相关文件。
-5. 所有新增注释使用简体中文。
-6. 不能把密钥、cookie、token、身份证号、手机号写入协作文件。
+1. 不要改变对外用量状态语义：`apply_status_from_snapshot()` 仍应基于本次解析结果执行。
+2. 不要因为 skipped insert 而丢失“最近刷新时间”的表达能力。推荐方案是更新最新行 `captured_at`，或者通过等价轻量路径维持 latest 语义。
+3. 比较关键字段时应覆盖：
+   - `used_percent`
+   - `window_minutes`
+   - `resets_at`
+   - `secondary_used_percent`
+   - `secondary_window_minutes`
+   - `secondary_resets_at`
+   - `credits_json`
+4. `credits_json` 比较要避免简单字符串格式差异造成误判。如果当前项目没有规范化 JSON helper，可以使用 `serde_json::Value` 语义比较；若决定做字符串比较，必须解释风险并补测试覆盖稳定序列化。
+5. 不要 `git add .`；只暂存本任务相关文件。
+6. 新增注释必须使用简体中文。
+7. 不要把密钥、cookie、token、身份证号、手机号写入协作文件。
 
 ## 推荐实现方向
 
-优先考虑小步重构：
+小步方案：
 
-1. 将 `collect_gateway_candidates_with_low_quota_mode()` 返回类型从 `Vec<(Account, Token)>` 调整为可共享的候选集合，例如 `Arc<Vec<(Account, Token)>>` 或本地 `CandidateList` 包装类型。
-2. 将下游 `prepare_gateway_candidates()` 的过滤逻辑改为在共享候选上按需构造较小结果，避免缓存命中时无条件 clone 全量列表。
-3. 若下游最终仍需要拥有 `Vec` 以便 `into_iter()`、重试时修改 token、记录 attempted ids，则只 clone 被保留的候选项，不要在缓存命中入口 clone 全量。
-4. 如果你判断返回类型改动扩散过大，可以采用迭代器/索引列表方案，但必须用代码和测试证明命中路径不再全量深拷贝。
+1. 在 storage 层新增一个方法，例如：
+   - `update_latest_usage_snapshot_captured_at_for_account(account_id, captured_at) -> Result<bool/usize>`
+   - 或 `upsert_usage_snapshot_if_changed(&record) -> Result<UsageSnapshotStoreOutcome>`
+2. 在 service 层 `store_usage_snapshot()` 中读取 `latest_usage_snapshot_for_account(account_id)`，比较关键字段。
+3. 如果字段未变：
+   - 不调用 `insert_usage_snapshot()`
+   - 更新最新快照 `captured_at` 为本次时间
+   - 可跳过 `prune_usage_snapshots_for_account()`，因为没有新增行
+   - 仍调用 `apply_status_from_snapshot(storage, &record)`
+4. 如果字段变化：
+   - 保持原 insert + prune 行为
+
+更优方案：
+
+- 把“比较 + insert/update”尽量收口到 storage，service 只处理解析和状态更新。
+- 但不要做大范围表结构迁移，除非你证明必须。
 
 ## 必须验证
 
-至少运行并记录结果：
+至少运行并记录：
 
 ```powershell
-cargo test -p codexmanager-service --lib gateway::routing::tests -- --nocapture
-cargo test -p codexmanager-service --test gateway_logs images::gateway_images_generation_wraps_codex_sse_as_openai_images_json -- --exact --nocapture
+cargo test -p codexmanager-core --lib usage_snapshot
+cargo test -p codexmanager-service --lib usage_snapshot
 cargo check -p codexmanager-service
 ```
 
-如 `gateway::routing::tests` filter 不匹配，请改用能实际运行 selection/candidates 相关测试的命令，不能把 `0 tests` 当作通过。
+如果 filter 不匹配导致 `0 tests`，必须换成真实能跑到新增/修改测试的命令，不能把 `0 tests` 当通过。
+
+建议新增测试覆盖：
+
+- 相同关键字段连续 store 两次，`usage_snapshot_count_for_account(account_id)` 不增加。
+- 相同关键字段第二次 store 后，最新行 `captured_at` 更新为新时间或 latest 语义能体现新刷新。
+- 任一关键字段变化时会新增快照。
+- `credits_json` 语义相同但字段顺序不同不应新增快照（如果采用语义比较）。
 
 ## 交付要求
 
@@ -68,21 +88,14 @@ cargo check -p codexmanager-service
 - git commit hash
 - 未验证项或剩余风险
 
-然后将 `.teamwork/sync/status.json` 更新为：
-
-```json
-{
-  "status": "waiting_for_gpt",
-  "task": "candidate-cache-arc-refactor-t",
-  "last_actor": "CodeX-Opus-4.6"
-}
-```
+然后将 `.teamwork/sync/status.json` 更新为 `waiting_for_gpt`，`last_actor` 写你的身份。
 
 ## 审计提醒
 
-CodeX-GPT 会独立复核，不会直接采信报告。重点会检查：
+CodeX-GPT 会独立复核：
 
-1. 是否仍存在 `Arc::unwrap_or_clone(cached)` 或等价全量 clone。
-2. diff 是否只包含 T 项相关修改。
-3. 缓存命中、缓存未命中、account_plan_filter、model filter、low quota fallback 的行为是否保持。
-4. 验证命令是否真实运行且不是 `0 tests`。
+1. 是否真的避免相同快照 append。
+2. 是否保留 latest/captured_at 语义。
+3. 是否仍在字段变化时新增记录。
+4. 是否没有把测试 fixture 的 `insert_usage_snapshot()` 当生产路径误改。
+5. diff 是否只包含 J 项相关文件。
