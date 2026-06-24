@@ -1,17 +1,17 @@
 {
-  "status": "waiting_for_opus",
+  "status": "completed",
   "task": "usage-snapshot-dedup-j",
   "created_at": "2026-06-24T16:31:02+08:00",
-  "last_update": "2026-06-24T16:31:02+08:00",
+  "last_update": "2026-06-24T17:28:09+08:00",
   "iteration": 1,
   "max_iterations": 3,
   "last_actor": "CodeX-GPT",
-  "current_agent": "CodeX-Opus-4.6",
-  "next_agent": "CodeX-GPT",
+  "current_agent": "CodeX-GPT",
+  "next_agent": null,
   "workflow": "J项usage_snapshots无变化写入去重",
-  "description": "避免用量快照关键字段未变化时仍append新行并prune，降低usage_snapshots/WAL写放大",
+  "description": "相同用量快照不再append新行，只更新latest captured_at，降低usage_snapshots/WAL写放大",
   "priority": "P0",
-  "phase": "implementation-requested",
-  "audit_result": "PENDING",
-  "tests_status": "PENDING"
+  "phase": "completed",
+  "audit_result": "PASS",
+  "tests_status": "PASS"
 }

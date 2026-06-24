@@ -1113,3 +1113,13 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - `cargo check -p codexmanager-service` → Finished（仅既有 warning）。
 
 协作备注：原 Opus 子代理只完成阶段性半成品，未写 `.teamwork/sync/opus-to-gpt.md`、未更新状态、未提交；CodeX-GPT 已关闭该子代理并接手完成实现与审计。后续不应再把 2026-06-22 的旧 T 完成记录视为充分依据，应以本节返工收口为准。
+
+## 2026-06-24 J 项 usage_snapshots 无变化写入去重（【CodeX-Opus-4.6】半成品 + 【CodeX-GPT】收口）
+
+### ✅【已完成】相同用量快照不再追加新行
+
+- 目标：`store_usage_snapshot()` 在本次解析结果关键字段与账号最新快照一致时，不再调用 `insert_usage_snapshot()` 追加新行，降低 `usage_snapshots` 与 WAL 写放大。
+- 实施：新增 `update_latest_usage_snapshot_captured_at_for_account()`，相同关键字段时只更新最新行 `captured_at`；字段变化时保持 insert + prune；`credits_json` 使用 JSON 语义比较避免对象字段顺序导致误判。
+- 约束确认：仍基于本次解析结果执行 `apply_status_from_snapshot()`；相同快照维护 latest/captured_at 语义；字段变化时新增快照。
+- 验证：`cargo test -p codexmanager-core --lib usage_snapshot -- --nocapture` → 6 passed；`cargo test -p codexmanager-service --lib usage_snapshot -- --nocapture` → 5 passed；`cargo check -p codexmanager-service` → Finished（仅既有 warning）。
+- 协作备注：Opus 执行方产出半成品并带入 rustfmt 噪声，CodeX-GPT 已清理无关 diff、补齐测试与协作状态并完成提交。

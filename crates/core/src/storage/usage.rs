@@ -50,6 +50,26 @@ impl Storage {
         Ok(())
     }
 
+    /// 更新指定账号最新用量快照的捕获时间，用于相同快照去重后保留最近刷新语义。
+    pub fn update_latest_usage_snapshot_captured_at_for_account(
+        &self,
+        account_id: &str,
+        captured_at: i64,
+    ) -> Result<usize> {
+        self.conn.execute(
+            "UPDATE usage_snapshots
+             SET captured_at = ?2
+             WHERE id = (
+               SELECT id
+               FROM usage_snapshots
+               WHERE account_id = ?1
+               ORDER BY captured_at DESC, id DESC
+               LIMIT 1
+             )",
+            (account_id, captured_at),
+        )
+    }
+
     /// 函数 `prune_usage_snapshots_for_account`
     ///
     /// 作者: gaohongshun
@@ -773,6 +793,46 @@ mod tests {
                 .expect("count usage snapshots"),
             3
         );
+    }
+
+    #[test]
+    fn usage_snapshot_update_latest_captured_at_for_account_touches_latest_row() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-a", now, 10.0))
+            .expect("insert old acc-a usage");
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-a", now + 10, 20.0))
+            .expect("insert latest acc-a usage");
+        storage
+            .insert_usage_snapshot(&sample_snapshot("acc-b", now + 20, 30.0))
+            .expect("insert acc-b usage");
+
+        let updated = storage
+            .update_latest_usage_snapshot_captured_at_for_account("acc-a", now + 30)
+            .expect("update latest acc-a usage captured_at");
+        assert_eq!(updated, 1);
+
+        let latest = storage
+            .latest_usage_snapshot_for_account("acc-a")
+            .expect("read latest acc-a usage")
+            .expect("latest acc-a usage exists");
+        assert_eq!(latest.used_percent, Some(20.0));
+        assert_eq!(latest.captured_at, now + 30);
+        assert_eq!(
+            storage
+                .usage_snapshot_count_for_account("acc-a")
+                .expect("count acc-a"),
+            2
+        );
+
+        let missing = storage
+            .update_latest_usage_snapshot_captured_at_for_account("missing", now + 40)
+            .expect("update missing account usage");
+        assert_eq!(missing, 0);
     }
 
     #[test]
