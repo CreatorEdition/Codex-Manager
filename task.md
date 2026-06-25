@@ -557,9 +557,9 @@ Err(err) => {
 
 ## 2026-06-14 持续架构审计（第十批：批量导入无事务包裹 + 前端轮询/IPC正面确认）
 
-### ⚠️ 待处理（V，本批新增）
+### ✅ 已完成（V/AB，本批新增）
 
-- **V（P1 批量账号导入无事务包裹，O(N) 次写提交/fsync）**：`account/import` 的 `import_items_in_batches()` 虽有 `chunks(batch_size)` 的"批次"概念，但 batch 仅用于**进度上报**（`begin_batch`/`finish_batch`），实际写入仍逐个 `import_single_item_with_account_id()` → `insert_account()`，且 `insert_account` 是单条 `conn.execute(INSERT)` **自动提交**（无外部事务）。每个账号导入涉及 account + token + metadata + subscription 多次独立自提交写，SQLite WAL 模式下导入 N 账号产生 O(N) 次写提交与 WAL fsync。当前无批量事务 API（已确认无 `insert_accounts_batch`）。见 [account_import.rs:412](crates/service/src/account/account_import.rs:412) 与 [accounts.rs insert_account](crates/core/src/storage/accounts.rs:580)。优化：让每个 batch 的所有写操作包在一个 SQLite `transaction` 内一次 commit（storage 提供 `with_transaction` 闭包或批量 API，import_single_item 的多表写进同一事务）。可将 fsync 从 O(N) 降为 O(N/batch_size)，导入几百上千账号时显著提速。注意：事务须在同一连接（import 持有单个 StorageHandle 即可）；保留单条失败不影响其他账号的语义（可用 savepoint 或 batch 内收集失败项）。
+- **V/AB（P1 批量账号导入无事务包裹，O(N) 次写提交/fsync）**：✅【已完成 2026-06-25】`account/import` 已按 progress batch 包裹单个 SQLite 写事务；batch 内每条账号导入使用 savepoint 隔离，单条失败只回滚自身并继续处理同批其他账号。新增 `Storage::with_write_transaction()` 与 `Storage::with_write_savepoint()` 复用同一连接事务边界，`import_items_in_batches()` 不再让 account/metadata/token 多表写入逐条自提交。验证：`cargo test -p codexmanager-service --lib import_items_in_batches_rolls_back_only_failed_item -- --nocapture` 通过；`cargo test -p codexmanager-service --lib account::import::tests -- --nocapture` 16/16 通过；`cargo check -p codexmanager-service` 通过（仅既有 warning）。历史问题描述：`import_items_in_batches()` 的 `chunks(batch_size)` 原本仅用于进度上报，实际写入仍逐个 `import_single_item_with_account_id()` → `insert_account()` 自提交，SQLite WAL 下导入 N 账号会产生 O(N) 次提交/fsync。
 
 ### ✅ 正面确认（本批）
 
@@ -689,7 +689,7 @@ Err(err) => {
 
 - **T / 2026-06-19 V 候选缓存深拷贝：✅ 确认，且为重复项，应合并实施。** 当前 `collect_gateway_candidates_with_low_quota_mode()` 在未命中时 `write_candidate_cache(low_quota_mode, candidates.clone())`，命中时 `read_candidate_cache()` 返回 `Some(cached.candidates.clone())`，确实会按请求深拷贝 `Vec<(Account, Token)>`。2026-06-19 第七批的 V 与 2026-06-14 第七批的 T 是同一问题，后续下发时统一命名为 **T：候选缓存 Arc 化**，不要按两个任务重复实施。修复方向：缓存存 `Arc<Vec<(Account, Token)>>`，命中只 clone Arc；调用方改只读遍历，必要时再局部 clone 单个候选。
 - **U 服务启动同步网络阻塞：✅ 确认。** `start_server()` 在监听 HTTP 端口前调用 `sync_gateway_user_agent_version_from_codex_latest()`，该函数通过 `fresh_upstream_client().get(CODEX_NPM_LATEST_URL).timeout(10s).send()` 同步访问 npm registry；紧随其后又调用 `ensure_codex_latest_version_sync()` 启动后台线程。结论成立：启动主路径的远程同步是冗余阻塞。修复方向：启动时只读取已持久化版本或默认版本，远程 latest 拉取完全交给后台线程首刷。
-- **2026-06-14 第十批 V 批量导入无事务：✅ 确认，但与前面的 V 字母冲突。** `import_items_in_batches()` 的 `chunks(batch_size)` 只用于 `begin_batch/finish_batch` 进度上报，循环内仍逐条 `import_single_item_with_account_id()`；该函数又逐步 `insert_account()`、`upsert_account_metadata()`、写 token/subscription 等，storage 侧 `insert_account()` 是单条 `conn.execute`，未见批次事务边界。后续统一重命名为 **AB：批量账号导入按 batch 事务提交**，避免与候选缓存 V/T 混淆。
+- **2026-06-14 第十批 V/AB 批量导入无事务：✅ 已完成。** `import_items_in_batches()` 已按 batch 包一层 SQLite 写事务，并用 savepoint 保留单条失败不影响同批其他账号的语义。历史确认：原 `chunks(batch_size)` 只用于 `begin_batch/finish_batch` 进度上报，循环内仍逐条 `import_single_item_with_account_id()`；该函数又逐步 `insert_account()`、`upsert_account_metadata()`、写 token/subscription 等，storage 侧 `insert_account()` 是单条 `conn.execute`，未见批次事务边界。命名仍统一为 **AB：批量账号导入按 batch 事务提交**，避免与候选缓存 V/T 混淆。
 - **W 错误早返回先写日志后响应：✅ 确认，维持 P3。** `request_entry.rs` 的早期错误路径先 `write_request_log()` 再返回错误响应；`proxy.rs` 的 `model_route_error()` 与 aggregate API 404 也先写日志再构造 terminal response。成功主路径已在 respond 后写日志，因此 W 是真实但低优先级的时序一致性问题。修复方向：仅在不破坏 trace/outcome 记录语义的前提下，把错误响应也改成先 respond 后异步/后置写日志。
 - **X 静态资源缺长缓存头：✅ 确认。** `serve_embedded_path()` 只对 HTML 追加 `no-store, no-cache, must-revalidate`，非 HTML 静态资源不设置 `Cache-Control`；现有测试还断言 `favicon.ico` 不存在 cache-control。修复方向：HTML 保持 no-store，非 HTML 资源追加 `Cache-Control: public, max-age=31536000, immutable`；若担心非 hash 文件，先限定 hashed chunk / assets 目录，favicon 可单独给较短缓存。
 - **Y Rhai 每次执行重编译：✅ 确认，维持 P3。** `execute_plugin_script()` 每次新建 `Engine`、注册函数并 `compile(&plugin.script_body)`；插件通常低频，先记录即可。修复方向：只缓存 `(plugin_id, script_body_hash) -> AST`，Engine 仍按权限快照构建，避免把权限函数或动态设置错误缓存。
@@ -700,7 +700,7 @@ Err(err) => {
 
 - **必须优先落地**：Z（统一 token refresh 锁/路径）+ O/P（分类冷却、指数退避）+ E（错误码聚合）。这组直接对应用户日志中 >95% 的 token refresh 401 风暴，收益大于低优先级 CPU 小项。
 - **热路径性能批次**：H（模型目录按 slug 主键单查）、C（聚合 API 热路径 active/provider SQL 下推）、T（候选缓存 Arc 化）、Q（协议转换 JSON 单次 parse）、X（静态资源长缓存）。这些改动范围相对清晰，适合拆成独立 PR。
-- **后台/写入批次**：AB（批量导入事务）、J（usage_snapshots 变化检测再写）、AA（warmup 有界并发）、U（启动远程同步后台化）。其中 AB/J 属 SQLite WAL 写放大治理，AA/U 属后台任务与启动体验治理。
+- **后台/写入批次**：AB（批量导入事务，已完成）、J（usage_snapshots 变化检测再写，已完成）、AA（warmup 有界并发，已完成）、U（启动远程同步后台化，已完成）。其中 AB/J 属 SQLite WAL 写放大治理，AA/U 属后台任务与启动体验治理。
 - **仅记录或低优先级**：W（错误路径响应时序）、Y（Rhai AST 缓存）、S（候选 lazy backfill 观察）。除非真实环境指标指向这些点，否则不应抢占 Z/E/H/C/T 的实施顺序。
 
 ### 编号去重备注
@@ -912,7 +912,7 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 ### ⚠️ 持续架构审计 - 第十批（事务边界）
 
-- **LL（P1）账号批量导入无事务批提交**：`import_items_in_batches()` 的 "batch"（默认 200）仅用于进度报告分组，实际每个 item 经 `import_single_item_with_account_id()` 独立写入。该函数内部 `insert_account()` + `insert_token()` 是两次独立单条 `execute`（各自 autocommit），无跨调用事务。导入 N 个账号 ≈ 2N 次独立 WAL fsync，是大批量导入慢与 WAL 写放大的来源。建议：把每个 progress batch 包在单个 `unchecked_transaction()` 内提交（200 条/事务），失败项单独回退或记录，可将 fsync 次数从 2N 降到 ~N/200。见 [account_import.rs:412](crates/service/src/account/account_import.rs:412) 与 [account_import.rs:712](crates/service/src/account/account_import.rs:712)。
+- **LL（P1，与 AB 同项）账号批量导入无事务批提交**：✅【已完成 2026-06-25】`import_items_in_batches()` 已按 progress batch 使用单个写事务提交，batch 内每条导入用 savepoint 隔离失败项，避免整批回滚。历史问题：`batch`（默认 200）原仅用于进度报告分组，实际每个 item 经 `import_single_item_with_account_id()` 独立写入；该函数内部 `insert_account()` + `insert_token()` 是独立单条 `execute`（各自 autocommit），导入 N 个账号 ≈ 2N 次独立 WAL fsync。
 
 #### ✅ 第十批正面确认（已优化，避免重复审计）
 - **MM** storage 层多步写入已广泛使用事务：account_manager/accounts/aggregate_apis/model_groups/model_options/plugins/quota_pools/request_logs 等关键多步写入均包 `transaction()`/`unchecked_transaction()`，事务纪律整体良好，仅 service 层批量导入循环（LL）是缺口。

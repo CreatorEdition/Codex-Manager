@@ -51,6 +51,12 @@ struct ImportedAccount {
     created: bool,
 }
 
+#[derive(Debug)]
+enum ImportBatchItemOutcome {
+    Success(ImportedAccount),
+    Failure(String),
+}
+
 #[derive(Debug, Default)]
 struct ImportAccountMeta {
     label: Option<String>,
@@ -423,34 +429,97 @@ fn import_items_in_batches(
     let total_batches = items.len().div_ceil(batch_size);
     for (batch_index, batch) in items.chunks(batch_size).enumerate() {
         progress.begin_batch(batch_index + 1, total_batches, batch.len());
-        for item in batch {
-            result.total += 1;
-            let current_index = result.total;
-            match import_single_item_with_account_id(storage, index, item, current_index) {
-                Ok(imported) => {
-                    if imported.created {
-                        result.created += 1;
-                    } else {
-                        result.updated += 1;
+        match import_batch_items_with_transaction(storage, index, batch, result.total + 1) {
+            Ok(outcomes) => {
+                for outcome in outcomes {
+                    result.total += 1;
+                    let current_index = result.total;
+                    match outcome {
+                        ImportBatchItemOutcome::Success(imported) => {
+                            record_import_success(result, progress, imported);
+                        }
+                        ImportBatchItemOutcome::Failure(err) => {
+                            record_import_item_failure(result, progress, current_index, err);
+                        }
                     }
-                    progress.on_item_success(imported.created);
-                    let _ = crate::usage_refresh::enqueue_usage_refresh_after_account_add(
-                        &imported.account_id,
-                    );
                 }
-                Err(err) => {
-                    result.failed += 1;
-                    progress.on_item_failure();
-                    if result.errors.len() < MAX_ERROR_ITEMS {
-                        result.errors.push(AccountImportError {
-                            index: current_index,
-                            message: err,
-                        });
-                    }
+            }
+            Err(err) => {
+                if let Ok(rebuilt) = ExistingAccountIndex::build(storage) {
+                    *index = rebuilt;
+                }
+                for _ in batch {
+                    result.total += 1;
+                    let current_index = result.total;
+                    record_import_item_failure(
+                        result,
+                        progress,
+                        current_index,
+                        format!("batch transaction failed: {err}"),
+                    );
                 }
             }
         }
         progress.finish_batch();
+    }
+}
+
+fn import_batch_items_with_transaction(
+    storage: &Storage,
+    index: &mut ExistingAccountIndex,
+    batch: &[Value],
+    start_index: usize,
+) -> Result<Vec<ImportBatchItemOutcome>, String> {
+    storage.with_write_transaction(
+        |batch_storage| {
+            let mut outcomes = Vec::with_capacity(batch.len());
+            for (offset, item) in batch.iter().enumerate() {
+                let sequence = start_index + offset;
+                let outcome = batch_storage.with_write_savepoint(
+                    |item_storage| {
+                        import_single_item_with_account_id(item_storage, index, item, sequence)
+                    },
+                    |err| err.to_string(),
+                );
+                match outcome {
+                    Ok(imported) => outcomes.push(ImportBatchItemOutcome::Success(imported)),
+                    Err(err) => {
+                        *index = ExistingAccountIndex::build(batch_storage)
+                            .map_err(|rebuild_err| rebuild_err.to_string())?;
+                        outcomes.push(ImportBatchItemOutcome::Failure(err));
+                    }
+                }
+            }
+            Ok(outcomes)
+        },
+        |err| err.to_string(),
+    )
+}
+
+fn record_import_success(
+    result: &mut AccountImportResult,
+    progress: &mut AccountImportProgress,
+    imported: ImportedAccount,
+) {
+    if imported.created {
+        result.created += 1;
+    } else {
+        result.updated += 1;
+    }
+    progress.on_item_success(imported.created);
+    let _ = crate::usage_refresh::enqueue_usage_refresh_after_account_add(&imported.account_id);
+}
+
+fn record_import_item_failure(
+    result: &mut AccountImportResult,
+    progress: &mut AccountImportProgress,
+    index: usize,
+    message: String,
+) {
+    result.failed += 1;
+    progress.on_item_failure();
+    if result.errors.len() < MAX_ERROR_ITEMS {
+        result.errors.push(AccountImportError { index, message });
     }
 }
 

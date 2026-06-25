@@ -805,6 +805,82 @@ impl Storage {
         Ok(Self { conn })
     }
 
+    /// 函数 `with_write_transaction`
+    ///
+    /// 中文注释：在同一连接上包裹一组写操作，避免批量写入时每条语句各自提交。
+    ///
+    /// # 参数
+    /// - f: 事务内执行的闭包
+    /// - map_sql_error: SQLite 错误到调用方错误类型的转换函数
+    ///
+    /// # 返回
+    /// 返回闭包执行结果
+    pub fn with_write_transaction<T, E, F, M>(
+        &self,
+        f: F,
+        map_sql_error: M,
+    ) -> std::result::Result<T, E>
+    where
+        F: FnOnce(&Storage) -> std::result::Result<T, E>,
+        M: Fn(rusqlite::Error) -> E,
+    {
+        let tx = self.conn.unchecked_transaction().map_err(&map_sql_error)?;
+        match f(self) {
+            Ok(value) => {
+                tx.commit().map_err(&map_sql_error)?;
+                Ok(value)
+            }
+            Err(err) => {
+                let _ = tx.rollback();
+                Err(err)
+            }
+        }
+    }
+
+    /// 函数 `with_write_savepoint`
+    ///
+    /// 中文注释：在外层事务内隔离单个写入单元，失败时只回滚当前保存点。
+    ///
+    /// # 参数
+    /// - f: 保存点内执行的闭包
+    /// - map_sql_error: SQLite 错误到调用方错误类型的转换函数
+    ///
+    /// # 返回
+    /// 返回闭包执行结果
+    pub fn with_write_savepoint<T, E, F, M>(
+        &self,
+        f: F,
+        map_sql_error: M,
+    ) -> std::result::Result<T, E>
+    where
+        F: FnOnce(&Storage) -> std::result::Result<T, E>,
+        M: Fn(rusqlite::Error) -> E,
+    {
+        const SAVEPOINT_NAME: &str = "codexmanager_write_unit";
+        self.conn
+            .execute_batch("SAVEPOINT codexmanager_write_unit")
+            .map_err(&map_sql_error)?;
+        match f(self) {
+            Ok(value) => match self.conn.execute_batch("RELEASE codexmanager_write_unit") {
+                Ok(()) => Ok(value),
+                Err(err) => {
+                    let _ = self
+                        .conn
+                        .execute_batch(&format!("ROLLBACK TO {SAVEPOINT_NAME}"));
+                    let _ = self.conn.execute_batch("RELEASE codexmanager_write_unit");
+                    Err(map_sql_error(err))
+                }
+            },
+            Err(err) => {
+                let _ = self
+                    .conn
+                    .execute_batch(&format!("ROLLBACK TO {SAVEPOINT_NAME}"));
+                let _ = self.conn.execute_batch("RELEASE codexmanager_write_unit");
+                Err(err)
+            }
+        }
+    }
+
     /// 函数 `init`
     ///
     /// 作者: gaohongshun

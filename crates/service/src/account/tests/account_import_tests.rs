@@ -716,6 +716,78 @@ fn import_single_item_allows_missing_id_and_refresh_tokens() {
     assert_eq!(token.refresh_token, "");
 }
 
+/// 函数 `import_items_in_batches_rolls_back_only_failed_item`
+///
+/// 中文注释：同一批导入内，单条坏数据应只回滚自身保存点，不影响同批其他账号提交。
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn import_items_in_batches_rolls_back_only_failed_item() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init");
+    let mut index = ExistingAccountIndex::build(&storage).expect("build index");
+    let mut result = super::AccountImportResult {
+        total: 0,
+        created: 0,
+        updated: 0,
+        failed: 0,
+        errors: Vec::new(),
+    };
+    let mut progress = super::AccountImportProgress::new();
+    let items = vec![
+        json!({
+            "tokens": {
+                "access_token": "access.valid-a",
+                "id_token": TEST_ID_TOKEN_SAME_SUB_TEAM_A,
+                "refresh_token": "refresh.valid-a"
+            },
+            "meta": {
+                "label": "valid-a"
+            }
+        }),
+        json!({
+            "tokens": {
+                "access_token": "access.invalid"
+            }
+        }),
+        json!({
+            "tokens": {
+                "access_token": "access.valid-b",
+                "id_token": TEST_ID_TOKEN_SAME_SUB_TEAM_B,
+                "refresh_token": "refresh.valid-b"
+            },
+            "meta": {
+                "label": "valid-b"
+            }
+        }),
+    ];
+
+    super::import_items_in_batches(&storage, &mut index, &mut result, &mut progress, items, 3);
+
+    assert_eq!(result.total, 3);
+    assert_eq!(result.created, 2);
+    assert_eq!(result.updated, 0);
+    assert_eq!(result.failed, 1);
+    assert_eq!(result.errors.len(), 1);
+    assert_eq!(result.errors[0].index, 2);
+
+    let accounts = storage.list_accounts().expect("list accounts");
+    assert_eq!(accounts.len(), 2);
+    assert!(accounts.iter().any(|account| account.label == "valid-a"));
+    assert!(accounts.iter().any(|account| account.label == "valid-b"));
+    for account in accounts {
+        let token = storage
+            .find_token_by_account_id(&account.id)
+            .expect("find token")
+            .expect("token");
+        assert!(!token.refresh_token.is_empty());
+    }
+}
+
 /// 函数 `import_account_auth_json_keeps_valid_items_when_one_content_is_invalid`
 ///
 /// 作者: gaohongshun
