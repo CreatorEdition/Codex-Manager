@@ -1144,7 +1144,7 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 ### ⚠️ 部分完成：Rust 格式门禁已收口，完整 workspace 仍受本机测试进程阻塞
 
 - 目标：在不改动账号计划修复语义的前提下，单独收敛 `cargo fmt --all --check` 暴露的既有格式漂移，并复核 `gateway_logs` 与完整 workspace 测试状态。
-- 当前确认：`.teamwork/sync/status.json` 为 `completed`，无需等待其他 AI；当前分支 `hardening/main` 相对 `origin/hardening/main` 领先 115 个提交，相对 `upstream/main` 为 `234 ahead / 193 behind`。
+- 当前确认：`.teamwork/sync/status.json` 为 `completed`，无需等待其他 AI；当前分支 `hardening/main` 相对 `origin/hardening/main` 领先 117 个提交；fetch 后相对 `upstream/main` 为 `236 ahead / 194 behind`，上游最新为 `f3efb3a2 style: polish desktop layout density`。
 - 已发现：本机存在安装版 `D:\Apps\CodexManager\codexmanager-service.exe` 常驻进程，可能继续影响端口、CPU 或资源抖动；本轮先不强杀用户安装版进程，仅在测试结论中记录环境风险。
 - 已处理：执行 `cargo fmt --all`，修复 8 个 Rust 文件的既有 rustfmt 漂移；`cargo fmt --all --check` 通过。
 - 已处理：`aggregate_api` 测试模块的本地 tiny_http mock `recv_timeout` 从散落的 2 秒统一为 `LOCAL_MOCK_RECV_TIMEOUT=10s`，降低 Windows 高负载完整套件下的假失败概率；`cargo test -p codexmanager-service --lib aggregate_api::tests:: -- --nocapture --test-threads=1` 通过 35 项。
