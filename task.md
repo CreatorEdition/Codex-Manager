@@ -1138,3 +1138,15 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - 前端/运行时验证：`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` → passed；`.\node_modules\.bin\next.cmd build` → passed；`node --test` runtime mjs 套件 → 84 passed。
 - ⚠️ 发布门禁状态：完整 `cargo test --workspace -- --test-threads=1` 已跑到 service lib 阶段并验证 core/storage 通过、账号计划与 aggregate/attempt_flow 相关用例通过；首次剩余 4 个本地 mock 502 已修复并定向复跑通过。当前无法给出完整 workspace 绿灯的唯一阻塞是本机 Windows 测试进程残留锁定 `codexmanager_service-628427fd77b443cb.exe`，普通与提升权限 `taskkill`/WMI 均无法终止（Access denied / ReturnValue 2），导致后续全量重跑在链接阶段报 `LNK1104`；另一次重跑还暴露系统 `os error 1455`（页面文件太小）。这属于当前机器资源/进程锁阻塞，不是已知业务代码失败。
 - ⚠️ 格式门禁状态：`cargo fmt --all --check` 仍受既有无关 rustfmt 漂移阻塞（历史记录文件包括 aggregate_apis/model_options/request_token_stats/dashboard 等），本轮未做全仓格式化，避免把无关格式噪声混入账号计划修复。
+
+## 2026-07-04 发布前门禁收口（【CodeX-GPT】）
+
+### ⚠️ 部分完成：Rust 格式门禁已收口，完整 workspace 仍受本机测试进程阻塞
+
+- 目标：在不改动账号计划修复语义的前提下，单独收敛 `cargo fmt --all --check` 暴露的既有格式漂移，并复核 `gateway_logs` 与完整 workspace 测试状态。
+- 当前确认：`.teamwork/sync/status.json` 为 `completed`，无需等待其他 AI；当前分支 `hardening/main` 相对 `origin/hardening/main` 领先 115 个提交，相对 `upstream/main` 为 `234 ahead / 193 behind`。
+- 已发现：本机存在安装版 `D:\Apps\CodexManager\codexmanager-service.exe` 常驻进程，可能继续影响端口、CPU 或资源抖动；本轮先不强杀用户安装版进程，仅在测试结论中记录环境风险。
+- 已处理：执行 `cargo fmt --all`，修复 8 个 Rust 文件的既有 rustfmt 漂移；`cargo fmt --all --check` 通过。
+- 已处理：`aggregate_api` 测试模块的本地 tiny_http mock `recv_timeout` 从散落的 2 秒统一为 `LOCAL_MOCK_RECV_TIMEOUT=10s`，降低 Windows 高负载完整套件下的假失败概率；`cargo test -p codexmanager-service --lib aggregate_api::tests:: -- --nocapture --test-threads=1` 通过 35 项。
+- 验证：`cargo test -p codexmanager-service --test gateway_logs -- --test-threads=1` 通过 26 项；完整 `cargo test --workspace -- --test-threads=1` 首次失败于 `aggregate_api::tests::claude_probe_retries_with_alibaba_model_after_default_model_bad_request`，单项与 aggregate API 子集复跑均通过，判定为 mock 等待时间过短叠加本机负载的测试稳定性问题。
+- 阻塞：调整 mock 等待后再次运行完整 workspace，已确认先前失败用例通过，但 service lib 测试进程 `target\debug\deps\codexmanager_service-628427fd77b443cb.exe` 在本机挂起并成为孤儿进程；普通 `Stop-Process`、`taskkill /F`、提升权限 `taskkill` 与 CIM `Terminate` 均无法终止（CIM ReturnValue=2），因此当前机器仍不能给出完整 workspace 绿灯。

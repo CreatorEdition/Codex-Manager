@@ -563,6 +563,8 @@ mod tests {
         ALIBABA_CODING_PLAN_PROBE_MODEL, CLAUDE_DEFAULT_PROBE_MODEL,
     };
 
+    const LOCAL_MOCK_RECV_TIMEOUT: Duration = Duration::from_secs(10);
+
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
         AggregateApi {
             id: "agg-test".to_string(),
@@ -825,7 +827,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let join = thread::spawn(move || {
             let mut request = server
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
                 .expect("receive messages request")
                 .expect("messages request present");
             let mut body = String::new();
@@ -859,7 +861,7 @@ mod tests {
 
         assert_eq!(status, 200);
         let captured = rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
             .expect("captured request");
         join.join().expect("join mock server");
         assert_eq!(captured.0, "POST");
@@ -875,7 +877,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let join = thread::spawn(move || {
             let mut request = server
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
                 .expect("receive chat completions request")
                 .expect("chat completions request present");
             let mut body = String::new();
@@ -907,7 +909,7 @@ mod tests {
 
         assert_eq!(status, 200);
         let captured = rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
             .expect("captured request");
         join.join().expect("join mock server");
         assert_eq!(captured.0, "POST");
@@ -923,7 +925,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let join = thread::spawn(move || {
             let request = server
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
                 .expect("receive model list request")
                 .expect("model list request present");
             tx.send((
@@ -939,7 +941,7 @@ mod tests {
                 .expect("respond model list");
 
             let mut request = server
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
                 .expect("receive messages request")
                 .expect("messages request present");
             let mut body = String::new();
@@ -972,10 +974,10 @@ mod tests {
 
         assert_eq!(status, 200);
         let first = rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
             .expect("first captured request");
         let second = rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
             .expect("second captured request");
         join.join().expect("join mock server");
         assert_eq!(first.0, "GET");
@@ -994,7 +996,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let join = thread::spawn(move || {
             let request = server
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
                 .expect("receive model list request")
                 .expect("model list request present");
             tx.send((request.url().to_string(), String::new()))
@@ -1005,7 +1007,7 @@ mod tests {
 
             for (index, status) in [400u16, 200u16].into_iter().enumerate() {
                 let mut request = server
-                    .recv_timeout(Duration::from_secs(2))
+                    .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
                     .expect("receive mock request")
                     .expect("mock request present");
                 let mut body = String::new();
@@ -1040,13 +1042,13 @@ mod tests {
 
         assert_eq!(status, 200);
         let models_request = rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
             .expect("captured model list request");
         let first = rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
             .expect("first captured request");
         let second = rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(LOCAL_MOCK_RECV_TIMEOUT)
             .expect("second captured request");
         join.join().expect("join mock server");
         assert_eq!(models_request.0, "/apps/anthropic/v1/models");
