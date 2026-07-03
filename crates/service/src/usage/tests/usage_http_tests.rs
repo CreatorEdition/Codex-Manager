@@ -43,6 +43,7 @@ fn usage_header_runtime_scope() -> (MutexGuard<'static, ()>, UsageHeaderRuntimeR
 struct UsageHeaderRuntimeRestore {
     originator: String,
     residency_requirement: Option<String>,
+    upstream_proxy_url: Option<String>,
 }
 
 impl UsageHeaderRuntimeRestore {
@@ -58,9 +59,13 @@ impl UsageHeaderRuntimeRestore {
     /// # 返回
     /// 返回函数执行结果
     fn capture() -> Self {
+        let upstream_proxy_url = std::env::var("CODEXMANAGER_UPSTREAM_PROXY_URL").ok();
+        std::env::remove_var("CODEXMANAGER_UPSTREAM_PROXY_URL");
+        super::reload_usage_http_client_from_env();
         Self {
             originator: crate::gateway::current_originator(),
             residency_requirement: crate::gateway::current_residency_requirement(),
+            upstream_proxy_url,
         }
     }
 }
@@ -80,6 +85,12 @@ impl Drop for UsageHeaderRuntimeRestore {
     fn drop(&mut self) {
         let _ = crate::gateway::set_originator(&self.originator);
         let _ = crate::gateway::set_residency_requirement(self.residency_requirement.as_deref());
+        if let Some(value) = self.upstream_proxy_url.as_deref() {
+            std::env::set_var("CODEXMANAGER_UPSTREAM_PROXY_URL", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_UPSTREAM_PROXY_URL");
+        }
+        super::reload_usage_http_client_from_env();
     }
 }
 
@@ -639,6 +650,39 @@ fn subscription_request_uses_only_authorization_without_custom_usage_headers() {
     assert_eq!(recorded.origin.as_deref(), Some("https://chatgpt.com"));
     assert_eq!(recorded.referer.as_deref(), Some("https://chatgpt.com/"));
     assert_eq!(recorded.accept.as_deref(), Some("application/json"));
+}
+
+#[test]
+fn fetch_account_subscription_preserves_unknown_plan_value() {
+    let (_guard, _restore) = usage_header_runtime_scope();
+
+    let server = Server::http("127.0.0.1:0").expect("start mock subscription server");
+    let addr = format!("http://{}", server.server_addr());
+    let handle = thread::spawn(move || {
+        let request = server
+            .recv_timeout(Duration::from_secs(5))
+            .expect("subscription server timeout")
+            .expect("receive subscription request");
+        assert_eq!(request.url(), "/accounts/check/v4-2023-04-27");
+        let response_body = r#"{"accounts":{"acc-k12":{"account":{"plan_type":"K12","is_default":true},"entitlement":{"subscription_plan":"K12","has_active_subscription":true}}}}"#;
+        let response = Response::from_string(response_body)
+            .with_status_code(TinyStatusCode(200))
+            .with_header(
+                Header::from_bytes("Content-Type", "application/json")
+                    .expect("content-type header"),
+            );
+        request
+            .respond(response)
+            .expect("respond subscription request");
+    });
+
+    let snapshot = super::fetch_account_subscription(&addr, "token_k12", "acc-k12", None)
+        .expect("fetch subscription");
+    handle.join().expect("join subscription server");
+
+    assert!(snapshot.has_subscription);
+    assert_eq!(snapshot.account_plan_type.as_deref(), Some("k12"));
+    assert_eq!(snapshot.plan_type.as_deref(), Some("k12"));
 }
 
 /// 函数 `refresh_token_url_uses_official_default_for_openai_issuer`

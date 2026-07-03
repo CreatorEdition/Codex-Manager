@@ -23,7 +23,7 @@ test("账号实体列表不会被用量刷新路径自动打空", async () => {
 
   assert.match(
     source,
-    /queryKey:\s*\[\s*"accounts",\s*"list"\s*\][\s\S]*staleTime:\s*Infinity/,
+    /queryKey:\s*\[\s*"accounts",\s*"list"(?:,\s*normalizedListParams)?\s*\][\s\S]*staleTime:\s*Infinity/,
   );
   assert.doesNotMatch(invalidateUsageBody, /queryKey:\s*\[\s*"accounts"/);
   assert.match(
@@ -39,7 +39,7 @@ test("账号实体列表不会被用量刷新路径自动打空", async () => {
 test("账号页用启动快照作为账号实体列表的非空初始来源", async () => {
   const source = await readSource("src/hooks/useAccounts.ts");
 
-  assert.match(source, /const startupSnapshotQuery = useQuery\(\{/);
+  assert.match(source, /const startupSnapshot =[\s\S]*queryClient\.getQueryData<StartupSnapshot>/);
   assert.match(source, /buildAccountListResultFromSnapshot\(startupAccounts\)/);
   assert.match(
     source,

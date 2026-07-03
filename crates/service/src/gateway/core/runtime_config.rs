@@ -295,6 +295,8 @@ pub(crate) fn apply_blocking_upstream_proxy(
                 log::warn!("event={} proxy={} err={}", invalid_event, proxy_url, err);
             }
         }
+    } else {
+        builder = builder.no_proxy();
     }
     builder
 }
@@ -313,6 +315,8 @@ pub(crate) fn apply_async_upstream_proxy(
                 log::warn!("event={} proxy={} err={}", invalid_event, proxy_url, err);
             }
         }
+    } else {
+        builder = builder.no_proxy();
     }
     builder
 }

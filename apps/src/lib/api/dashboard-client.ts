@@ -401,7 +401,7 @@ export const dashboardClient = {
     rankingLimit?: number | null;
   }): Promise<DashboardAdminOverview> {
     const result = await invoke<unknown>(
-      "dashboard/adminOverview",
+      "service_dashboard_admin_overview",
       withAddr({
         requestLogLimit: params?.requestLogLimit ?? null,
         dayStartTs: params?.dayStartTs ?? null,

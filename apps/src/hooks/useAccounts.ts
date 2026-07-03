@@ -38,6 +38,15 @@ type AccountSortUpdate = { accountId: string; sort: number };
 const DEFAULT_ACCOUNT_PAGE_SIZE = 20;
 const MAX_ACCOUNT_PAGE_SIZE = 500;
 
+function accountPlanGroupValue(account: Account): string {
+  const normalized = String(account.planType || "").trim().toLowerCase() || "unknown";
+  const raw = String(account.planTypeRaw || "").trim();
+  if (normalized === "unknown" && raw && raw.toLowerCase() !== "unknown") {
+    return raw.toLowerCase();
+  }
+  return normalized;
+}
+
 function normalizeAccountListParams(
   params?: AccountListParams,
 ): Required<AccountListParams> {
@@ -440,7 +449,7 @@ export function useAccounts(params?: AccountListParams) {
     };
 
     for (const account of accounts) {
-      const planType = String(account.planType || "").trim().toLowerCase() || "unknown";
+      const planType = accountPlanGroupValue(account);
       map.set(planType, (map.get(planType) || 0) + 1);
     }
 

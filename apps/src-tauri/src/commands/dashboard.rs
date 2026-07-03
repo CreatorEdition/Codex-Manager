@@ -37,3 +37,30 @@ pub async fn service_dashboard_member_summary(
     )
     .await
 }
+
+#[tauri::command]
+pub async fn service_dashboard_admin_overview(
+    addr: Option<String>,
+    request_log_limit: Option<i64>,
+    day_start_ts: Option<i64>,
+    day_end_ts: Option<i64>,
+    account_limit: Option<i64>,
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    ranking_limit: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "dashboard/adminOverview",
+        addr,
+        Some(serde_json::json!({
+            "requestLogLimit": request_log_limit,
+            "dayStartTs": day_start_ts,
+            "dayEndTs": day_end_ts,
+            "accountLimit": account_limit,
+            "startTs": start_ts,
+            "endTs": end_ts,
+            "rankingLimit": ranking_limit,
+        })),
+    )
+    .await
+}

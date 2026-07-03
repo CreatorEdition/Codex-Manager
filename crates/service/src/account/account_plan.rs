@@ -79,21 +79,7 @@ pub(crate) fn normalize_account_plan_filter(
         return Ok(None);
     }
 
-    let normalized = trimmed.to_ascii_lowercase();
-    let canonical = match normalized.as_str() {
-        "free" => "free",
-        "go" => "go",
-        "plus" => "plus",
-        "pro" => "pro",
-        "team" => "team",
-        "business" => "business",
-        "enterprise" => "enterprise",
-        "edu" | "education" => "edu",
-        "unknown" => "unknown",
-        _ => return Err(format!("unsupported account plan filter: {trimmed}")),
-    };
-
-    Ok(Some(canonical.to_string()))
+    Ok(normalize_account_plan_value(trimmed))
 }
 
 /// 函数 `resolve_account_plan`
@@ -150,7 +136,17 @@ pub(crate) fn resolve_effective_account_plan(
 }
 
 pub(crate) fn normalize_account_plan_value(value: &str) -> Option<String> {
-    normalize_plan_type(value).map(|plan| plan.normalized)
+    normalize_plan_type(value).map(|plan| {
+        if plan.normalized == "unknown" {
+            plan.raw
+                .as_deref()
+                .unwrap_or(value)
+                .trim()
+                .to_ascii_lowercase()
+        } else {
+            plan.normalized
+        }
+    })
 }
 
 /// 函数 `extract_plan_type_from_credits_json`
@@ -250,13 +246,29 @@ pub(crate) fn account_matches_plan_filter(
         return true;
     }
 
-    let normalized_filter = filter.to_ascii_lowercase();
+    let normalized_filter = normalize_account_plan_filter(Some(filter.to_string()))
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| filter.to_ascii_lowercase());
     let snapshot = storage
         .latest_usage_snapshot_for_account(account_id)
         .ok()
         .flatten();
-    match resolve_account_plan(Some(token), snapshot.as_ref()) {
-        Some(plan) => plan.normalized == normalized_filter,
+    let subscription = storage.find_account_subscription(account_id).ok().flatten();
+    match resolve_effective_account_plan(Some(token), snapshot.as_ref(), subscription.as_ref()) {
+        Some(plan) => {
+            let raw_plan = plan
+                .raw
+                .as_deref()
+                .map(|value| value.trim().to_ascii_lowercase())
+                .filter(|value| !value.is_empty());
+            if normalized_filter == "unknown" {
+                return plan.normalized == "unknown"
+                    && raw_plan.as_deref().map_or(true, |value| value == "unknown");
+            }
+            plan.normalized == normalized_filter
+                || raw_plan.as_deref() == Some(normalized_filter.as_str())
+        }
         None => normalized_filter == "unknown",
     }
 }
@@ -379,7 +391,8 @@ mod tests {
         account_matches_plan_filter, extract_plan_type_from_credits_json,
         extract_plan_type_from_id_token, is_free_or_single_window_account,
         is_free_plan_from_credits_json, is_free_plan_type, is_single_window_long_usage_snapshot,
-        normalize_plan_type, resolve_account_plan,
+        normalize_account_plan_filter, normalize_account_plan_value, normalize_plan_type,
+        resolve_account_plan,
     };
     use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
 
@@ -647,6 +660,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn normalize_account_plan_value_preserves_unknown_plan_value() {
+        assert_eq!(normalize_account_plan_value("K12").as_deref(), Some("k12"));
+        assert_eq!(
+            normalize_account_plan_value("researcher_beta").as_deref(),
+            Some("researcher_beta")
+        );
+        assert_eq!(
+            normalize_account_plan_filter(Some("K12".to_string()))
+                .expect("normalize filter")
+                .as_deref(),
+            Some("k12")
+        );
+    }
+
     /// 函数 `resolve_account_plan_prefers_token_claims_and_falls_back_to_usage`
     ///
     /// 作者: gaohongshun
@@ -746,6 +774,58 @@ mod tests {
         assert!(!account_matches_plan_filter(
             &storage,
             "acc-unknown",
+            &token,
+            Some("plus"),
+        ));
+    }
+
+    #[test]
+    fn account_plan_filter_matches_unknown_subscription_plan_value() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+        storage
+            .insert_account(&Account {
+                id: "acc-k12".to_string(),
+                label: "acc-k12".to_string(),
+                issuer: "issuer".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort: 0,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert account");
+        let token = Token {
+            account_id: "acc-k12".to_string(),
+            id_token: "header.payload.sig".to_string(),
+            access_token: "header.payload.sig".to_string(),
+            refresh_token: "refresh".to_string(),
+            api_key_access_token: None,
+            last_refresh: now,
+        };
+        storage.insert_token(&token).expect("insert token");
+        storage
+            .upsert_account_subscription("acc-k12", true, Some("k12"), Some("k12"), None, None)
+            .expect("insert subscription");
+
+        assert!(account_matches_plan_filter(
+            &storage,
+            "acc-k12",
+            &token,
+            Some("k12"),
+        ));
+        assert!(!account_matches_plan_filter(
+            &storage,
+            "acc-k12",
+            &token,
+            Some("unknown"),
+        ));
+        assert!(!account_matches_plan_filter(
+            &storage,
+            "acc-k12",
             &token,
             Some("plus"),
         ));

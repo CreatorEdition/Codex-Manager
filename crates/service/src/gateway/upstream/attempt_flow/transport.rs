@@ -1505,6 +1505,7 @@ mod tests {
 
     fn send_mock_stream_request(url: &str) -> super::super::super::GatewayStreamResponse {
         let client = reqwest::Client::builder()
+            .no_proxy()
             .connect_timeout(Duration::from_secs(1))
             .build()
             .expect("build reqwest client");

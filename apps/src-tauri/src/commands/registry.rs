@@ -19,6 +19,7 @@ macro_rules! invoke_handler {
             // startup and dashboard
             crate::commands::startup::service_startup_snapshot,
             crate::commands::dashboard::service_dashboard_admin_usage_summary,
+            crate::commands::dashboard::service_dashboard_admin_overview,
             crate::commands::dashboard::service_dashboard_member_summary,
             // account
             crate::commands::account::local::local_account_delete,
@@ -69,6 +70,9 @@ macro_rules! invoke_handler {
             crate::commands::quota::service_quota_billing_rules,
             crate::commands::quota::service_quota_billing_rule_upsert,
             crate::commands::quota::service_quota_billing_rule_delete,
+            crate::commands::quota::service_model_price_rules_list,
+            crate::commands::quota::service_model_price_rule_read,
+            crate::commands::quota::service_model_price_rule_upsert,
             crate::commands::quota::service_quota_source_models_set,
             crate::commands::quota::service_quota_capacity_template_update,
             crate::commands::quota::service_quota_account_capacity_override_update,

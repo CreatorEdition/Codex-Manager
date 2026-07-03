@@ -127,7 +127,9 @@ pub async fn service_quota_capacity_config(
 }
 
 #[tauri::command]
-pub async fn service_quota_billing_rules(addr: Option<String>) -> Result<serde_json::Value, String> {
+pub async fn service_quota_billing_rules(
+    addr: Option<String>,
+) -> Result<serde_json::Value, String> {
     rpc_call_in_background("quota/billingRules", addr, None).await
 }
 
@@ -175,6 +177,39 @@ pub async fn service_quota_billing_rule_delete(
         "quota/billingRule/delete",
         addr,
         Some(serde_json::json!({ "id": id })),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn service_model_price_rules_list(
+    addr: Option<String>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background("modelPriceRules/list", addr, None).await
+}
+
+#[tauri::command]
+pub async fn service_model_price_rule_read(
+    addr: Option<String>,
+    model_pattern: String,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "modelPriceRule/read",
+        addr,
+        Some(serde_json::json!({ "modelPattern": model_pattern })),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn service_model_price_rule_upsert(
+    addr: Option<String>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "modelPriceRule/upsert",
+        addr,
+        Some(serde_json::json!({ "payload": payload })),
     )
     .await
 }

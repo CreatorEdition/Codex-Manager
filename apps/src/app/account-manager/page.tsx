@@ -1023,10 +1023,10 @@ export default function AccountManagerPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectItem value="10">10 / 页</SelectItem>
-                    <SelectItem value="20">20 / 页</SelectItem>
-                    <SelectItem value="50">50 / 页</SelectItem>
-                    <SelectItem value="100">100 / 页</SelectItem>
+                    <SelectItem value="10">{t("10 / 页")}</SelectItem>
+                    <SelectItem value="20">{t("20 / 页")}</SelectItem>
+                    <SelectItem value="50">{t("50 / 页")}</SelectItem>
+                    <SelectItem value="100">{t("100 / 页")}</SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>

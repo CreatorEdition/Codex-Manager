@@ -1124,3 +1124,17 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - 约束确认：仍基于本次解析结果执行 `apply_status_from_snapshot()`；相同快照维护 latest/captured_at 语义；字段变化时新增快照。
 - 验证：`cargo test -p codexmanager-core --lib usage_snapshot -- --nocapture` → 6 passed；`cargo test -p codexmanager-service --lib usage_snapshot -- --nocapture` → 5 passed；`cargo check -p codexmanager-service` → Finished（仅既有 warning）。
 - 协作备注：Opus 执行方产出半成品并带入 rustfmt 噪声，CodeX-GPT 已清理无关 diff、补齐测试与协作状态并完成提交。
+
+## 2026-07-03 账号计划类型原值保留与自定义过滤（【CodeX-GPT】）
+
+### ✅【已完成】K12 等未知计划类型不再被写死为 unknown
+
+- 根因：`/accounts/check` 订阅接口把未识别计划类型统一归一化为 `unknown`，导致 `K12` 原值丢失；检索页和账户页只能显示“未知”。该问题不只影响 K12，未来任意未在白名单中的计划值（如 `student`、`researcher_beta`、`nonprofit`）都会触发同类问题。
+- 实施：`normalize_account_plan_value()` 对已知计划仍返回 canonical 值，对未知非空计划保留小写原值；订阅解析会保存 `K12 -> k12`，账户列表通过 `planTypeRaw` 显示原值，账户分组统计也按原值计数。
+- 路由过滤：平台 Key 的账号计划过滤不再只接受固定白名单；后端支持任意非空计划值，前端账号组筛选新增“自定义计划类型”，可输入 `k12` 等原始计划值。`unknown` 过滤收窄为真正未知/无计划，不再误命中已保留原值的 K12。
+- 代理稳定性补强：usage/subscription HTTP client 在未显式配置 `CODEXMANAGER_UPSTREAM_PROXY_URL` 时不再继承系统 `HTTP_PROXY/HTTPS_PROXY`，与网关主上游客户端行为保持一致，避免本地代理污染 mock 测试和真实用量刷新。
+- 测试环境补强：本机存在系统代理/代理软件时，部分本地 `127.0.0.1` mock 测试会被 reqwest 默认代理劫持并返回 502；已为 aggregate API、HTTP bridge streaming mock、attempt_flow mock client 显式 `no_proxy()`，仅影响测试隔离，不改变生产代理策略。
+- 验证：`cargo test -p codexmanager-service account_plan -- --nocapture` → 4 passed；`cargo test -p codexmanager-service fetch_account_subscription_preserves_unknown_plan_value -- --nocapture` → 1 passed；`cargo test -p codexmanager-service aggregate_api::tests::claude_probe -- --nocapture --test-threads=1` → 5 passed；`cargo test -p codexmanager-service gateway::http_bridge::tests::anthropic_sse_reader_does_not_replay_completed_snapshot_after_tool_call -- --nocapture` → 1 passed；`cargo test --target-dir target-verify -p codexmanager-service --lib gateway::upstream::attempt_flow -- --nocapture --test-threads=1` → 43 passed；`cargo check -p codexmanager-core -p codexmanager-service` → passed（仅既有 warning）。
+- 前端/运行时验证：`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` → passed；`.\node_modules\.bin\next.cmd build` → passed；`node --test` runtime mjs 套件 → 84 passed。
+- ⚠️ 发布门禁状态：完整 `cargo test --workspace -- --test-threads=1` 已跑到 service lib 阶段并验证 core/storage 通过、账号计划与 aggregate/attempt_flow 相关用例通过；首次剩余 4 个本地 mock 502 已修复并定向复跑通过。当前无法给出完整 workspace 绿灯的唯一阻塞是本机 Windows 测试进程残留锁定 `codexmanager_service-628427fd77b443cb.exe`，普通与提升权限 `taskkill`/WMI 均无法终止（Access denied / ReturnValue 2），导致后续全量重跑在链接阶段报 `LNK1104`；另一次重跑还暴露系统 `os error 1455`（页面文件太小）。这属于当前机器资源/进程锁阻塞，不是已知业务代码失败。
+- ⚠️ 格式门禁状态：`cargo fmt --all --check` 仍受既有无关 rustfmt 漂移阻塞（历史记录文件包括 aggregate_apis/model_options/request_token_stats/dashboard 等），本轮未做全仓格式化，避免把无关格式噪声混入账号计划修复。

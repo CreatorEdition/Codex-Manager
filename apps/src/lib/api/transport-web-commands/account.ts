@@ -73,6 +73,25 @@ export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<strin
     service_model_group_delete: { rpcMethod: "modelGroups/delete" },
     service_model_group_models_set: { rpcMethod: "modelGroups/setModels" },
     service_model_group_users_set: { rpcMethod: "modelGroups/setUsers" },
+    service_model_price_rules_list: { rpcMethod: "modelPriceRules/list" },
+    service_model_price_rule_read: {
+      rpcMethod: "modelPriceRule/read",
+      mapParams: (params) => {
+        const source = asRecord(params) ?? {};
+        return {
+          modelPattern: source.model_pattern ?? source.modelPattern,
+        };
+      },
+    },
+    service_model_price_rule_upsert: {
+      rpcMethod: "modelPriceRule/upsert",
+      mapParams: (params) => {
+        const source = asRecord(params) ?? {};
+        return {
+          payload: source.payload,
+        };
+      },
+    },
     service_dashboard_admin_usage_summary: {
       rpcMethod: "dashboard/adminUsageSummary",
       mapParams: (params) => {
@@ -86,6 +105,21 @@ export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<strin
           mapped.rankingLimit = rankingLimit;
         }
         return mapped;
+      },
+    },
+    service_dashboard_admin_overview: {
+      rpcMethod: "dashboard/adminOverview",
+      mapParams: (params) => {
+        const source = asRecord(params) ?? {};
+        return {
+          requestLogLimit: source.request_log_limit ?? source.requestLogLimit,
+          dayStartTs: source.day_start_ts ?? source.dayStartTs,
+          dayEndTs: source.day_end_ts ?? source.dayEndTs,
+          accountLimit: source.account_limit ?? source.accountLimit,
+          startTs: source.start_ts ?? source.startTs,
+          endTs: source.end_ts ?? source.endTs,
+          rankingLimit: source.ranking_limit ?? source.rankingLimit,
+        };
       },
     },
     service_dashboard_member_summary: {

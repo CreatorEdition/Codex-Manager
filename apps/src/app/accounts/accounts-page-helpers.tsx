@@ -82,6 +82,15 @@ export function normalizeAccountPlanKey(account: Account) {
   );
 }
 
+export function getAccountPlanDisplayValue(account: Account): string {
+  const normalized = normalizeAccountPlanKey(account);
+  const raw = String(account.planTypeRaw || "").trim();
+  if (normalized === "unknown" && raw && raw.toLowerCase() !== "unknown") {
+    return raw;
+  }
+  return normalized;
+}
+
 export function formatPlanFilterLabel(value: string, t: TranslateFn) {
   const nextValue = String(value || "").trim();
   if (!nextValue || nextValue === "all") {
@@ -485,10 +494,10 @@ export function formatAccountPlanLabel(
   account: Account,
   t: TranslateFn,
 ): string | null {
-  const normalized = normalizeAccountPlanKey(account);
-  return normalized === "unknown"
+  const displayValue = getAccountPlanDisplayValue(account);
+  return displayValue === "unknown"
     ? null
-    : formatAccountPlanValueLabel(normalized, t);
+    : formatAccountPlanValueLabel(displayValue, t);
 }
 
 export function formatAccountSubscriptionPlanLabel(
@@ -498,8 +507,12 @@ export function formatAccountSubscriptionPlanLabel(
   const normalized = String(account.subscriptionPlan || account.planType || "")
     .trim()
     .toLowerCase();
-  return normalized
-    ? formatAccountPlanValueLabel(normalized, t)
+  if (normalized && normalized !== "unknown") {
+    return formatAccountPlanValueLabel(normalized, t);
+  }
+  const displayValue = getAccountPlanDisplayValue(account);
+  return displayValue && displayValue !== "unknown"
+    ? formatAccountPlanValueLabel(displayValue, t)
     : t("未知");
 }
 

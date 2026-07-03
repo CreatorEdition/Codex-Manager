@@ -713,7 +713,10 @@ mod tests {
             }
         });
 
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("build reqwest client");
         let incoming_headers = IncomingHeaderSnapshot::default();
         let request_ctx = UpstreamRequestContext {
             request_path: "/v1/responses",

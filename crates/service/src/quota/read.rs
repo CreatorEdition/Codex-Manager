@@ -13,9 +13,9 @@ use codexmanager_core::rpc::types::{
     QuotaTodayUsageResult,
 };
 use codexmanager_core::storage::{
-    Account, AccountQuotaCapacityOverride, AccountQuotaCapacityTemplate, AccountSubscription,
-    AggregateApi, ApiKey, BillingRule, ModelPriceRule, QuotaSourceModelAssignment, Token,
-    UsageSnapshotRecord,
+    now_ts, Account, AccountQuotaCapacityOverride, AccountQuotaCapacityTemplate,
+    AccountSubscription, AggregateApi, ApiKey, BillingRule, ModelPriceRule,
+    QuotaSourceModelAssignment, Token, UsageSnapshotRecord,
 };
 use rand::RngCore;
 use serde_json::Value;
@@ -45,6 +45,19 @@ pub(crate) struct BillingRuleUpsertInput {
     pub(crate) api_key_id: Option<String>,
     pub(crate) starts_at: Option<i64>,
     pub(crate) ends_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ModelPriceRuleUpsertInput {
+    pub(crate) id: Option<String>,
+    pub(crate) provider: Option<String>,
+    pub(crate) model_pattern: String,
+    pub(crate) match_type: Option<String>,
+    pub(crate) input_price_per_1m: Option<f64>,
+    pub(crate) cached_input_price_per_1m: Option<f64>,
+    pub(crate) output_price_per_1m: Option<f64>,
+    pub(crate) enabled: Option<bool>,
+    pub(crate) priority: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -538,6 +551,153 @@ pub(crate) fn delete_billing_rule(id: &str) -> Result<QuotaBillingRulesResult, S
         .delete_billing_rule(id)
         .map_err(|err| format!("delete billing rule failed: {err}"))?;
     read_billing_rules()
+}
+
+fn model_price_rule_value(rule: ModelPriceRule) -> Value {
+    serde_json::json!({
+        "id": rule.id,
+        "provider": rule.provider,
+        "modelPattern": rule.model_pattern,
+        "matchType": rule.match_type,
+        "inputPricePer1m": rule.input_price_per_1m,
+        "cachedInputPricePer1m": rule.cached_input_price_per_1m,
+        "outputPricePer1m": rule.output_price_per_1m,
+        "enabled": rule.enabled,
+        "priority": rule.priority,
+        "source": rule.source,
+        "createdAt": rule.created_at,
+        "updatedAt": rule.updated_at,
+    })
+}
+
+pub(crate) fn read_model_price_rules() -> Result<Value, String> {
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let items = storage
+        .list_model_price_rules()
+        .map_err(|err| format!("list model price rules failed: {err}"))?
+        .into_iter()
+        .map(model_price_rule_value)
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({ "items": items }))
+}
+
+pub(crate) fn read_model_price_rule(model_pattern: &str) -> Result<Value, String> {
+    let model_pattern = model_pattern.trim();
+    if model_pattern.is_empty() {
+        return Ok(Value::Null);
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let value = storage
+        .find_model_price_rule_by_model_pattern(model_pattern)
+        .map_err(|err| format!("read model price rule failed: {err}"))?
+        .map(model_price_rule_value)
+        .unwrap_or(Value::Null);
+    Ok(value)
+}
+
+pub(crate) fn upsert_model_price_rule(input: ModelPriceRuleUpsertInput) -> Result<Value, String> {
+    let model_pattern = input.model_pattern.trim();
+    if model_pattern.is_empty() {
+        return Err("modelPattern required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let existing = storage
+        .find_model_price_rule_by_model_pattern(model_pattern)
+        .map_err(|err| format!("read existing model price rule failed: {err}"))?;
+    let now = now_ts();
+    let id = input
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| existing.as_ref().map(|rule| rule.id.clone()))
+        .unwrap_or_else(|| format!("custom:{model_pattern}"));
+    let provider = input
+        .provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| existing.as_ref().map(|rule| rule.provider.clone()))
+        .unwrap_or_else(|| "custom".to_string());
+    let match_type = input
+        .match_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| existing.as_ref().map(|rule| rule.match_type.clone()))
+        .unwrap_or_else(|| "exact".to_string());
+    let rule = ModelPriceRule {
+        id,
+        provider,
+        model_pattern: model_pattern.to_string(),
+        match_type,
+        billing_mode: existing
+            .as_ref()
+            .map(|rule| rule.billing_mode.clone())
+            .unwrap_or_else(|| "tokens".to_string()),
+        currency: existing
+            .as_ref()
+            .map(|rule| rule.currency.clone())
+            .unwrap_or_else(|| "USD".to_string()),
+        unit: existing
+            .as_ref()
+            .map(|rule| rule.unit.clone())
+            .unwrap_or_else(|| "1m_tokens".to_string()),
+        input_price_per_1m: input
+            .input_price_per_1m
+            .or_else(|| existing.as_ref().and_then(|rule| rule.input_price_per_1m)),
+        cached_input_price_per_1m: input.cached_input_price_per_1m.or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|rule| rule.cached_input_price_per_1m)
+        }),
+        output_price_per_1m: input
+            .output_price_per_1m
+            .or_else(|| existing.as_ref().and_then(|rule| rule.output_price_per_1m)),
+        reasoning_output_price_per_1m: existing
+            .as_ref()
+            .and_then(|rule| rule.reasoning_output_price_per_1m),
+        cache_write_5m_price_per_1m: existing
+            .as_ref()
+            .and_then(|rule| rule.cache_write_5m_price_per_1m),
+        cache_write_1h_price_per_1m: existing
+            .as_ref()
+            .and_then(|rule| rule.cache_write_1h_price_per_1m),
+        cache_hit_price_per_1m: existing
+            .as_ref()
+            .and_then(|rule| rule.cache_hit_price_per_1m),
+        long_context_threshold_tokens: existing
+            .as_ref()
+            .and_then(|rule| rule.long_context_threshold_tokens),
+        long_context_input_price_per_1m: existing
+            .as_ref()
+            .and_then(|rule| rule.long_context_input_price_per_1m),
+        long_context_cached_input_price_per_1m: existing
+            .as_ref()
+            .and_then(|rule| rule.long_context_cached_input_price_per_1m),
+        long_context_output_price_per_1m: existing
+            .as_ref()
+            .and_then(|rule| rule.long_context_output_price_per_1m),
+        source: "user_custom".to_string(),
+        source_url: existing.as_ref().and_then(|rule| rule.source_url.clone()),
+        seed_version: existing.as_ref().and_then(|rule| rule.seed_version.clone()),
+        enabled: input
+            .enabled
+            .unwrap_or_else(|| existing.as_ref().map(|rule| rule.enabled).unwrap_or(true)),
+        priority: input
+            .priority
+            .or_else(|| existing.as_ref().map(|rule| rule.priority))
+            .unwrap_or(100),
+        created_at: existing.as_ref().map(|rule| rule.created_at).unwrap_or(now),
+        updated_at: now,
+    };
+    storage
+        .upsert_model_price_rule(&rule)
+        .map_err(|err| format!("upsert model price rule failed: {err}"))?;
+    Ok(model_price_rule_value(rule))
 }
 
 pub(crate) fn read_quota_model_usage(

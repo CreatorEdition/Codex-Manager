@@ -87,6 +87,16 @@ const ACCOUNT_PLAN_FILTER_LABELS: Record<string, string> = {
   edu: "Edu",
   unknown: "未知计划",
 };
+const CUSTOM_ACCOUNT_PLAN_FILTER_VALUE = "__custom__";
+const KNOWN_ACCOUNT_PLAN_FILTER_VALUES = new Set(
+  Object.keys(ACCOUNT_PLAN_FILTER_LABELS),
+);
+
+function normalizeAccountPlanFilterInput(value?: string | null): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
 
 interface ApiKeyModalProps {
   open: boolean;
@@ -143,6 +153,7 @@ export function ApiKeyModal({
   const [serviceTier, setServiceTier] = useState("");
   const [rotationStrategy, setRotationStrategy] = useState("account_rotation");
   const [accountPlanFilter, setAccountPlanFilter] = useState("all");
+  const [customAccountPlanFilter, setCustomAccountPlanFilter] = useState("");
   const [quotaLimitValue, setQuotaLimitValue] = useState("");
   const [quotaLimitUnit, setQuotaLimitUnit] = useState<QuotaLimitUnit>("k");
   const [upstreamBaseUrl, setUpstreamBaseUrl] = useState("");
@@ -233,6 +244,7 @@ export function ApiKeyModal({
       setServiceTier("");
       setRotationStrategy("account_rotation");
       setAccountPlanFilter("all");
+      setCustomAccountPlanFilter("");
       setQuotaLimitValue("");
       setQuotaLimitUnit("k");
       setUpstreamBaseUrl("");
@@ -248,7 +260,19 @@ export function ApiKeyModal({
     setReasoningEffort(apiKey.reasoningEffort || "");
     setServiceTier(normalizeEditableServiceTier(apiKey.serviceTier));
     setRotationStrategy(apiKey.rotationStrategy || "account_rotation");
-    setAccountPlanFilter(apiKey.accountPlanFilter || "all");
+    const savedAccountPlanFilter = normalizeAccountPlanFilterInput(
+      apiKey.accountPlanFilter,
+    );
+    if (
+      savedAccountPlanFilter &&
+      !KNOWN_ACCOUNT_PLAN_FILTER_VALUES.has(savedAccountPlanFilter)
+    ) {
+      setAccountPlanFilter(CUSTOM_ACCOUNT_PLAN_FILTER_VALUE);
+      setCustomAccountPlanFilter(savedAccountPlanFilter);
+    } else {
+      setAccountPlanFilter(savedAccountPlanFilter || "all");
+      setCustomAccountPlanFilter("");
+    }
     const resolvedQuotaUnit = resolveQuotaLimitUnit(apiKey.quotaLimitTokens);
     setQuotaLimitUnit(resolvedQuotaUnit);
     setQuotaLimitValue(
@@ -326,6 +350,18 @@ export function ApiKeyModal({
       if (memberOwnershipEnabled && distributionEnabled && !normalizedOwnerUserId) {
         throw new Error(t("请选择平台 Key 归属成员"));
       }
+      const resolvedAccountPlanFilter =
+        accountPlanFilter === CUSTOM_ACCOUNT_PLAN_FILTER_VALUE
+          ? normalizeAccountPlanFilterInput(customAccountPlanFilter)
+          : accountPlanFilter;
+      if (
+        isAdminMode &&
+        usesAccountPlanFilter &&
+        accountPlanFilter === CUSTOM_ACCOUNT_PLAN_FILTER_VALUE &&
+        !resolvedAccountPlanFilter
+      ) {
+        throw new Error(t("请填写自定义计划类型"));
+      }
       const params = {
         name: name || null,
         modelSlug: !modelSlug || modelSlug === "auto" ? null : modelSlug,
@@ -340,8 +376,10 @@ export function ApiKeyModal({
         staticHeadersJson: null,
         rotationStrategy: isAdminMode ? rotationStrategy : "account_rotation",
         accountPlanFilter:
-          isAdminMode && usesAccountPlanFilter && accountPlanFilter !== "all"
-            ? accountPlanFilter
+          isAdminMode &&
+          usesAccountPlanFilter &&
+          resolvedAccountPlanFilter !== "all"
+            ? resolvedAccountPlanFilter
             : null,
         quotaLimitTokens: quotaLimitTokenPreview,
         customKey: !apiKey?.id && customKey.trim() ? customKey.trim() : null,
@@ -517,12 +555,20 @@ export function ApiKeyModal({
               >
                 <SelectTrigger className="w-full">
                   <SelectValue>
-                    {(value) =>
-                      t(
-                        ACCOUNT_PLAN_FILTER_LABELS[String(value || "")] ||
-                          "全部账号",
-                      )
-                    }
+                    {(value) => {
+                      const selectedValue = String(value || "");
+                      if (selectedValue === CUSTOM_ACCOUNT_PLAN_FILTER_VALUE) {
+                        const customValue = normalizeAccountPlanFilterInput(
+                          customAccountPlanFilter,
+                        );
+                        return customValue
+                          ? customValue.toUpperCase()
+                          : t("自定义计划类型");
+                      }
+                      return t(
+                        ACCOUNT_PLAN_FILTER_LABELS[selectedValue] || "全部账号",
+                      );
+                    }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent align="start">
@@ -534,13 +580,32 @@ export function ApiKeyModal({
                       </SelectItem>
                     ),
                   )}
+                  <SelectItem value={CUSTOM_ACCOUNT_PLAN_FILTER_VALUE}>
+                    {t("自定义计划类型")}
+                  </SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              {accountPlanFilter === CUSTOM_ACCOUNT_PLAN_FILTER_VALUE ? (
+                <Input
+                  value={customAccountPlanFilter}
+                  disabled={!isServiceReady}
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  placeholder={t("例如：k12")}
+                  onChange={(event) =>
+                    setCustomAccountPlanFilter(event.target.value)
+                  }
+                />
+              ) : null}
               <p className="text-[11px] text-muted-foreground">
-                {t(
-                  "仅对账号轮转和混合轮转生效，可限制这把平台密钥只从指定账号计划类型中选路由账号。",
-                )}
+                {accountPlanFilter === CUSTOM_ACCOUNT_PLAN_FILTER_VALUE
+                  ? t(
+                      "用于匹配后端保留的原始计划类型，例如 k12；除 k12 外，未来新增计划也可按原值过滤。",
+                    )
+                  : t(
+                      "仅对账号轮转和混合轮转生效，可限制这把平台密钥只从指定账号计划类型中选路由账号。",
+                    )}
               </p>
             </div>
           ) : null}

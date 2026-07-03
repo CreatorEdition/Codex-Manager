@@ -850,6 +850,7 @@ mod tests {
         api.url = base_url;
         api.model_override = Some("qwen3.5-plus".to_string());
         let client = reqwest::blocking::Client::builder()
+            .no_proxy()
             .timeout(Duration::from_secs(5))
             .build()
             .expect("build client");
@@ -897,6 +898,7 @@ mod tests {
         api.url = base_url;
         api.model_override = Some("qwen3.5-plus".to_string());
         let client = reqwest::blocking::Client::builder()
+            .no_proxy()
             .timeout(Duration::from_secs(5))
             .build()
             .expect("build client");
@@ -961,6 +963,7 @@ mod tests {
         let mut api = aggregate_api_with_action(None);
         api.url = base_url;
         let client = reqwest::blocking::Client::builder()
+            .no_proxy()
             .timeout(Duration::from_secs(5))
             .build()
             .expect("build client");
@@ -1028,6 +1031,7 @@ mod tests {
         let mut api = aggregate_api_with_action(None);
         api.url = base_url;
         let client = reqwest::blocking::Client::builder()
+            .no_proxy()
             .timeout(Duration::from_secs(5))
             .build()
             .expect("build client");

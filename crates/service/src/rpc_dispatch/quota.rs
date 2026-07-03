@@ -1,8 +1,9 @@
 use codexmanager_core::rpc::types::{JsonRpcRequest, JsonRpcResponse};
 
 use crate::quota::read::{
-    self, BillingRuleUpsertInput, QuotaApiKeyUsageInput, QuotaModelPoolSourcesInput,
-    QuotaModelPoolsInput, QuotaRefreshSourcesInput, QuotaSourceListInput,
+    self, BillingRuleUpsertInput, ModelPriceRuleUpsertInput, QuotaApiKeyUsageInput,
+    QuotaModelPoolSourcesInput, QuotaModelPoolsInput, QuotaRefreshSourcesInput,
+    QuotaSourceListInput,
 };
 
 fn string_array_param(req: &JsonRpcRequest, key: &str) -> Vec<String> {
@@ -20,6 +21,35 @@ fn string_array_param(req: &JsonRpcRequest, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn nested_param<'a>(req: &'a JsonRpcRequest, key: &str) -> Option<&'a serde_json::Value> {
+    req.params.as_ref().and_then(|params| {
+        params
+            .get("payload")
+            .and_then(|payload| payload.get(key))
+            .or_else(|| params.get(key))
+    })
+}
+
+fn nested_string_param(req: &JsonRpcRequest, key: &str) -> Option<String> {
+    nested_param(req, key)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn nested_i64_param(req: &JsonRpcRequest, key: &str) -> Option<i64> {
+    nested_param(req, key).and_then(|value| value.as_i64())
+}
+
+fn nested_f64_param(req: &JsonRpcRequest, key: &str) -> Option<f64> {
+    nested_param(req, key).and_then(|value| value.as_f64())
+}
+
+fn nested_bool_param(req: &JsonRpcRequest, key: &str) -> Option<bool> {
+    nested_param(req, key).and_then(|value| value.as_bool())
 }
 
 pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
@@ -106,6 +136,24 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "quota/billingRule/delete" => {
             let id = super::str_param(req, "id").unwrap_or("");
             super::value_or_error(read::delete_billing_rule(id))
+        }
+        "modelPriceRules/list" => super::value_or_error(read::read_model_price_rules()),
+        "modelPriceRule/read" => {
+            let model_pattern = super::str_param(req, "modelPattern").unwrap_or("");
+            super::value_or_error(read::read_model_price_rule(model_pattern))
+        }
+        "modelPriceRule/upsert" => {
+            super::value_or_error(read::upsert_model_price_rule(ModelPriceRuleUpsertInput {
+                id: nested_string_param(req, "id"),
+                provider: nested_string_param(req, "provider"),
+                model_pattern: nested_string_param(req, "modelPattern").unwrap_or_default(),
+                match_type: nested_string_param(req, "matchType"),
+                input_price_per_1m: nested_f64_param(req, "inputPricePer1m"),
+                cached_input_price_per_1m: nested_f64_param(req, "cachedInputPricePer1m"),
+                output_price_per_1m: nested_f64_param(req, "outputPricePer1m"),
+                enabled: nested_bool_param(req, "enabled"),
+                priority: nested_i64_param(req, "priority"),
+            }))
         }
         "quota/sourceModels/set" => {
             let source_kind = super::str_param(req, "sourceKind").unwrap_or("");

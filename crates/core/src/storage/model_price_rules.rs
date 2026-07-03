@@ -1,4 +1,4 @@
-use rusqlite::{params, Result};
+use rusqlite::{params, Result, Row};
 
 use super::{ModelPriceRule, Storage};
 
@@ -91,6 +91,49 @@ impl Storage {
         )
     }
 
+    pub fn list_model_price_rules(&self) -> Result<Vec<ModelPriceRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                id, provider, model_pattern, match_type, billing_mode,
+                currency, unit, input_price_per_1m, cached_input_price_per_1m,
+                output_price_per_1m, reasoning_output_price_per_1m,
+                cache_write_5m_price_per_1m, cache_write_1h_price_per_1m,
+                cache_hit_price_per_1m, long_context_threshold_tokens,
+                long_context_input_price_per_1m,
+                long_context_cached_input_price_per_1m,
+                long_context_output_price_per_1m, source, source_url,
+                seed_version, enabled, priority, created_at, updated_at
+             FROM model_price_rules
+             ORDER BY enabled DESC, priority DESC, length(model_pattern) DESC, model_pattern ASC",
+        )?;
+        let rows = stmt.query_map([], model_price_rule_from_row)?;
+        rows.collect()
+    }
+
+    pub fn find_model_price_rule_by_model_pattern(
+        &self,
+        model_pattern: &str,
+    ) -> Result<Option<ModelPriceRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                id, provider, model_pattern, match_type, billing_mode,
+                currency, unit, input_price_per_1m, cached_input_price_per_1m,
+                output_price_per_1m, reasoning_output_price_per_1m,
+                cache_write_5m_price_per_1m, cache_write_1h_price_per_1m,
+                cache_hit_price_per_1m, long_context_threshold_tokens,
+                long_context_input_price_per_1m,
+                long_context_cached_input_price_per_1m,
+                long_context_output_price_per_1m, source, source_url,
+                seed_version, enabled, priority, created_at, updated_at
+             FROM model_price_rules
+             WHERE model_pattern = ?1
+             ORDER BY enabled DESC, priority DESC, updated_at DESC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query([model_pattern])?;
+        rows.next()?.map(model_price_rule_from_row).transpose()
+    }
+
     pub fn list_enabled_model_price_rules(&self) -> Result<Vec<ModelPriceRule>> {
         let mut stmt = self.conn.prepare(
             "SELECT
@@ -107,38 +150,8 @@ impl Storage {
              WHERE enabled = 1
              ORDER BY priority DESC, length(model_pattern) DESC, model_pattern ASC",
         )?;
-        let mut rows = stmt.query([])?;
-        let mut items = Vec::new();
-        while let Some(row) = rows.next()? {
-            items.push(ModelPriceRule {
-                id: row.get(0)?,
-                provider: row.get(1)?,
-                model_pattern: row.get(2)?,
-                match_type: row.get(3)?,
-                billing_mode: row.get(4)?,
-                currency: row.get(5)?,
-                unit: row.get(6)?,
-                input_price_per_1m: row.get(7)?,
-                cached_input_price_per_1m: row.get(8)?,
-                output_price_per_1m: row.get(9)?,
-                reasoning_output_price_per_1m: row.get(10)?,
-                cache_write_5m_price_per_1m: row.get(11)?,
-                cache_write_1h_price_per_1m: row.get(12)?,
-                cache_hit_price_per_1m: row.get(13)?,
-                long_context_threshold_tokens: row.get(14)?,
-                long_context_input_price_per_1m: row.get(15)?,
-                long_context_cached_input_price_per_1m: row.get(16)?,
-                long_context_output_price_per_1m: row.get(17)?,
-                source: row.get(18)?,
-                source_url: row.get(19)?,
-                seed_version: row.get(20)?,
-                enabled: row.get(21)?,
-                priority: row.get(22)?,
-                created_at: row.get(23)?,
-                updated_at: row.get(24)?,
-            });
-        }
-        Ok(items)
+        let rows = stmt.query_map([], model_price_rule_from_row)?;
+        rows.collect()
     }
 
     pub(super) fn ensure_model_price_rules_table(&self) -> Result<()> {
@@ -189,4 +202,34 @@ impl Storage {
         )?;
         Ok(())
     }
+}
+
+fn model_price_rule_from_row(row: &Row<'_>) -> Result<ModelPriceRule> {
+    Ok(ModelPriceRule {
+        id: row.get(0)?,
+        provider: row.get(1)?,
+        model_pattern: row.get(2)?,
+        match_type: row.get(3)?,
+        billing_mode: row.get(4)?,
+        currency: row.get(5)?,
+        unit: row.get(6)?,
+        input_price_per_1m: row.get(7)?,
+        cached_input_price_per_1m: row.get(8)?,
+        output_price_per_1m: row.get(9)?,
+        reasoning_output_price_per_1m: row.get(10)?,
+        cache_write_5m_price_per_1m: row.get(11)?,
+        cache_write_1h_price_per_1m: row.get(12)?,
+        cache_hit_price_per_1m: row.get(13)?,
+        long_context_threshold_tokens: row.get(14)?,
+        long_context_input_price_per_1m: row.get(15)?,
+        long_context_cached_input_price_per_1m: row.get(16)?,
+        long_context_output_price_per_1m: row.get(17)?,
+        source: row.get(18)?,
+        source_url: row.get(19)?,
+        seed_version: row.get(20)?,
+        enabled: row.get(21)?,
+        priority: row.get(22)?,
+        created_at: row.get(23)?,
+        updated_at: row.get(24)?,
+    })
 }
