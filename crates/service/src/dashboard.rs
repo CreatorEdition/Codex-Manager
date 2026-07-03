@@ -1047,8 +1047,8 @@ pub(crate) fn read_admin_overview(
     }
 
     crate::initialize_storage_if_needed()?;
-    let storage = storage_helpers::open_storage()
-        .ok_or_else(|| "open storage failed".to_string())?;
+    let storage =
+        storage_helpers::open_storage().ok_or_else(|| "open storage failed".to_string())?;
 
     // 计算时间范围
     let (today_start, today_end) = local_day_bounds_ts()?;

@@ -157,11 +157,20 @@ fn test_daily_rollup_upsert_conflict() {
     assert_eq!(results.len(), 1, "应该只有 1 条记录（冲突时累加）");
     let result = &results[0];
     assert_eq!(result.input_tokens, 300, "input_tokens 应该累加");
-    assert_eq!(result.cached_input_tokens, 30, "cached_input_tokens 应该累加");
+    assert_eq!(
+        result.cached_input_tokens, 30,
+        "cached_input_tokens 应该累加"
+    );
     assert_eq!(result.output_tokens, 150, "output_tokens 应该累加");
     assert_eq!(result.total_tokens, 420, "total_tokens 应该累加");
-    assert_eq!(result.reasoning_output_tokens, 15, "reasoning_output_tokens 应该累加");
-    assert!((result.estimated_cost - 0.03).abs() < 1e-6, "estimated_cost 应该累加");
+    assert_eq!(
+        result.reasoning_output_tokens, 15,
+        "reasoning_output_tokens 应该累加"
+    );
+    assert!(
+        (result.estimated_cost - 0.03).abs() < 1e-6,
+        "estimated_cost 应该累加"
+    );
     assert_eq!(result.request_count, 3, "request_count 应该累加");
     assert_eq!(result.success_count, 3, "success_count 应该累加");
     assert_eq!(result.error_count, 0, "error_count 应该累加");
@@ -292,9 +301,15 @@ fn test_daily_rollup_multiple_dimensions() {
         updated_at: now,
     };
 
-    storage.insert_request_token_stat_daily_rollup(&rollup1).expect("insert rollup1");
-    storage.insert_request_token_stat_daily_rollup(&rollup2).expect("insert rollup2");
-    storage.insert_request_token_stat_daily_rollup(&rollup3).expect("insert rollup3");
+    storage
+        .insert_request_token_stat_daily_rollup(&rollup1)
+        .expect("insert rollup1");
+    storage
+        .insert_request_token_stat_daily_rollup(&rollup2)
+        .expect("insert rollup2");
+    storage
+        .insert_request_token_stat_daily_rollup(&rollup3)
+        .expect("insert rollup3");
 
     let results = storage
         .query_request_token_stat_daily_rollups(day_start)

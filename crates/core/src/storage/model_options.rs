@@ -285,9 +285,9 @@ impl Storage {
     /// 说明: 借助主键 `(scope, slug)` 做 O(log n) 点查，判断目标模型是否存在，
     /// 避免全量加载模型目录后再线性 `.any()` 扫描的反模式。
     pub fn model_catalog_model_exists(&self, scope: &str, slug: &str) -> rusqlite::Result<bool> {
-        let mut stmt = self.conn.prepare(
-            "SELECT 1 FROM model_catalog_models WHERE scope = ?1 AND slug = ?2 LIMIT 1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT 1 FROM model_catalog_models WHERE scope = ?1 AND slug = ?2 LIMIT 1")?;
         let mut rows = stmt.query(params![scope, slug])?;
         Ok(rows.next()?.is_some())
     }

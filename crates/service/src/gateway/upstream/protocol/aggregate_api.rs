@@ -761,7 +761,9 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
             .list_active_aggregate_apis_by_provider(provider_type)
             .map_err(|err| err.to_string())?
             .into_iter()
-            .filter(|api| normalize_provider_type_value(api.provider_type.as_str()) == provider_type)
+            .filter(|api| {
+                normalize_provider_type_value(api.provider_type.as_str()) == provider_type
+            })
             .collect::<Vec<_>>();
         let normalized = normalize_candidate_order(candidates);
         write_aggregate_api_candidate_cache(provider_type, normalized.clone());
@@ -848,10 +850,7 @@ pub(crate) fn init_aggregate_api_candidate_cache_config() {
     if let Ok(value) = std::env::var(AGGREGATE_API_CANDIDATE_CACHE_TTL_ENV) {
         if let Ok(ttl_ms) = value.parse::<u64>() {
             AGGREGATE_API_CANDIDATE_CACHE_TTL_MS.store(ttl_ms, Ordering::Relaxed);
-            log::info!(
-                "聚合 API 候选缓存 TTL 设置为 {} ms",
-                ttl_ms
-            );
+            log::info!("聚合 API 候选缓存 TTL 设置为 {} ms", ttl_ms);
         }
     }
 }

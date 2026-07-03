@@ -1347,8 +1347,9 @@ mod hotpath_tests {
             .list_active_aggregate_apis_by_provider("codex")
             .expect("list codex active");
         assert_eq!(codex_apis.len(), 2);
-        assert!(codex_apis.iter().all(|api| api.provider_type == "codex"
-            && api.status == "active"));
+        assert!(codex_apis
+            .iter()
+            .all(|api| api.provider_type == "codex" && api.status == "active"));
 
         // 测试过滤 claude + active
         let claude_apis = storage
@@ -1372,9 +1373,7 @@ mod hotpath_tests {
 
         storage
             .insert_aggregate_api(&sample_aggregate_api_with_provider(
-                "test",
-                "CODEX",
-                "ACTIVE",
+                "test", "CODEX", "ACTIVE",
             ))
             .expect("insert");
 

@@ -1734,8 +1734,8 @@ fn app_wallet_ledger_request_charge_index_migration_creates_partial_index() {
         )
         .expect("query index sql");
     assert!(
-        index_sql.contains("WHERE entry_kind = 'request_charge'") ||
-        index_sql.contains("WHERE entry_kind='request_charge'"),
+        index_sql.contains("WHERE entry_kind = 'request_charge'")
+            || index_sql.contains("WHERE entry_kind='request_charge'"),
         "索引应该是部分索引，包含 WHERE entry_kind='request_charge' 条件"
     );
 
@@ -1754,7 +1754,10 @@ fn app_wallet_ledger_request_charge_index_migration_creates_partial_index() {
         GROUP BY l.request_log_id
     ";
     let explain_query = format!("EXPLAIN QUERY PLAN {}", query);
-    let mut stmt = storage.conn.prepare(&explain_query).expect("prepare explain query");
+    let mut stmt = storage
+        .conn
+        .prepare(&explain_query)
+        .expect("prepare explain query");
     let mut rows = stmt.query([]).expect("execute explain query");
 
     let mut found_index_usage = false;
