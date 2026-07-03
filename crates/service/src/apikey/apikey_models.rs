@@ -22,6 +22,7 @@ const MODEL_SOURCE_KIND_REMOTE: &str = "remote";
 const MODEL_SOURCE_KIND_CUSTOM: &str = "custom";
 const ROUTING_SOURCE_KIND_OPENAI_ACCOUNT: &str = "openai_account";
 const ROUTING_SOURCE_KIND_AGGREGATE_API: &str = "aggregate_api";
+const PREF_UNLINKED: &str = "unlinked";
 
 /// 函数 `read_model_options`
 ///
@@ -73,8 +74,7 @@ pub(crate) fn read_managed_model_catalog(
     let storage =
         storage_helpers::open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let cached_catalog = read_managed_model_catalog_from_storage(&storage)?;
-    let cached = managed_catalog_to_models_response(&cached_catalog);
-    if !refresh_remote && !cached.is_empty() {
+    if !refresh_remote {
         return Ok(cached_catalog);
     }
 
@@ -292,7 +292,7 @@ pub(crate) fn delete_managed_model_catalog_model(slug: &str) -> Result<(), Strin
     }
     let storage =
         storage_helpers::open_storage().ok_or_else(|| "storage unavailable".to_string())?;
-    delete_model_catalog_entry(&storage, normalized_slug)
+    delete_model_catalog_entry(&storage, normalized_slug, true)
 }
 
 pub(crate) fn prune_stale_remote_managed_model_catalog() -> Result<ManagedModelCatalogResult, String>
@@ -838,7 +838,7 @@ fn cleanup_orphan_auto_catalog_models(
         if enabled_mappings.contains(model.slug.as_str()) {
             continue;
         }
-        delete_model_catalog_entry(storage, model.slug.as_str())?;
+        delete_model_catalog_entry(storage, model.slug.as_str(), false)?;
     }
     Ok(())
 }
@@ -930,6 +930,9 @@ fn auto_associate_source_models(
             if upstream_model.is_empty() || known_slugs.contains(upstream_model) {
                 continue;
             }
+            if prefs.get(upstream_model).map(String::as_str) == Some(PREF_UNLINKED) {
+                continue;
+            }
             let Some(model) = auto_platform_model_from_source_model(source_model) else {
                 continue;
             };
@@ -976,7 +979,7 @@ fn auto_associate_source_models(
             .get(source_model.upstream_model.as_str())
             .map(String::as_str)
         {
-            Some("unlinked") => continue,
+            Some(PREF_UNLINKED) => continue,
             Some(v) => v != "disabled",
             None => true,
         };
@@ -1725,7 +1728,7 @@ fn replace_model_catalog_entry(
     if let Some(previous_slug) = previous_slug {
         let normalized_previous = previous_slug.trim();
         if !normalized_previous.is_empty() && normalized_previous != target_slug {
-            delete_model_catalog_entry(storage, normalized_previous)?;
+            delete_model_catalog_entry(storage, normalized_previous, false)?;
         }
     }
 
@@ -1806,7 +1809,40 @@ fn replace_model_catalog_entry(
     Ok(())
 }
 
-fn delete_model_catalog_entry(storage: &Storage, slug: &str) -> Result<(), String> {
+fn delete_model_catalog_entry(
+    storage: &Storage,
+    slug: &str,
+    set_unlink_prefs: bool,
+) -> Result<(), String> {
+    if set_unlink_prefs {
+        let mappings = storage
+            .list_model_source_mappings(Some(slug))
+            .map_err(|e| format!("无法读取模型来源映射: {e}"))?;
+        let mut errors = Vec::new();
+        for mapping in &mappings {
+            if let Err(err) = storage.upsert_model_source_mapping_preference(
+                &mapping.source_kind,
+                &mapping.source_id,
+                &mapping.upstream_model,
+                PREF_UNLINKED,
+            ) {
+                log::warn!(
+                    "event=model_catalog_delete_unlink_preference_failed slug={slug} \
+                     source_kind={} source_id={} upstream_model={} err={err:?}",
+                    mapping.source_kind,
+                    mapping.source_id,
+                    mapping.upstream_model,
+                );
+                errors.push(format!("{}: {err}", mapping.upstream_model));
+            }
+        }
+        if !errors.is_empty() {
+            return Err(format!(
+                "无法为所有来源模型设置删除偏好: {}",
+                errors.join("; "),
+            ));
+        }
+    }
     storage
         .delete_model_group_model_references(slug)
         .map_err(|e| e.to_string())?;
@@ -1860,7 +1896,7 @@ fn prune_unedited_remote_model_catalog_entries_missing_from_remote(
             && !row.user_edited
             && !remote_slugs.contains(row.slug.as_str())
         {
-            delete_model_catalog_entry(storage, row.slug.as_str())?;
+            delete_model_catalog_entry(storage, row.slug.as_str(), false)?;
         }
     }
     Ok(())
@@ -2241,7 +2277,7 @@ mod tests {
         read_model_options_from_storage, save_managed_model_catalog_with_storage,
         save_model_options_with_storage, sync_aggregate_api_source_models,
         sync_aggregate_api_source_models_with_discovery, MODEL_SOURCE_KIND_CUSTOM,
-        MODEL_SOURCE_KIND_REMOTE, ROUTING_SOURCE_KIND_AGGREGATE_API,
+        MODEL_SOURCE_KIND_REMOTE, PREF_UNLINKED, ROUTING_SOURCE_KIND_AGGREGATE_API,
         ROUTING_SOURCE_KIND_OPENAI_ACCOUNT,
     };
     use codexmanager_core::rpc::types::{
@@ -2843,7 +2879,7 @@ mod tests {
             })
             .expect("seed wrapper mapping");
 
-        delete_model_catalog_entry(&storage, "gpt-delete").expect("delete catalog entry");
+        delete_model_catalog_entry(&storage, "gpt-delete", true).expect("delete catalog entry");
 
         assert!(storage
             .list_model_catalog_models("default")
@@ -2871,6 +2907,126 @@ mod tests {
             .map(|mapping| mapping.platform_model_slug)
             .collect::<Vec<_>>();
         assert_eq!(remaining_mapping_slugs, vec!["custom-wrapper"]);
+    }
+
+    #[test]
+    fn delete_catalog_entry_sets_unlinked_preference_and_blocks_auto_recreation() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        seed_platform_catalog(&storage, &["gpt-unlink"]);
+        insert_test_aggregate_api(&storage, "agg-unlink", "active");
+        storage
+            .upsert_discovered_model_source_models(
+                ROUTING_SOURCE_KIND_AGGREGATE_API,
+                "agg-unlink",
+                &["gpt-unlink".to_string()],
+                "synced",
+            )
+            .expect("seed aggregate source model");
+        let now = now_ts();
+        storage
+            .upsert_model_source_mapping(&ModelSourceMapping {
+                id: "mapping-unlink".to_string(),
+                platform_model_slug: "gpt-unlink".to_string(),
+                source_kind: ROUTING_SOURCE_KIND_AGGREGATE_API.to_string(),
+                source_id: "agg-unlink".to_string(),
+                upstream_model: "gpt-unlink".to_string(),
+                enabled: true,
+                priority: 0,
+                weight: 1,
+                billing_model_slug: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("seed mapping");
+
+        delete_model_catalog_entry(&storage, "gpt-unlink", true).expect("delete catalog entry");
+
+        assert!(storage
+            .list_model_catalog_models("default")
+            .expect("list catalog")
+            .is_empty());
+        assert!(storage
+            .list_model_source_mappings(Some("gpt-unlink"))
+            .expect("list mappings")
+            .is_empty());
+
+        let prefs = storage
+            .list_model_source_mapping_preferences(ROUTING_SOURCE_KIND_AGGREGATE_API, "agg-unlink")
+            .expect("list preferences");
+        assert_eq!(prefs.len(), 1);
+        assert_eq!(prefs[0].upstream_model, "gpt-unlink");
+        assert_eq!(prefs[0].preference, PREF_UNLINKED);
+
+        auto_associate_source_models(
+            &storage,
+            ROUTING_SOURCE_KIND_AGGREGATE_API,
+            "agg-unlink",
+            true,
+        )
+        .expect("auto associate after delete");
+
+        let catalog_after = read_managed_model_catalog_from_storage(&storage)
+            .expect("read catalog after associate");
+        assert!(
+            !catalog_after
+                .items
+                .iter()
+                .any(|item| item.model.slug == "gpt-unlink"),
+            "显式删除的模型不应被自动关联重新创建"
+        );
+        assert!(storage
+            .list_model_source_mappings(Some("gpt-unlink"))
+            .expect("list mappings after associate")
+            .is_empty());
+    }
+
+    #[test]
+    fn unlinked_preference_blocks_mapping_when_platform_model_exists() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        seed_platform_catalog(&storage, &["gpt-existing-unlink"]);
+        insert_test_aggregate_api(&storage, "agg-existing-unlink", "active");
+        storage
+            .upsert_discovered_model_source_models(
+                ROUTING_SOURCE_KIND_AGGREGATE_API,
+                "agg-existing-unlink",
+                &["gpt-existing-unlink".to_string()],
+                "synced",
+            )
+            .expect("seed aggregate source model");
+        storage
+            .upsert_model_source_mapping_preference(
+                ROUTING_SOURCE_KIND_AGGREGATE_API,
+                "agg-existing-unlink",
+                "gpt-existing-unlink",
+                PREF_UNLINKED,
+            )
+            .expect("seed unlink preference");
+
+        auto_associate_source_models(
+            &storage,
+            ROUTING_SOURCE_KIND_AGGREGATE_API,
+            "agg-existing-unlink",
+            true,
+        )
+        .expect("auto associate with unlink preference");
+
+        let catalog = read_managed_model_catalog_from_storage(&storage).expect("read catalog");
+        assert!(
+            catalog
+                .items
+                .iter()
+                .any(|item| item.model.slug == "gpt-existing-unlink"),
+            "已有平台模型不应因来源 unlink 偏好被删除"
+        );
+        assert!(
+            storage
+                .list_model_source_mappings(Some("gpt-existing-unlink"))
+                .expect("list mappings")
+                .is_empty(),
+            "来源已标记 unlink 时不应自动重建映射"
+        );
     }
 
     #[test]

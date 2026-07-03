@@ -85,6 +85,7 @@
 - HTTP Bridge 测试阻塞修复：`crates/service/tests/rpc.rs` conflict marker 已由 `b0ab427e` 处理；CodeX-GPT 通过 `baa16ec0` 恢复 `should_skip_request_log` 与实际写日志跳过逻辑，Claude-Opus 后续通过 `49a948b4` 将 helper 调整为 crate 内可见；CodeX-GPT 已完成独立审计，`cargo check -p codexmanager-service`、`cargo test -p codexmanager-service http_bridge::delivery -- --nocapture`、`cargo test -p codexmanager-service --lib gateway::request_log::tests -- --nocapture` 均已通过。
 - 代码质量审查协作：Claude-Opus 已按 `.teamwork/sync/` 提供只读质量审查报告；CodeX-GPT 已独立复核并运行 `cargo check --workspace`，确认 13 条 warning、1 个 unreachable pattern、maintenance dead code、1 个 Web 未使用变量、8 次 unsafe 命中、28 次 unwrap 命中和 77 个 `tests/` 路径 Rust 测试文件，本轮不修改业务代码。
 - 上游功能语义移植：未整合 `upstream/main` 的 sponsor/author 内容，仅按行为语义移植聚合 API 模型路由不被账号映射覆盖、桌面端大量账号文件导入 Rust 侧拆批和 `account/import` 长超时，并补充相关 Rust 回归测试。
+- 上游模型删除防自动拉回语义移植：CodeX-GPT 主审计确认仅移植 `83ca26f7` / `359580a7` 的模型目录删除行为，显式删除模型时为已有来源映射写入 `unlinked` 偏好，自动关联跳过该偏好，空目录同步 Codex cache 不再误报错误；未 merge/rebase/cherry-pick 上游，也未恢复 sponsor/author/推广/赞助内容。主审计补充“平台模型仍存在时不自动重建已 unlink 映射”回归测试。
 
 ### ⚠️ 待处理
 
