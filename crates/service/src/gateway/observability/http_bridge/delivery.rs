@@ -2406,7 +2406,7 @@ pub(crate) fn respond_with_upstream(
                     None,
                 ));
             }
-            ResponseAdapter::Passthrough | ResponseAdapter::ResponsesFromAnthropicMessages => {}
+            ResponseAdapter::Passthrough => {}
         }
     }
     match response_adapter {

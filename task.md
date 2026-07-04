@@ -10,6 +10,7 @@
 - 账号直连统计提示已修正：请求未经过 CodexManager 本地网关时不可统计；本地网关内部混合轮转仍属于可统计流量。
 - Web 运行壳的批量导入、手动全量刷新和维护类长耗时 RPC 已配置独立超时且默认不重试，避免默认 10 秒超时或自动重试放大重操作。
 - 观测数据维护已确认走后台调度：请求日志写入后不再同步执行 retention 清理或 WAL checkpoint。
+- 当前 `cargo check -p codexmanager-service` 已无 Rust warning。
 - 发布前本地门禁已完成：完整 workspace 测试、`cargo fmt --all --check`、空白检查和冲突标记扫描均已通过；后续每次发版前仍需重复运行。
 
 ### 🔄 本轮整理
@@ -64,12 +65,18 @@
 - 验证：`cargo test -p codexmanager-service --lib gateway::maintenance::tests -- --nocapture` 5 项通过；`cargo test -p codexmanager-service --lib gateway::request_log::tests -- --nocapture` 17 项通过；`cargo test -p codexmanager-core --lib observability -- --nocapture` 2 项通过、1 项按预期 ignored；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描无命中。
 - 未处理：既有 `delivery.rs` unreachable pattern warning 仍作为 P2 独立任务保留。
 
+### ✅ 已完成：P2 Rust warning 清理
+
+- 行为：删除 `delivery.rs` streaming adapter 分支中的不可达 `ResponsesFromAnthropicMessages` fallback；该 adapter 在前序分支已处理并返回。
+- 行为：删除 `usage_aggregate.rs` 中已被 core storage SQL 聚合替代的本地聚合函数、辅助函数和只覆盖废弃函数的单元测试；服务层继续通过 `storage.usage_aggregate_summary()` 返回后端聚合结果。
+- 约束：未改变当前 SQL 下推聚合行为，也未改变任何 RPC 返回结构。
+- 验证：`cargo check -p codexmanager-service` 通过且无 warning；`cargo test -p codexmanager-service --test rpc rpc_usage_aggregate_returns_backend_summary -- --exact --nocapture` 通过；`cargo test -p codexmanager-core --lib usage_aggregate_summary_matches_bucket_semantics -- --nocapture` 通过；`cargo test -p codexmanager-service --lib http_bridge::delivery::tests -- --nocapture` 18 项通过；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描无命中。
+
 ### 📌 后续待完成任务
 
 1. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
 2. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
-3. P2：清理既有 Rust warning，包括 `delivery.rs` unreachable pattern、维护模块 dead code 和 usage aggregate dead code。
-4. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
+3. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
 
 ### 🗂️ 历史记录说明
 
