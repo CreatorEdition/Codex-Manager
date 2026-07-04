@@ -1119,7 +1119,7 @@ fn usage_refresh_candidate_select_sql() -> &'static str {
        AND TRIM(COALESCE(t.refresh_token, '')) <> ''"
 }
 
-/// 保持与 `is_account_refresh_blocked_status_reason` 一致的状态原因过滤。
+/// 后台用量轮询只跳过已停用或永久无效的账号。
 fn usage_refresh_status_reason_clause() -> &'static str {
     "(
         latest_status_message IS NULL
@@ -1127,7 +1127,6 @@ fn usage_refresh_status_reason_clause() -> &'static str {
             LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=account_deactivated'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=workspace_deactivated'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=deactivated_workspace'
-            AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_region_blocked'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:refresh_token_reused'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:refresh_token_invalidated'
             AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:invalid_grant'
@@ -1412,12 +1411,14 @@ mod tests {
         banned.sort = 4;
         let mut empty_refresh = sample_account("acc-empty-refresh", "active", now);
         empty_refresh.sort = 5;
-        let mut blocked = sample_account("acc-blocked", "active", now);
-        blocked.sort = 6;
+        let mut deactivated = sample_account("acc-deactivated", "active", now);
+        deactivated.sort = 6;
+        let mut region_blocked = sample_account("acc-region-blocked", "unavailable", now);
+        region_blocked.sort = 7;
         let mut invalid_refresh = sample_account("acc-invalid-refresh", "active", now);
-        invalid_refresh.sort = 7;
+        invalid_refresh.sort = 8;
         let mut restored = sample_account("acc-restored", "active", now);
-        restored.sort = 8;
+        restored.sort = 9;
 
         for account in [
             &active_a,
@@ -1425,7 +1426,8 @@ mod tests {
             &disabled,
             &banned,
             &empty_refresh,
-            &blocked,
+            &deactivated,
+            &region_blocked,
             &invalid_refresh,
             &restored,
         ] {
@@ -1437,7 +1439,8 @@ mod tests {
             &active_b,
             &disabled,
             &banned,
-            &blocked,
+            &deactivated,
+            &region_blocked,
             &invalid_refresh,
             &restored,
         ] {
@@ -1454,12 +1457,20 @@ mod tests {
             .expect("insert empty refresh token");
         storage
             .insert_event(&Event {
-                account_id: Some(blocked.id.clone()),
+                account_id: Some(deactivated.id.clone()),
                 event_type: "account_status_update".to_string(),
                 message: "status=banned reason=workspace_deactivated".to_string(),
                 created_at: now + 10,
             })
-            .expect("insert blocked status event");
+            .expect("insert deactivated status event");
+        storage
+            .insert_event(&Event {
+                account_id: Some(region_blocked.id.clone()),
+                event_type: "account_status_update".to_string(),
+                message: "status=unavailable reason=refresh_token_region_blocked".to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert region blocked status event");
         storage
             .insert_event(&Event {
                 account_id: Some(invalid_refresh.id.clone()),
@@ -1490,7 +1501,7 @@ mod tests {
             storage
                 .usage_refresh_candidate_count(None)
                 .expect("candidate count"),
-            3
+            4
         );
 
         let first_page = storage
@@ -1513,7 +1524,7 @@ mod tests {
             .iter()
             .map(|(account, _)| account.id.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(second_page_ids, vec!["acc-restored"]);
+        assert_eq!(second_page_ids, vec!["acc-region-blocked", "acc-restored"]);
     }
 
     #[test]

@@ -244,16 +244,6 @@ pub(crate) fn is_banned_status_reason(reason: &str) -> bool {
     )
 }
 
-pub(crate) fn is_refresh_blocked_status_reason(reason: &str) -> bool {
-    reason
-        .trim()
-        .eq_ignore_ascii_case(REFRESH_TOKEN_REGION_BLOCKED_REASON)
-}
-
-pub(crate) fn is_account_refresh_blocked_status_reason(reason: &str) -> bool {
-    is_banned_status_reason(reason) || is_refresh_blocked_status_reason(reason)
-}
-
 /// 函数 `should_failover_for_deactivation_error`
 ///
 /// 作者: gaohongshun

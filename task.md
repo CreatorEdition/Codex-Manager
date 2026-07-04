@@ -16,6 +16,12 @@
 - `target-release-gate/` 是本地发布门禁隔离构建产物，不属于源码；已加入 `.gitignore`，后续不应提交。
 - `target/` 仍是 Rust 默认本地构建产物，已由既有 `.gitignore` 忽略。
 
+### ✅ 已完成：P1 `refresh_token_region_blocked` 不阻断额度刷新
+
+- 行为：Token 到期刷新、后台用量轮询和手动全量用量刷新不再把 `refresh_token_region_blocked` 当成永久阻断原因；账号后续只要拿到可用用量快照，可以从 `unavailable` 恢复为 `active`。
+- 边界：仍继续跳过 `account_deactivated`、`workspace_deactivated`、`deactivated_workspace` 以及永久无效 refresh token 原因；手动禁用 `disabled` 账号仍不会被用量快照自动恢复。
+- 验证：`cargo test -p codexmanager-core tokens_due_for_refresh -- --nocapture` 通过；`cargo test -p codexmanager-core list_usage_refresh_candidates_paginated_filters_blocked_accounts -- --nocapture` 通过；`cargo test -p codexmanager-service apply_status_available_recovers_region_blocked_status -- --nocapture` 通过；`cargo test -p codexmanager-service build_usage_refresh_tasks_skips_disabled_and_banned_accounts -- --nocapture` 通过。
+
 ### 📌 后续待完成任务
 
 1. P1：补齐账号页后端分页等价能力，包括计划类型筛选、限流/封禁状态筛选和全局排序。

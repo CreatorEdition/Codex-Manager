@@ -97,7 +97,6 @@ impl Storage {
                     LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=account_deactivated'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=workspace_deactivated'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=deactivated_workspace'
-                    AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_region_blocked'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:refresh_token_reused'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:refresh_token_invalidated'
                     AND LOWER(TRIM(latest_status_message)) NOT LIKE '% reason=refresh_token_invalid:invalid_grant'
@@ -549,7 +548,7 @@ mod tests {
             .map(|token| token.account_id)
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["acc-due".to_string(), "acc-restored".to_string()]);
+        assert_eq!(ids, vec!["acc-blocked".to_string(), "acc-due".to_string()]);
     }
 
     /// 函数 `list_tokens_due_for_refresh_keeps_transient_unknown_401`
