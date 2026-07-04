@@ -89,7 +89,7 @@
 
 ### ⚠️ 待处理
 
-- `cargo test --workspace` 尚未全量执行，后续安全/CI 阶段再跑完整工作区测试。
+- 发布门禁已在 2026-07-04 完整跑通；后续每次发版前仍需重复 `cargo test --target-dir target-release-gate --workspace -- --test-threads=1` 与格式/冲突/空白门禁。
 - 旧工作副本 `C:\code\CodeX\Codex-Manager` 仅保留为审计参考，实际修改转入 `Codex-Manager-CE`。
 - 账号页计划类型筛选、限流/封禁状态筛选和全局排序还缺后端分页等价能力，本次前端避免用当前页数据伪装全局筛选。
 - `dashboard/adminUsageSummary` 已完成默认 TopN SQL 下推；后续仍应拆 `dashboard/adminOverview` 与分页排行 RPC，并考虑把排行聚合进一步迁移到日级 rollup，减少每次首页打开扫描请求日志窗口。
@@ -1154,3 +1154,22 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 - 验证：`cargo test -p codexmanager-service --test gateway_logs -- --test-threads=1` 通过 26 项；`cargo test -p codexmanager-service --lib aggregate_api::tests:: -- --nocapture --test-threads=1` 通过 35 项；`cargo test --target-dir target-release-gate -p codexmanager-service --lib -- --test-threads=1` 通过 1016 项；`cargo test --target-dir target-release-gate -p codexmanager-service --test rpc -- --test-threads=1` 通过 43 项；`cargo test --target-dir target-release-gate -p codexmanager-web --bin codexmanager-web -- --test-threads=1` 通过 18 项；`cargo test --target-dir target-release-gate --workspace -- --test-threads=1` 完整通过。
 - 门禁：`cargo fmt --all --check` 通过；`git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --check` 通过（仅 Git 提示 CRLF 工作副本换行警告，无空白错误）；冲突标记扫描未发现残留。
 - 发布判断：当前工作副本在提交本轮测试同步与文档后，可作为本地发布候选；`target-release-gate/` 仅为隔离测试产物，不应纳入提交。
+
+## 2026-07-04 发布后待办计划（【CodeX-GPT】）
+
+### 🔄 计划中：非阻塞 backlog 分批处理
+
+本节记录已确认不阻塞当前发布候选、但需要继续跟进的事项。处理顺序按风险和收益排序：
+
+1. P1：补齐账号页后端分页等价能力，包括计划类型筛选、限流/封禁状态筛选和全局排序，避免前端用当前页数据伪装全局结果。
+2. P1：继续梳理 Web RPC 超时/重试矩阵，重点覆盖批量导入、手动全量刷新、长耗时维护类操作；禁止通过恢复全量裸调用规避超时。
+3. P1：观察并优化 `request_logs`、`events`、`usage_snapshots` 与 WAL 体积，复核留存策略、后台维护批大小和 WAL 收缩效果。
+4. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup，减少首页打开时扫描请求日志窗口。
+5. P2：为首页模型池容量补独立轻量汇总或分页来源懒加载；不得让 summary 模式回退到 `quota/modelPools(includeSources:true)` 的全量扫描。
+6. P2：清理既有 Rust warning，包括 `delivery.rs` 的 unreachable pattern、维护模块 dead code 和 usage aggregate dead code；不得与业务功能变更混在同一提交。
+7. P2：发布/PR 分支治理。当前 `hardening/main` 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包推送到上游 PR。
+
+### 下一步执行建议
+
+- 当前发布候选先推送 `hardening/main` 到 origin，供 CI/Release workflow 或人工打包使用。
+- 后续 backlog 按“一个主题一个中文 commit”处理；涉及子代理实现时，仍必须由 CodeX-GPT 主代理独立审计 diff 与测试结果后才能通过。
