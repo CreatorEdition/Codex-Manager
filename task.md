@@ -88,9 +88,16 @@
 - 约束：保留既有 `quota/modelPools` 默认轻量 skeleton 行为，模型页和聚合 API 页继续使用既有全量/分页来源接口；子代理仅做只读分析，最终实现由 CodeX-GPT 主代理审计并验证。
 - 验证：`node --test apps\tests\transport-web-commands.test.mjs` 15 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`cargo check -p codexmanager-service` 通过；`cargo check --manifest-path apps\src-tauri\Cargo.toml` 通过；`cargo test -p codexmanager-service --test rpc quota_model_pool -- --nocapture` 3 项通过；`cargo fmt --all --check` 通过。
 
+### ✅ 已完成：P2 管理员排行日级 rollup 迁移评估
+
+- 结论：当前不应直接把 `dashboard/adminUsageSummary` 排行切到 `request_token_stat_daily_rollups`；该表和插入/查询辅助函数存在，但生产维护链路尚未写入该表。
+- 证据：`dashboard/adminUsageSummary` 仍走实时 `request_token_stats` / `request_logs` 聚合；`prune_observability_history()` 只写旧 `request_token_stat_rollups`；service 后台维护最终只调用该维护入口。
+- 产出：评估记录见 `.teamwork/discussions/2026-07-05_admin-ranking-daily-rollup-evaluation.md`。
+- 后续：新增独立实施项，先补日级 rollup 生产链路与 dashboard 混合查询，再迁移排行/趋势。
+
 ### 📌 后续待完成任务
 
-1. P2：评估把管理员排行聚合迁移到日级 rollup，进一步降低长区间分析查询成本。
+1. P2：实现 `request_token_stat_daily_rollups` 生产链路与 dashboard 混合查询，避免历史日排行继续扫描明细表。
 2. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
 
 ### 🗂️ 历史记录说明
