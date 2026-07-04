@@ -5,6 +5,12 @@ It follows Keep a Changelog with a lightweight adaptation for this repository.
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-07-04
+
+### Fixed
+- Fixed `v0.3.10` release artifacts still being named with `0.3.8` by synchronizing workspace, frontend package, Tauri desktop metadata, and lockfiles.
+- Release updates for an existing tag now remove previous CodexManager artifacts first, avoiding stale versioned files in the same GitHub Release.
+
 ## [0.3.8] - 2026-05-30
 
 ### Fixed
@@ -308,7 +314,8 @@ It follows Keep a Changelog with a lightweight adaptation for this repository.
 ### Changed
 - The operation area of ​​the account management page is integrated into a single "Account Operation" drop-down menu, replacing the stack of multiple buttons on the right, making the interface more concise.
 
-[Unreleased]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.10...HEAD
+[0.3.10]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.8...v0.3.10
 [0.3.8]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.5...v0.3.6

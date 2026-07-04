@@ -16,8 +16,8 @@ export const EN_DASHBOARD_MESSAGES: MessageCatalog = {
   今日: "Today",
   今日用量: "Usage today",
   今日请求: "Requests today",
-  "切换到本地网关后可统计请求日志、Token 和费用":
-    "Switch to local gateway mode to collect request logs, tokens, and costs",
+  "请求经过 CodexManager 本地网关后可统计请求日志、Token 和费用":
+    "Request logs, tokens, and costs can be collected after requests pass through the CodexManager local gateway",
   "创建 Key": "Create key",
   "区间缓存 / 推理": "Range cached / reasoning",
   区间请求: "Range requests",
@@ -71,7 +71,8 @@ export const EN_DASHBOARD_MESSAGES: MessageCatalog = {
   "请稍后重试或检查核心服务状态。":
     "Try again later or check the core service status.",
   "请稍后重试或检查登录状态。": "Try again later or check your login status.",
-  账号直连模式下不可用: "Unavailable in direct account mode",
+  未经过本地网关的请求不可统计:
+    "Requests that bypass the local gateway cannot be counted",
   费用: "Cost",
   "输入 / 输出": "Input / output",
   近期请求: "Recent requests",

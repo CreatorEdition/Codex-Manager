@@ -17,11 +17,14 @@ test("账号直连模式下会遮罩依赖网关请求日志的仪表盘区域",
   const source = await readDashboardSource();
   assert.match(source, /useCodexProfileModeStatus/);
   assert.match(source, /function DirectModeUnavailable/);
-  assert.match(source, /账号直连模式下不可用/);
-  assert.match(source, /切换到本地网关后可统计请求日志、Token 和费用/);
+  assert.match(source, /未经过本地网关的请求不可统计/);
+  assert.match(source, /请求经过 CodexManager 本地网关后可统计请求日志、Token 和费用/);
   assert.match(source, /buildStaticRouteUrl\("\/platform-mode"\)/);
   assert.match(source, /当前为账号直连模式/);
-  assert.match(source, /CodexManager 无法统计 CLI 请求日志和用量。/);
+  assert.match(
+    source,
+    /当前 CLI 直连 OpenAI，未经过 CodexManager 的请求不会产生请求日志、Token 和费用统计。/,
+  );
   assert.match(
     source,
     /<DirectModeUnavailable active=\{isDirectAccountMode\}>\s*<AdminUsageAnalyticsCard/s,
@@ -38,6 +41,9 @@ test("账号直连模式下会遮罩依赖网关请求日志的仪表盘区域",
 
 test("日志页 direct 模式只提示日志口径不遮罩历史日志", async () => {
   const source = await readSource("src/app/logs/page.tsx");
+  const sectionsSource = await readSource("src/app/logs/page-sections.tsx");
   assert.match(source, /useCodexProfileModeStatus/);
-  assert.doesNotMatch(source, /DirectModeUnavailable/);
+  assert.match(sectionsSource, /未经过本地网关的请求不会产生新的 CodexManager 请求日志/);
+  assert.match(sectionsSource, /本地网关或包含本地网关的混合路由才会记录/);
+  assert.doesNotMatch(sectionsSource, /DirectModeUnavailable/);
 });

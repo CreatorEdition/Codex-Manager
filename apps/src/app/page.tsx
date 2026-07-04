@@ -466,10 +466,10 @@ function DirectModeUnavailable({
         <div className="grid max-w-md justify-items-center gap-3 rounded-2xl border border-amber-500/40 bg-background/80 px-5 py-4 text-center shadow-lg shadow-amber-500/10">
           <div>
             <div className="text-sm font-semibold text-amber-700 dark:text-amber-200">
-              {t("账号直连模式下不可用")}
+              {t("未经过本地网关的请求不可统计")}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              {t("切换到本地网关后可统计请求日志、Token 和费用")}
+              {t("请求经过 CodexManager 本地网关后可统计请求日志、Token 和费用")}
             </div>
           </div>
           <a
@@ -1182,7 +1182,7 @@ function AdminDashboard() {
           <AlertTitle>{t("当前为账号直连模式")}</AlertTitle>
           <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              {t("CodexManager 无法统计 CLI 请求日志和用量。")}
+              {t("当前 CLI 直连 OpenAI，未经过 CodexManager 的请求不会产生请求日志、Token 和费用统计。")}
             </span>
             <a
               href={buildStaticRouteUrl("/platform-mode")}
@@ -1209,7 +1209,7 @@ function AdminDashboard() {
               sub={t("池中所有配置账号")}
               badge={
                 isDirectAccountMode
-                  ? t("账号直连模式下不可用")
+                  ? t("未经过本地网关的请求不可统计")
                   : `${t("最近日志")} ${requestLogs.length} ${t("条")}`
               }
             />

@@ -126,10 +126,10 @@ export function RequestLogsTabContent({
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
             <div>
               <div className="font-semibold text-amber-700 dark:text-amber-200">
-                {t("账号直连模式不会产生新的 CodexManager 请求日志")}
+                {t("未经过本地网关的请求不会产生新的 CodexManager 请求日志")}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                {t("这里仅展示历史网关请求；如需记录请求，请切换到本地网关模式。")}
+                {t("这里仅展示历史网关请求；如需记录请求，请让 CLI 请求经过 CodexManager 本地网关。")}
               </div>
             </div>
           </div>
@@ -388,7 +388,7 @@ export function RequestLogsTabContent({
                     {!serviceConnected
                       ? t("服务未连接，无法获取日志")
                       : isDirectAccountMode
-                        ? t("账号直连模式下不会产生请求日志，如需记录请求请切换到本地网关模式。")
+                        ? t("账号直连模式下不会产生请求日志；本地网关或包含本地网关的混合路由才会记录。")
                         : t("暂无请求日志")}
                   </TableCell>
                 </TableRow>

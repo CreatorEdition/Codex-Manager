@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-07-04
+
+### Fixed
+- 修复 `v0.3.10` 发布产物仍使用 `0.3.8` 文件名的问题，同步 workspace、前端包、Tauri 桌面端与锁文件版本。
+- 发布动作更新同一 tag 时会先清理旧的 CodexManager 产物，避免同一个 Release 中混入旧版本文件。
+
 ## [0.3.8] - 2026-05-30
 
 ### Fixed
@@ -308,7 +314,8 @@
 ### Changed
 - 账号管理页操作区整合为单一“账号操作”下拉菜单，替代右侧多按钮堆叠，界面更简洁。
 
-[Unreleased]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.10...HEAD
+[0.3.10]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.8...v0.3.10
 [0.3.8]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.5...v0.3.6

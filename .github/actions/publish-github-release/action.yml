@@ -87,8 +87,41 @@ runs:
           printf '%s' "$payload" | gh api "repos/$GH_REPO/releases/$release_id" --method PATCH --input -
         }
 
+        delete_stale_release_assets() {
+          local release_id asset_count
+          release_id="$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq .id)"
+          if [[ -z "$release_id" ]]; then
+            echo "failed to resolve release id for tag: $TAG"
+            exit 1
+          fi
+
+          asset_count="$(gh api "repos/$GH_REPO/releases/$release_id/assets" --paginate --jq 'length' | awk '{sum += $1} END {print sum + 0}')"
+          if [[ "$asset_count" -eq 0 ]]; then
+            echo "No existing release assets to clean."
+            return
+          fi
+
+          mapfile -t STALE_ASSETS < <(
+            gh api "repos/$GH_REPO/releases/$release_id/assets" --paginate \
+              --jq '.[] | select(.name | test("^(CodexManager|codexmanager)[_-].*|^docker-compose\\.release\\.yml$")) | "\(.id)\t\(.name)"'
+          )
+          if [ "${#STALE_ASSETS[@]}" -eq 0 ]; then
+            echo "No stale CodexManager release assets matched cleanup rules."
+            return
+          fi
+
+          for entry in "${STALE_ASSETS[@]}"; do
+            local asset_id asset_name
+            asset_id="${entry%%$'\t'*}"
+            asset_name="${entry#*$'\t'}"
+            echo "Deleting stale release asset: $asset_name"
+            gh api "repos/$GH_REPO/releases/assets/$asset_id" --method DELETE >/dev/null
+          done
+        }
+
         if gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
           sync_release_meta
+          delete_stale_release_assets
           gh release upload "$TAG" "${FILES[@]}" --repo "$GH_REPO" --clobber
         else
           CREATE_ARGS=(--repo "$GH_REPO" --title "$TITLE" --target "$TARGET_SHA" --generate-notes)
@@ -98,6 +131,7 @@ runs:
           if ! gh release create "$TAG" "${FILES[@]}" "${CREATE_ARGS[@]}"; then
             echo "release create failed, retrying as edit+upload..."
             sync_release_meta
+            delete_stale_release_assets
             gh release upload "$TAG" "${FILES[@]}" --repo "$GH_REPO" --clobber
           fi
         fi

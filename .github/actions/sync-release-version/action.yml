@@ -1,0 +1,109 @@
+name: sync-release-version
+description: Sync manifest versions from the release tag before building.
+
+inputs:
+  tag:
+    description: Release tag, with or without the leading v.
+    required: true
+
+outputs:
+  tag:
+    description: Normalized release tag with the leading v.
+    value: ${{ steps.sync.outputs.tag }}
+  version:
+    description: SemVer version extracted from the release tag.
+    value: ${{ steps.sync.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Sync manifest versions
+      id: sync
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+
+        $rawTag = '${{ inputs.tag }}'.Trim()
+        if (-not $rawTag) {
+          throw "release tag is required"
+        }
+
+        $normalizedTag = if ($rawTag.StartsWith("v")) { $rawTag } else { "v$rawTag" }
+        $version = $normalizedTag.Substring(1)
+        if ($version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+          throw "release tag must resolve to a SemVer version: $rawTag"
+        }
+
+        function Set-RegexContent {
+          param(
+            [Parameter(Mandatory = $true)][string]$Path,
+            [Parameter(Mandatory = $true)][string]$Pattern,
+            [Parameter(Mandatory = $true)][string]$Replacement,
+            [Parameter(Mandatory = $false)][int]$ExpectedMatches = 1
+          )
+          $content = Get-Content -Path $Path -Raw -Encoding UTF8
+          $matches = [regex]::Matches($content, $Pattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+          if ($matches.Count -ne $ExpectedMatches) {
+            throw "$Path expected $ExpectedMatches version match(es), found $($matches.Count)"
+          }
+          $updated = [regex]::Replace($content, $Pattern, $Replacement, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+          Set-Content -Path $Path -Value $updated -Encoding UTF8 -NoNewline
+        }
+
+        function Set-CargoLockPackageVersions {
+          param(
+            [Parameter(Mandatory = $true)][string]$Path,
+            [Parameter(Mandatory = $true)][string[]]$PackageNames,
+            [Parameter(Mandatory = $true)][string]$Version
+          )
+          $lines = [System.Collections.Generic.List[string]]::new()
+          foreach ($line in Get-Content -Path $Path -Encoding UTF8) {
+            $lines.Add($line)
+          }
+
+          $currentPackage = $null
+          $updatedPackages = [System.Collections.Generic.HashSet[string]]::new()
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            if ($line -eq "[[package]]") {
+              $currentPackage = $null
+              continue
+            }
+            if ($line -match '^name = "([^"]+)"$') {
+              $currentPackage = $Matches[1]
+              continue
+            }
+            if ($null -ne $currentPackage -and $PackageNames -contains $currentPackage -and $line -match '^version = "[^"]+"$') {
+              $lines[$i] = "version = `"$Version`""
+              [void]$updatedPackages.Add($currentPackage)
+              $currentPackage = $null
+            }
+          }
+
+          $missing = @($PackageNames | Where-Object { -not $updatedPackages.Contains($_) })
+          if ($missing.Count -gt 0) {
+            throw "$Path did not contain expected package version entries: $($missing -join ', ')"
+          }
+
+          Set-Content -Path $Path -Value $lines -Encoding UTF8
+        }
+
+        Set-RegexContent -Path "Cargo.toml" -Pattern '^(version = )"[^"]+"' -Replacement "`$1`"$version`""
+        Set-RegexContent -Path "apps/package.json" -Pattern '^(\s*"version":\s*)"[^"]+"' -Replacement "`$1`"$version`""
+        Set-RegexContent -Path "apps/src-tauri/Cargo.toml" -Pattern '^(version = )"[^"]+"' -Replacement "`$1`"$version`""
+        Set-RegexContent -Path "apps/src-tauri/tauri.conf.json" -Pattern '^(\s*"version":\s*)"[^"]+"' -Replacement "`$1`"$version`""
+        Set-CargoLockPackageVersions -Path "Cargo.lock" -PackageNames @(
+          "codexmanager-core",
+          "codexmanager-service",
+          "codexmanager-start",
+          "codexmanager-web"
+        ) -Version $version
+        Set-CargoLockPackageVersions -Path "apps/src-tauri/Cargo.lock" -PackageNames @(
+          "CodexManager",
+          "codexmanager-core",
+          "codexmanager-service"
+        ) -Version $version
+
+        "tag=$normalizedTag" >> $env:GITHUB_OUTPUT
+        "version=$version" >> $env:GITHUB_OUTPUT
+        Write-Host "Synced release version $version from $normalizedTag"

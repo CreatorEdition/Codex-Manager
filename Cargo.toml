@@ -12,5 +12,5 @@ exclude = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.8"
+version = "0.3.10"
 

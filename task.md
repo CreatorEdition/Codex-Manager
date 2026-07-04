@@ -1173,3 +1173,14 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 - 当前发布候选先推送 `hardening/main` 到 origin，供 CI/Release workflow 或人工打包使用。
 - 后续 backlog 按“一个主题一个中文 commit”处理；涉及子代理实现时，仍必须由 CodeX-GPT 主代理独立审计 diff 与测试结果后才能通过。
+
+## 2026-07-04 发布版本注入与直连统计口径修复（【CodeX-GPT】）
+
+### ✅ 已完成：修复 `v0.3.10` 产物版本与统计提示
+
+- 根因确认：GitHub Release tag 只是发布入口参数，当前 `release-all.yml` 构建前没有把 tag 注入 `Cargo.toml`、`apps/package.json`、`apps/src-tauri/tauri.conf.json` 与锁文件；Tauri 和 staging 脚本继续读取仓库内 `0.3.8`，因此 `v0.3.10` Release 中生成了 `CodexManager_0.3.8_*` 资产。
+- 修复方向：新增复用的 release version 同步 action，在每个 release job checkout 后从 `workflow_dispatch.inputs.tag` 提取 SemVer 并同步项目 manifest；仓库内仍保留 `0.3.10` 作为当前开发基线，但发布构建以 workflow tag 为权威版本源。
+- 发布清理：`gh release upload --clobber` 只覆盖同名文件，无法删除旧版本号文件；发布 action 更新同一 tag 时会先删除旧 CodexManager/docker compose 资产，再上传本轮构建产物。
+- 统计提示：账号直连模式确实不会产生 CodexManager 请求日志，但“切换到本地网关”不应表达成唯一统计方式；文案已改为“请求经过 CodexManager 本地网关后可统计”，并说明网关内部的混合轮转同样属于可统计流量。
+- 验证：release version action 已用临时副本模拟 `v9.8.7 -> 9.8.7`，确认只同步 CodexManager 项目包版本且不误伤第三方 `simd-adler32`；`node --test` runtime 文件组 86 项通过；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描未发现残留。
+- 注意：`pnpm run test:runtime` 在本机先因非 TTY 清理确认失败，设置 `CI=true` 后又被 pnpm ignored-builds 策略拦截；已改用该脚本内等价的 `node --test ...` 文件组完成验证。

@@ -224,11 +224,11 @@ export const EN_MESSAGES: MessageCatalog = {
   "导入 ccswitch": "Import to ccswitch",
   "已唤起 ccswitch，请在确认窗口完成导入":
     "ccswitch has been opened. Confirm the import in its dialog.",
-"唤起 ccswitch 失败": "Failed to open ccswitch",
+  "唤起 ccswitch 失败": "Failed to open ccswitch",
   "当前为账号直连，Codex CLI 直连 OpenAI，CodexManager 无法统计 CLI 请求日志和用量。":
-    "Direct account mode is active. Codex CLI connects to OpenAI directly, so CodexManager cannot collect CLI request logs or usage.",
+    "Direct account mode is active. Codex CLI connects to OpenAI directly, so requests that bypass CodexManager do not produce request logs, token counts, or cost analytics.",
   "当前为本地网关，Codex CLI 经过 CodexManager 转发，请求日志、Token 和费用统计可用。":
-    "Local gateway mode is active. Codex CLI is routed through CodexManager, so request logs, tokens, and cost analytics are available.",
+    "Local gateway mode is active. Codex CLI is routed through CodexManager, so request logs, tokens, and cost analytics are available, including gateway-side hybrid routing.",
   "选择账号直连或本地网关后，CodexManager 会接管该 Codex profile 的 auth.json / config.toml。":
     "After you choose direct account or local gateway mode, CodexManager will take over auth.json and config.toml for that Codex profile.",
   删除密钥: "Delete key",
@@ -1527,11 +1527,13 @@ export const EN_MESSAGES: MessageCatalog = {
   "转发路径": "Forwarded path",
   "上游模型": "Upstream model",
   "实际来源": "Actual source",
-  "账号直连模式不会产生新的 CodexManager 请求日志": "Direct account mode does not create new CodexManager request logs",
-  "这里仅展示历史网关请求；如需记录请求，请切换到本地网关模式。": "Only historical gateway requests are shown here; switch to local gateway mode if you need request logging.",
+  "未经过本地网关的请求不会产生新的 CodexManager 请求日志": "Requests that bypass the local gateway do not create new CodexManager request logs",
+  "这里仅展示历史网关请求；如需记录请求，请让 CLI 请求经过 CodexManager 本地网关。": "Only historical gateway requests are shown here. Route CLI requests through the CodexManager local gateway if you need request logging.",
   "去切换为本地网关": "Switch to local gateway",
   "仅网关流量": "Gateway traffic only",
-  "账号直连模式下不会产生请求日志，如需记录请求请切换到本地网关模式。": "Direct account mode does not generate request logs. Switch to local gateway mode if you need logging.",
+  "账号直连模式下不会产生请求日志；本地网关或包含本地网关的混合路由才会记录。": "Direct account mode does not generate request logs. Local gateway mode, including gateway-side hybrid routing, is required for logging.",
+  "当前 CLI 直连 OpenAI，未经过 CodexManager 的请求不会产生请求日志、Token 和费用统计。":
+    "The current CLI connects to OpenAI directly. Requests that bypass CodexManager do not produce request logs, token counts, or cost analytics.",
   未分配: "Unassigned",
   "按我的平台密钥累计": "Accumulated by my platform keys",
   归属成员: "Owner member",
