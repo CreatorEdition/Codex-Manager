@@ -624,7 +624,7 @@ fn rpc_account_list_empty_uses_default_pagination() {
     );
 }
 
-/// 函数 `rpc_account_list_returns_all_accounts`
+/// 函数 `rpc_account_list_defaults_to_first_page_with_total`
 ///
 /// 作者: gaohongshun
 ///
@@ -636,7 +636,7 @@ fn rpc_account_list_empty_uses_default_pagination() {
 /// # 返回
 /// 无
 #[test]
-fn rpc_account_list_returns_all_accounts() {
+fn rpc_account_list_defaults_to_first_page_with_total() {
     let ctx = RpcTestContext::new("rpc-account-list-all");
     ctx.seed_accounts(7);
     let server = codexmanager_service::start_one_shot_server().expect("start server");
@@ -655,7 +655,7 @@ fn rpc_account_list_returns_all_accounts() {
         .get("items")
         .and_then(|value| value.as_array())
         .expect("items array");
-    assert_eq!(items.len(), 7, "unexpected account count: {result}");
+    assert_eq!(items.len(), 5, "unexpected default page size: {result}");
     assert_eq!(
         result.get("total").and_then(|value| value.as_i64()),
         Some(7)
@@ -663,7 +663,7 @@ fn rpc_account_list_returns_all_accounts() {
     assert_eq!(result.get("page").and_then(|value| value.as_i64()), Some(1));
     assert_eq!(
         result.get("pageSize").and_then(|value| value.as_i64()),
-        Some(7)
+        Some(5)
     );
 
     let ids = items
@@ -675,10 +675,7 @@ fn rpc_account_list_returns_all_accounts() {
                 .expect("item id")
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        ids,
-        vec!["acc-0", "acc-1", "acc-2", "acc-3", "acc-4", "acc-5", "acc-6"]
-    );
+    assert_eq!(ids, vec!["acc-0", "acc-1", "acc-2", "acc-3", "acc-4"]);
     assert_eq!(
         items[0].get("status").and_then(|value| value.as_str()),
         Some("active")

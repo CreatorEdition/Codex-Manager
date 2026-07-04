@@ -12,7 +12,7 @@ use crate::gateway::GeminiStreamOutputMode;
 use serde_json::json;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -158,6 +158,54 @@ fn open_streaming_mock_http_response(
         .send()
         .expect("request mock upstream");
     (response, server)
+}
+
+fn open_gated_streaming_mock_http_response(
+    content_type: &str,
+    first_chunk: &str,
+    gated_chunk: &str,
+) -> (
+    reqwest::blocking::Response,
+    thread::JoinHandle<()>,
+    mpsc::Sender<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind gated streaming mock upstream");
+    let addr = listener
+        .local_addr()
+        .expect("gated streaming mock upstream addr");
+    let content_type = content_type.to_string();
+    let first_chunk = first_chunk.to_string();
+    let gated_chunk = gated_chunk.to_string();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept gated mock client");
+        let mut request_buf = [0_u8; 2048];
+        let _ = stream.read(&mut request_buf);
+        let response_header =
+            format!("HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nConnection: close\r\n\r\n");
+        stream
+            .write_all(response_header.as_bytes())
+            .expect("write gated streaming response headers");
+        stream
+            .write_all(first_chunk.as_bytes())
+            .expect("write gated streaming first chunk");
+        stream.flush().expect("flush gated streaming first chunk");
+        if release_rx.recv().is_err() {
+            return;
+        }
+        stream
+            .write_all(gated_chunk.as_bytes())
+            .expect("write gated streaming final chunk");
+        stream.flush().expect("flush gated streaming final chunk");
+    });
+    let response = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("build gated streaming mock upstream client")
+        .get(format!("http://{addr}"))
+        .send()
+        .expect("request gated mock upstream");
+    (response, server, release_tx)
 }
 
 fn chat_sse_content_fragments(out: &str) -> Vec<String> {
@@ -2095,15 +2143,10 @@ fn passthrough_sse_reader_emits_keepalive_for_responses_stream() {
     let _keepalive_guard = EnvGuard::set("CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS", "15");
     super::reload_from_env();
 
-    let (upstream, server) = open_streaming_mock_http_response(
+    let (upstream, server, release_done) = open_gated_streaming_mock_http_response(
         "text/event-stream",
-        &[
-            (
-                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_keepalive_1\"}}\n\n",
-                0,
-            ),
-            ("data: [DONE]\n\n", 50),
-        ],
+        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_keepalive_1\"}}\n\n",
+        "data: [DONE]\n\n",
     );
     let usage_collector = Arc::new(Mutex::new(PassthroughSseCollector::default()));
     let mut reader = PassthroughSseUsageReader::new(
@@ -2113,16 +2156,31 @@ fn passthrough_sse_reader_emits_keepalive_for_responses_stream() {
         PassthroughSseProtocol::Generic,
         std::time::Instant::now(),
     );
-    let mut mapped = String::new();
+    let mut first_buf = [0_u8; 512];
+    let first_len = reader
+        .read(&mut first_buf)
+        .expect("read passthrough first frame");
+    let first_frame = String::from_utf8_lossy(&first_buf[..first_len]);
+    assert!(first_frame.contains("\"type\":\"response.created\""));
+
+    let mut keepalive_buf = [0_u8; 512];
+    let keepalive_len = reader
+        .read(&mut keepalive_buf)
+        .expect("read passthrough keepalive frame");
+    let keepalive_frame = String::from_utf8_lossy(&keepalive_buf[..keepalive_len]);
+    assert!(keepalive_frame.contains("\"type\":\"codexmanager.keepalive\""));
+
+    release_done
+        .send(())
+        .expect("release gated streaming final chunk");
+    let mut rest = String::new();
     reader
-        .read_to_string(&mut mapped)
+        .read_to_string(&mut rest)
         .expect("read passthrough sse");
     server.join().expect("join streaming mock upstream");
     super::reload_from_env();
 
-    assert!(mapped.contains("\"type\":\"codexmanager.keepalive\""));
-    assert!(mapped.contains("\"type\":\"response.created\""));
-    assert!(mapped.contains("data: [DONE]"));
+    assert!(rest.contains("data: [DONE]"));
 }
 
 #[test]
