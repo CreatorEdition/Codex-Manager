@@ -209,6 +209,29 @@ test("createWebCommandMap 为管理员用量分析提供 Web RPC 映射", () => 
   );
 });
 
+test("createWebCommandMap 为管理员基础概览仅透传快照参数", () => {
+  const overview = commandMap.service_dashboard_admin_overview;
+  assert.equal(overview.rpcMethod, "dashboard/adminOverview");
+  assert.ok(overview.mapParams);
+  assert.deepEqual(
+    overview.mapParams({
+      request_log_limit: 12,
+      day_start_ts: 100,
+      day_end_ts: 200,
+      account_limit: 5,
+      start_ts: 300,
+      end_ts: 400,
+      ranking_limit: 8,
+    }),
+    {
+      requestLogLimit: 12,
+      dayStartTs: 100,
+      dayEndTs: 200,
+      accountLimit: 5,
+    },
+  );
+});
+
 test("createWebCommandMap 为模型来源映射命令提供 Web RPC 映射", () => {
   assert.deepEqual(commandMap.service_model_routing, {
     rpcMethod: "apikey/modelRouting",

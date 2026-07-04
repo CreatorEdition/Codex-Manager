@@ -20,18 +20,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest, actor: &RpcActor) -> Option<JsonR
             let day_start_ts = super::i64_param(req, "dayStartTs");
             let day_end_ts = super::i64_param(req, "dayEndTs");
             let account_limit = super::i64_param(req, "accountLimit");
-            let start_ts = super::i64_param(req, "startTs");
-            let end_ts = super::i64_param(req, "endTs");
-            let ranking_limit = super::i64_param(req, "rankingLimit");
             super::value_or_error(dashboard::read_admin_overview(
                 actor,
                 request_log_limit,
                 day_start_ts,
                 day_end_ts,
                 account_limit,
-                start_ts,
-                end_ts,
-                ranking_limit,
             ))
         }
         "dashboard/memberSummary" => {

@@ -11,6 +11,7 @@
 - Web 运行壳的批量导入、手动全量刷新和维护类长耗时 RPC 已配置独立超时且默认不重试，避免默认 10 秒超时或自动重试放大重操作。
 - 观测数据维护已确认走后台调度：请求日志写入后不再同步执行 retention 清理或 WAL checkpoint。
 - 当前 `cargo check -p codexmanager-service` 已无 Rust warning。
+- Dashboard 管理员概览已与排行/趋势加载拆分：首屏基础快照不再随自定义区间刷新重复拉取排行聚合。
 - 发布前本地门禁已完成：完整 workspace 测试、`cargo fmt --all --check`、空白检查和冲突标记扫描均已通过；后续每次发版前仍需重复运行。
 
 ### 🔄 本轮整理
@@ -72,9 +73,16 @@
 - 约束：未改变当前 SQL 下推聚合行为，也未改变任何 RPC 返回结构。
 - 验证：`cargo check -p codexmanager-service` 通过且无 warning；`cargo test -p codexmanager-service --test rpc rpc_usage_aggregate_returns_backend_summary -- --exact --nocapture` 通过；`cargo test -p codexmanager-core --lib usage_aggregate_summary_matches_bucket_semantics -- --nocapture` 通过；`cargo test -p codexmanager-service --lib http_bridge::delivery::tests -- --nocapture` 18 项通过；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描无命中。
 
+### ✅ 已完成：P2 Dashboard 概览与排行拆分
+
+- 目标：让 `dashboard/adminOverview` 只承载首屏基础快照，排行/趋势区间数据通过既有 `dashboard/adminUsageSummary` 独立加载，避免自定义区间刷新时重复拉取账号、最近日志和用量概览。
+- 约束：后端保留旧排行字段为空数组以兼容旧响应结构；不改变 `dashboard/adminUsageSummary` 当前 SQL 下推排行行为。
+- 行为：管理员首页基础卡片、账号快照和最近日志继续由 `dashboard/adminOverview` 加载；排行、趋势和自定义区间分析卡改为独立请求 `dashboard/adminUsageSummary`，并沿用 Top 8 默认限载。
+- 验证：`node --test apps\tests\transport-web-commands.test.mjs` 15 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`cargo check -p codexmanager-service` 通过且无 warning；`cargo test -p codexmanager-service --lib admin_overview_returns_base_snapshot_without_usage_rankings -- --nocapture` 通过；`cargo test -p codexmanager-service --lib admin_usage_summary -- --nocapture` 2 项通过；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描无命中。
+
 ### 📌 后续待完成任务
 
-1. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
+1. P2：评估把管理员排行聚合迁移到日级 rollup，进一步降低长区间分析查询成本。
 2. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
 3. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
 

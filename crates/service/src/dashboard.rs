@@ -1036,9 +1036,6 @@ pub(crate) fn read_admin_overview(
     day_start_ts: Option<i64>,
     day_end_ts: Option<i64>,
     account_limit: Option<i64>,
-    start_ts: Option<i64>,
-    end_ts: Option<i64>,
-    ranking_limit: Option<i64>,
 ) -> Result<codexmanager_core::rpc::types::DashboardAdminOverviewResult, String> {
     use codexmanager_core::rpc::types::DashboardAdminOverviewResult;
 
@@ -1047,18 +1044,8 @@ pub(crate) fn read_admin_overview(
     }
 
     crate::initialize_storage_if_needed()?;
-    let storage =
-        storage_helpers::open_storage().ok_or_else(|| "open storage failed".to_string())?;
 
-    // 计算时间范围
     let (today_start, today_end) = local_day_bounds_ts()?;
-    let range_start = start_ts
-        .filter(|value| *value > 0)
-        .unwrap_or_else(|| today_start.saturating_sub((ADMIN_USAGE_RANGE_DAYS - 1) * DAY_SECONDS));
-    let range_end = end_ts
-        .filter(|value| *value > range_start)
-        .unwrap_or(today_end);
-    let ranking_limit_value = normalize_admin_usage_ranking_limit(ranking_limit);
 
     // 从 StartupSnapshot 获取基础数据
     let snapshot = crate::startup_snapshot::read_startup_snapshot(
@@ -1075,45 +1062,6 @@ pub(crate) fn read_admin_overview(
         },
     )?;
 
-    // 获取管理员用量聚合数据
-    let daily_usage = fill_daily_usage(
-        range_start,
-        range_end,
-        DAY_SECONDS,
-        storage
-            .summarize_request_token_stats_daily(range_start, range_end, DAY_SECONDS)
-            .map_err(|err| format!("summarize daily usage failed: {err}"))?,
-    );
-
-    let users = read_dashboard_user_summaries(
-        &storage,
-        today_start,
-        today_end,
-        range_start,
-        range_end,
-        ranking_limit_value,
-    )?;
-
-    let openai_accounts = read_dashboard_source_summaries(
-        &storage,
-        "openai_account",
-        today_start,
-        today_end,
-        range_start,
-        range_end,
-        ranking_limit_value,
-    )?;
-
-    let aggregate_apis = read_dashboard_source_summaries(
-        &storage,
-        "aggregate_api",
-        today_start,
-        today_end,
-        range_start,
-        range_end,
-        ranking_limit_value,
-    )?;
-
     Ok(DashboardAdminOverviewResult {
         // StartupSnapshot 数据
         account_total: snapshot.account_total,
@@ -1125,14 +1073,14 @@ pub(crate) fn read_admin_overview(
         manual_preferred_account_id: snapshot.manual_preferred_account_id,
         request_log_today_summary: snapshot.request_log_today_summary,
         request_logs: snapshot.request_logs,
-        // AdminUsageSummary 数据
-        range_start_ts: range_start,
-        range_end_ts: range_end,
+        // 中文注释：保留旧字段兼容，但排行/趋势数据已拆到 dashboard/adminUsageSummary。
+        range_start_ts: today_start,
+        range_end_ts: today_end,
         today_start_ts: today_start,
         today_end_ts: today_end,
-        daily_usage,
-        users,
-        openai_accounts,
-        aggregate_apis,
+        daily_usage: Vec::new(),
+        users: Vec::new(),
+        openai_accounts: Vec::new(),
+        aggregate_apis: Vec::new(),
     })
 }

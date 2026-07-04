@@ -974,6 +974,66 @@ fn admin_usage_summary_daily_trend_includes_token_stats_without_request_logs() {
 }
 
 #[test]
+fn admin_overview_returns_base_snapshot_without_usage_rankings() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-admin-overview-split");
+    let day_start = 1_700_000_000;
+    let day_end = day_start + 86_400;
+    let user = create_test_member("admin-overview-member", Some(2_000_000));
+    let key_id = create_owned_test_api_key(&user.id, "admin overview key", "gpt-5-mini");
+
+    insert_test_request_log(
+        &key_id,
+        "trace-admin-overview",
+        "gpt-5-mini",
+        200,
+        20,
+        5,
+        10,
+        0.03,
+        day_start + 10,
+    );
+
+    let admin_resp = response_result(handle_request_with_actor(
+        rpc_request(
+            "dashboard/adminOverview",
+            serde_json::json!({
+                "requestLogLimit": 5,
+                "accountLimit": 5,
+                "startTs": day_start,
+                "endTs": day_end,
+                "rankingLimit": 8
+            }),
+        ),
+        RpcActor::system_admin(),
+    ));
+    assert!(
+        admin_resp.result.get("error").is_none(),
+        "{:?}",
+        admin_resp.result
+    );
+    assert_eq!(
+        admin_resp.result["requestLogs"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        admin_resp.result["dailyUsage"].as_array().map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(admin_resp.result["users"].as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        admin_resp.result["openaiAccounts"].as_array().map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        admin_resp.result["aggregateApis"].as_array().map(Vec::len),
+        Some(0)
+    );
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
 fn member_cannot_read_or_mutate_other_user_api_key() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-member-apikey-cross-user-deny");

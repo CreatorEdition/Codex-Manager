@@ -150,9 +150,6 @@ export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<strin
           dayStartTs: source.day_start_ts ?? source.dayStartTs,
           dayEndTs: source.day_end_ts ?? source.dayEndTs,
           accountLimit: source.account_limit ?? source.accountLimit,
-          startTs: source.start_ts ?? source.startTs,
-          endTs: source.end_ts ?? source.endTs,
-          rankingLimit: source.ranking_limit ?? source.rankingLimit,
         };
       },
     },

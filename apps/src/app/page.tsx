@@ -67,6 +67,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useDashboardAdminOverview } from "@/hooks/useDashboardAdminOverview";
+import { useDashboardAdminUsageSummary } from "@/hooks/useDashboardAdminUsageSummary";
 import { resolveSessionRole, useAppSession } from "@/hooks/useAppSession";
 import { useLocalDayRange } from "@/hooks/useLocalDayRange";
 import { useMemberDashboardSummary } from "@/hooks/useMemberDashboardSummary";
@@ -1062,17 +1063,22 @@ function AdminDashboard() {
     localDayRange.dayStartTs,
   ]);
 
-  // 使用统一的 hook 获取所有数据
   const {
     data: overview,
-    isLoading,
+    isLoading: isOverviewLoading,
     isServiceReady,
-  } = useDashboardAdminOverview(
+  } = useDashboardAdminOverview({}, true);
+
+  const {
+    data: adminUsageSummary,
+    isLoading: isAdminUsageLoading,
+    isError: isAdminUsageError,
+  } = useDashboardAdminUsageSummary(
     {
       startTs: adminUsageRangeParams.startTs,
       endTs: adminUsageRangeParams.endTs,
     },
-    true,
+    isServiceReady,
   );
 
   const { data: quotaModelPools, isLoading: isQuotaModelPoolsLoading } = useQuery({
@@ -1085,7 +1091,7 @@ function AdminDashboard() {
     enabled: isServiceReady,
     retry: 1,
   });
-  usePageTransitionReady("/", !isServiceReady || !isLoading);
+  usePageTransitionReady("/", !isServiceReady || !isOverviewLoading);
 
   // 从统一数据派生各组件需要的数据
   const stats = overview
@@ -1135,30 +1141,6 @@ function AdminDashboard() {
     ? pickBestRecommendations(accounts)
     : { primaryPick: null, secondaryPick: null };
 
-  const adminUsageSummary = overview
-    ? {
-        rangeStartTs: overview.rangeStartTs,
-        rangeEndTs: overview.rangeEndTs,
-        todayStartTs: overview.todayStartTs,
-        todayEndTs: overview.todayEndTs,
-        todayUsage: {
-          inputTokens: 0,
-          cachedInputTokens: 0,
-          outputTokens: 0,
-          reasoningOutputTokens: 0,
-          totalTokens: 0,
-          estimatedCostUsd: 0,
-          requestCount: 0,
-          successCount: 0,
-          errorCount: 0,
-        },
-        dailyUsage: overview.dailyUsage,
-        users: overview.users,
-        openaiAccounts: overview.openaiAccounts,
-        aggregateApis: overview.aggregateApis,
-      }
-    : undefined;
-
   const poolPrimary = stats.poolRemain?.primary ?? 0;
   const poolSecondary = stats.poolRemain?.secondary ?? 0;
   const allModelPoolItems = quotaModelPools?.items ?? [];
@@ -1170,9 +1152,6 @@ function AdminDashboard() {
       const endTs = parseDateInputEndTs(adminUsageRangeEndInput);
       return startTs == null || endTs == null || endTs <= startTs;
     })();
-
-  const isAdminUsageLoading = isLoading;
-  const isAdminUsageError = !overview && !isLoading && isServiceReady;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
@@ -1195,7 +1174,7 @@ function AdminDashboard() {
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {isLoading ? (
+        {isOverviewLoading ? (
           Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={index} className="h-36 w-full rounded-xl" />
           ))
@@ -1269,7 +1248,7 @@ function AdminDashboard() {
       <DirectModeUnavailable active={isDirectAccountMode}>
         <AdminUsageAnalyticsCard
           summary={adminUsageSummary}
-          isLoading={isLoading || isAdminUsageLoading}
+          isLoading={isAdminUsageLoading}
           isError={isAdminUsageError}
           rangePreset={adminUsageRangePreset}
           rangeStartInput={adminUsageRangeStartInput}
@@ -1324,7 +1303,7 @@ function AdminDashboard() {
           </a>
         </CardHeader>
         <CardContent>
-          {isLoading || isQuotaModelPoolsLoading ? (
+          {isOverviewLoading || isQuotaModelPoolsLoading ? (
             <Skeleton className="h-24 w-full rounded-xl" />
           ) : modelPoolItems.length === 0 ? (
             <Empty className="min-h-28 border bg-background/35">
@@ -1424,7 +1403,7 @@ function AdminDashboard() {
               sub: t("按官价估算"),
             },
           ].map((card) =>
-            isLoading ? (
+            isOverviewLoading ? (
               <Skeleton key={card.title} className="h-32 w-full rounded-xl" />
             ) : (
               <MetricCard key={card.title} {...card} />
@@ -1440,7 +1419,7 @@ function AdminDashboard() {
               <CardTitle className="text-base font-semibold">{t("当前活跃账号")}</CardTitle>
             </CardHeader>
             <CardContent className="flex min-h-[200px] flex-col justify-start">
-              {isLoading ? (
+              {isOverviewLoading ? (
                 <div className="space-y-4">
                   <Skeleton className="h-28 w-full rounded-xl" />
                   <div className="grid grid-cols-2 gap-4">
@@ -1501,7 +1480,7 @@ function AdminDashboard() {
             <p className="text-xs text-muted-foreground">
               {t("基于当前配额，系统会优先推荐剩余额度更高且仍可参与路由的账号。")}
             </p>
-            {isLoading ? (
+            {isOverviewLoading ? (
               <div className="space-y-4">
                 <Skeleton className="h-28 w-full rounded-xl" />
                 <Skeleton className="h-28 w-full rounded-xl" />

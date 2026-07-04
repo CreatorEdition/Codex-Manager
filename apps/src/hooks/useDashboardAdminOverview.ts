@@ -20,24 +20,18 @@ export const DASHBOARD_ADMIN_OVERVIEW_ACCOUNT_LIMIT = 20;
 interface UseDashboardAdminOverviewParams {
   requestLogLimit?: number;
   accountLimit?: number;
-  startTs?: number | null;
-  endTs?: number | null;
-  rankingLimit?: number | null;
 }
 
 /**
- * 统一的管理员 Dashboard hook
+ * 管理员 Dashboard 基础概览 hook
  *
- * 合并了 useDashboardStats 和 useDashboardAdminUsageSummary 的功能，
- * 避免首页同时调用多个 hook 导致的重复聚合查询。
- *
- * 此 hook 一次性获取首页所需的所有数据：
+ * 此 hook 只获取首屏基础数据：
  * - 账号统计和列表
  * - 今日用量摘要
  * - 最近请求日志
  * - 用量聚合信息
- * - 用户、账号、聚合 API 的排名数据
- * - 每日用量趋势
+ *
+ * 用户、账号、聚合 API 的排行和每日趋势由 useDashboardAdminUsageSummary 独立加载。
  */
 export function useDashboardAdminOverview(
   params: UseDashboardAdminOverviewParams = {},
@@ -62,9 +56,6 @@ export function useDashboardAdminOverview(
       requestLogLimit,
       localDayRange.dayStartTs,
       accountLimit,
-      params.startTs ?? null,
-      params.endTs ?? null,
-      params.rankingLimit ?? null,
     ],
     queryFn: () =>
       dashboardClient.getAdminOverview({
@@ -72,9 +63,6 @@ export function useDashboardAdminOverview(
         dayStartTs: localDayRange.dayStartTs,
         dayEndTs: localDayRange.dayEndTs,
         accountLimit,
-        startTs: params.startTs ?? null,
-        endTs: params.endTs ?? null,
-        rankingLimit: params.rankingLimit ?? null,
       }),
     enabled: isQueryEnabled,
     retry: 1,

@@ -357,21 +357,6 @@ function readAdminOverview(value: unknown): DashboardAdminOverview {
       ),
     },
     requestLogs: normalizeRequestLogs(source.requestLogs ?? source.request_logs),
-    // 来自 AdminUsageSummary 的聚合数据
-    rangeStartTs: asNumber(source.rangeStartTs ?? source.range_start_ts),
-    rangeEndTs: asNumber(source.rangeEndTs ?? source.range_end_ts),
-    todayStartTs: asNumber(source.todayStartTs ?? source.today_start_ts),
-    todayEndTs: asNumber(source.todayEndTs ?? source.today_end_ts),
-    dailyUsage: asArray(source.dailyUsage ?? source.daily_usage).map(readDailyUsagePoint),
-    users: asArray(source.users)
-      .map(readUserUsageSummary)
-      .filter((item): item is DashboardUserUsageSummary => Boolean(item)),
-    openaiAccounts: asArray(source.openaiAccounts ?? source.openai_accounts)
-      .map(readSourceUsageSummary)
-      .filter((item): item is DashboardSourceUsageSummary => Boolean(item)),
-    aggregateApis: asArray(source.aggregateApis ?? source.aggregate_apis)
-      .map(readSourceUsageSummary)
-      .filter((item): item is DashboardSourceUsageSummary => Boolean(item)),
   };
 }
 
@@ -396,9 +381,6 @@ export const dashboardClient = {
     dayStartTs?: number | null;
     dayEndTs?: number | null;
     accountLimit?: number | null;
-    startTs?: number | null;
-    endTs?: number | null;
-    rankingLimit?: number | null;
   }): Promise<DashboardAdminOverview> {
     const result = await invoke<unknown>(
       "service_dashboard_admin_overview",
@@ -407,9 +389,6 @@ export const dashboardClient = {
         dayStartTs: params?.dayStartTs ?? null,
         dayEndTs: params?.dayEndTs ?? null,
         accountLimit: params?.accountLimit ?? null,
-        startTs: params?.startTs ?? null,
-        endTs: params?.endTs ?? null,
-        rankingLimit: params?.rankingLimit ?? null,
       }),
     );
     return readAdminOverview(result);
