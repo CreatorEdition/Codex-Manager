@@ -274,7 +274,7 @@ fn resolve_logical_gateway_request_path(
 fn resolve_compact_model_override_for_request(
     normalized_path: &str,
     incoming_headers: &super::super::IncomingHeaderSnapshot,
-    base_model: Option<&str>,
+    _base_model: Option<&str>,
 ) -> Option<String> {
     if !is_compact_subagent_request(normalized_path, incoming_headers)
         || normalized_path == "/v1/responses/compact"
@@ -285,10 +285,7 @@ fn resolve_compact_model_override_for_request(
     if let Some(explicit_override) = super::super::current_compact_model_override() {
         return Some(explicit_override);
     }
-    let model = base_model
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-    super::super::resolve_compact_forwarded_model(model)
+    None
 }
 
 fn maybe_wrap_compact_response_adapter(

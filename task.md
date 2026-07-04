@@ -22,6 +22,14 @@
 - 边界：仍继续跳过 `account_deactivated`、`workspace_deactivated`、`deactivated_workspace` 以及永久无效 refresh token 原因；手动禁用 `disabled` 账号仍不会被用量快照自动恢复。
 - 验证：`cargo test -p codexmanager-core tokens_due_for_refresh -- --nocapture` 通过；`cargo test -p codexmanager-core list_usage_refresh_candidates_paginated_filters_blocked_accounts -- --nocapture` 通过；`cargo test -p codexmanager-service apply_status_available_recovers_region_blocked_status -- --nocapture` 通过；`cargo test -p codexmanager-service build_usage_refresh_tasks_skips_disabled_and_banned_accounts -- --nocapture` 通过。
 
+### ✅ 已完成：P1 网关模型转发规则统一语义移植
+
+- 目标：将旧 `gateway.compact_model_forward_rules` 迁移/合并到普通 `gateway.model_forward_rules`，请求改写统一使用普通模型转发规则，设置页移除 compact 独立规则入口。
+- 约束：仅按语义移植上游 `2c912580` 行为，不合并上游 sponsor/author/推广内容；子代理实现已由 CodeX-GPT 主代理独立审计。
+- 行为：启动/读取设置时会把 legacy compact 规则去重合并到普通规则并清空旧键；compact 请求、普通 OpenAI base 和 Codex compat base 都统一应用普通模型转发规则；旧 compact 规则 setter 仅保留兼容迁移用途，不再参与模型选择。
+- 验证：`cargo test -p codexmanager-service app_settings_get_migrates_legacy_compact_model_forward_rules -- --nocapture` 通过；`cargo test -p codexmanager-service app_settings_get_ignores_empty_legacy_compact_model_forward_rules -- --nocapture` 通过；`cargo test -p codexmanager-service --lib model_forward_rules -- --nocapture` 9 项通过；`node --test apps\tests\settings-page-helpers.test.mjs` 4 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`cargo fmt --all --check` 通过；`git diff --check` 通过。
+- 未验证：未跑完整 workspace 测试。
+
 ### 📌 后续待完成任务
 
 1. P1：补齐账号页后端分页等价能力，包括计划类型筛选、限流/封禁状态筛选和全局排序。

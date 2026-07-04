@@ -1299,9 +1299,8 @@ fn compact_subagent_rewrites_standard_responses_path_to_compact_path() {
 }
 
 #[test]
-fn compact_subagent_uses_compact_model_forward_rules_on_standard_responses_path() {
+fn compact_subagent_ignores_hidden_compact_model_forward_rules() {
     let original_rules = crate::gateway::current_compact_model_forward_rules();
-    let _ = crate::gateway::set_compact_model_forward_rules("");
     crate::gateway::set_compact_model_forward_rules("gpt-5.4=gpt-5.4-openai-compact")
         .expect("set compact model forward rules");
 
@@ -1318,7 +1317,7 @@ fn compact_subagent_uses_compact_model_forward_rules_on_standard_responses_path(
     assert_eq!(
         resolve_compact_model_override_for_request("/v1/responses", &headers, Some("gpt-5.4"),)
             .as_deref(),
-        Some("gpt-5.4-openai-compact")
+        None
     );
 
     let _ = crate::gateway::set_compact_model_forward_rules(original_rules.as_str());
