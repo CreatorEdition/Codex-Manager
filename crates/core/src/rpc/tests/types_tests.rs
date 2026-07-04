@@ -1,8 +1,8 @@
 use super::{
-    AccountListResult, AccountSummary, ApiKeyUsageStatSummary, DashboardAdminUsageSummaryResult,
-    DashboardDailyUsagePoint, DashboardSourceUsageSummary, DashboardTokenUsageResult,
-    DashboardUserUsageSummary, RequestLogFilterSummaryResult, RequestLogListParams,
-    RequestLogListResult, RequestLogSummary,
+    AccountListResult, AccountPlanTypeSummary, AccountSummary, ApiKeyUsageStatSummary,
+    DashboardAdminUsageSummaryResult, DashboardDailyUsagePoint, DashboardSourceUsageSummary,
+    DashboardTokenUsageResult, DashboardUserUsageSummary, RequestLogFilterSummaryResult,
+    RequestLogListParams, RequestLogListResult, RequestLogSummary,
 };
 
 /// 函数 `account_summary_serialization_matches_compact_contract`
@@ -101,11 +101,15 @@ fn account_list_result_serialization_includes_pagination_fields() {
         total: 9,
         page: 2,
         page_size: 3,
+        plan_types: vec![AccountPlanTypeSummary {
+            value: "team".to_string(),
+            count: 9,
+        }],
     };
 
     let value = serde_json::to_value(result).expect("serialize account list result");
     let obj = value.as_object().expect("account list result object");
-    for key in ["items", "total", "page", "pageSize"] {
+    for key in ["items", "total", "page", "pageSize", "planTypes"] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
 }

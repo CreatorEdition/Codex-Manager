@@ -8,9 +8,9 @@ import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import {
-  buildAccountsBySizeOrder,
   buildAccountOrderUpdates,
   type AccountEditorState,
+  type AccountSizeSortMode,
   type DeleteDialogState,
   normalizeTagsDraft,
   type StatusFilter,
@@ -60,6 +60,9 @@ export default function AccountsPage() {
   const deferredSearch = useDeferredValue(search);
   const [planFilter, setPlanFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [accountSortMode, setAccountSortMode] = useState<
+    "manual" | AccountSizeSortMode
+  >("manual");
   const [pageSize, setPageSize] = useState("20");
   const [page, setPage] = useState(1);
   const pageSizeNumber = Number(pageSize) || 20;
@@ -105,6 +108,10 @@ export default function AccountsPage() {
     pageSize: pageSizeNumber,
     query: deferredSearch,
     filter: accountStatusFilterToBackendFilter(statusFilter),
+    planFilter,
+    statusFilter,
+    sortMode: accountSortMode,
+    includePlanTypes: true,
   });
   const isPageActive = useDesktopPageActive("/accounts/");
   usePageTransitionReady("/accounts/", !isServiceReady || !isLoading);
@@ -149,9 +156,13 @@ export default function AccountsPage() {
     : !isDesktopRuntime && canUseBrowserDownloadExport
       ? "DL"
       : "ZIP";
-  const canUsePlanFilter = false;
+  const canUsePlanFilter = true;
   const canReorderAccounts = false;
-  const hasActiveAccountQuery = Boolean(search.trim()) || statusFilter !== "all";
+  const hasActiveAccountQuery =
+    Boolean(search.trim()) ||
+    planFilter !== "all" ||
+    statusFilter !== "all" ||
+    accountSortMode !== "manual";
 
   const filteredAccounts = accounts;
 
@@ -160,6 +171,8 @@ export default function AccountsPage() {
       { id: "all" as const, label: `${t("全部")} (${totalAccounts})` },
       { id: "available" as const, label: t("可用") },
       { id: "low_quota" as const, label: t("低配额") },
+      { id: "limited" as const, label: t("限流") },
+      { id: "banned" as const, label: t("封禁") },
     ],
     [t, totalAccounts],
   );
@@ -266,12 +279,6 @@ export default function AccountsPage() {
   };
 
   const handlePlanFilterChange = (value: string | null) => {
-    if (value && value !== "all") {
-      toast.info(t("计划类型筛选需要后端分页支持，已暂时停用"));
-      setPlanFilter("all");
-      setPage(1);
-      return;
-    }
     setPlanFilter(value || "all");
     setPage(1);
   };
@@ -508,29 +515,23 @@ const toggleCleanupStatus = (rawStatus: string) => {
   const handleApplyAccountSizeSort = async (
     mode: "large-first" | "small-first",
   ) => {
-    if (!canReorderAccounts) {
-      toast.info(t("后端分页模式下请通过编辑顺序值调整账号排序"));
-      return;
-    }
-    if (accounts.length < 2) {
+    if (totalAccounts < 2) {
       toast.info(t("账号数量不足，无需重新排序"));
       return;
     }
-    const reorderedAccounts = buildAccountsBySizeOrder(accounts, mode);
-    const updates = buildAccountOrderUpdates(reorderedAccounts);
-    if (!updates.length) {
-      toast.info(
-        mode === "large-first"
-          ? t("当前已经是大号优先顺序")
-          : t("当前已经是小号优先顺序"),
-      );
+    if (accountSortMode === mode) {
+      setAccountSortMode("manual");
+      setPage(1);
+      toast.info(t("已恢复手动顺序"));
       return;
     }
-    try {
-      await reorderAccounts(updates);
-    } catch {
-      // hook 已统一处理 toast，这里保持静默即可
-    }
+    setAccountSortMode(mode);
+    setPage(1);
+    toast.info(
+      mode === "large-first"
+        ? t("已按大号优先显示")
+        : t("已按小号优先显示"),
+    );
   };
 
   const handleConfirmAccountEditor = async () => {

@@ -1174,6 +1174,180 @@ fn rpc_account_list_active_filter_uses_backend_filtered_pagination() {
 }
 
 #[test]
+fn rpc_account_list_supports_backend_plan_status_and_global_sort_filters() {
+    let ctx = RpcTestContext::new("rpc-account-list-backend-filters");
+    let storage = Storage::open(ctx.db_path()).expect("open db");
+    storage.init().expect("init schema");
+    let now = now_ts();
+    let accounts = [
+        ("acc-free", "Free Account", "active", "free", 0_i64),
+        ("acc-k12", "K12 Account", "active", "K12", 1_i64),
+        ("acc-plus", "Plus Account", "active", "plus", 2_i64),
+        (
+            "acc-banned-team",
+            "Banned Team Account",
+            "banned",
+            "team",
+            3_i64,
+        ),
+        (
+            "acc-limited-free",
+            "Limited Free Account",
+            "limited",
+            "free",
+            4_i64,
+        ),
+    ];
+    for (id, label, status, plan, sort) in accounts {
+        storage
+            .insert_account(&Account {
+                id: id.to_string(),
+                label: label.to_string(),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: Some(format!("org-{id}")),
+                workspace_id: Some(format!("org-{id}")),
+                group_name: Some("filter-group".to_string()),
+                sort,
+                status: status.to_string(),
+                created_at: now + sort,
+                updated_at: now + sort,
+            })
+            .expect("insert account");
+        storage
+            .insert_token(&Token {
+                account_id: id.to_string(),
+                id_token: build_access_token(
+                    format!("sub-{id}").as_str(),
+                    format!("{id}@example.com").as_str(),
+                    format!("org-{id}").as_str(),
+                    plan,
+                ),
+                access_token: build_access_token(
+                    format!("sub-{id}").as_str(),
+                    format!("{id}@example.com").as_str(),
+                    format!("org-{id}").as_str(),
+                    plan,
+                ),
+                refresh_token: format!("refresh-{id}"),
+                api_key_access_token: None,
+                last_refresh: now,
+            })
+            .expect("insert token");
+    }
+
+    let plan_req = JsonRpcRequest {
+        id: 33.into(),
+        method: "account/list".to_string(),
+        params: Some(serde_json::json!({
+            "page": 1,
+            "pageSize": 10,
+            "planFilter": "K12",
+            "includePlanTypes": true
+        })),
+        trace: None,
+    };
+    let plan_json = serde_json::to_string(&plan_req).expect("serialize");
+    let plan_server = codexmanager_service::start_one_shot_server().expect("start plan server");
+    let plan_resp = post_rpc(&plan_server.addr, &plan_json);
+    let plan_result = plan_resp.get("result").expect("plan result");
+    let plan_items = plan_result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("plan items");
+    assert_eq!(
+        plan_items.len(),
+        1,
+        "unexpected K12 filter result: {plan_result}"
+    );
+    assert_eq!(
+        plan_items[0].get("id").and_then(|value| value.as_str()),
+        Some("acc-k12")
+    );
+    assert_eq!(
+        plan_items[0]
+            .get("planType")
+            .and_then(|value| value.as_str()),
+        Some("unknown")
+    );
+    assert_eq!(
+        plan_items[0]
+            .get("planTypeRaw")
+            .and_then(|value| value.as_str()),
+        Some("k12")
+    );
+    let plan_types = plan_result
+        .get("planTypes")
+        .and_then(|value| value.as_array())
+        .expect("plan type facets");
+    assert!(
+        plan_types.iter().any(|item| {
+            item.get("value").and_then(|value| value.as_str()) == Some("k12")
+                && item.get("count").and_then(|value| value.as_i64()) == Some(1)
+        }),
+        "missing K12 facet: {plan_result}"
+    );
+
+    let banned_req = JsonRpcRequest {
+        id: 34.into(),
+        method: "account/list".to_string(),
+        params: Some(serde_json::json!({
+            "page": 1,
+            "pageSize": 1,
+            "statusFilter": "banned"
+        })),
+        trace: None,
+    };
+    let banned_json = serde_json::to_string(&banned_req).expect("serialize");
+    let banned_server = codexmanager_service::start_one_shot_server().expect("start banned server");
+    let banned_resp = post_rpc(&banned_server.addr, &banned_json);
+    let banned_result = banned_resp.get("result").expect("banned result");
+    assert_eq!(
+        banned_result.get("total").and_then(|value| value.as_i64()),
+        Some(1)
+    );
+    assert_eq!(
+        banned_result
+            .get("items")
+            .and_then(|value| value.as_array())
+            .and_then(|items| items.first())
+            .and_then(|item| item.get("id"))
+            .and_then(|value| value.as_str()),
+        Some("acc-banned-team")
+    );
+
+    let sort_req = JsonRpcRequest {
+        id: 35.into(),
+        method: "account/list".to_string(),
+        params: Some(serde_json::json!({
+            "page": 1,
+            "pageSize": 2,
+            "sortMode": "large-first"
+        })),
+        trace: None,
+    };
+    let sort_json = serde_json::to_string(&sort_req).expect("serialize");
+    let sort_server = codexmanager_service::start_one_shot_server().expect("start sort server");
+    let sort_resp = post_rpc(&sort_server.addr, &sort_json);
+    let sort_result = sort_resp.get("result").expect("sort result");
+    assert_eq!(
+        sort_result.get("total").and_then(|value| value.as_i64()),
+        Some(5)
+    );
+    let sorted_ids = sort_result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("sorted items")
+        .iter()
+        .map(|item| {
+            item.get("id")
+                .and_then(|value| value.as_str())
+                .expect("item id")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(sorted_ids, vec!["acc-plus", "acc-banned-team"]);
+}
+
+#[test]
 fn rpc_aggregate_api_list_supports_backend_filters_and_pagination() {
     let ctx = RpcTestContext::new("rpc-aggregate-api-list-paged");
     let mut storage = Storage::open(ctx.db_path()).expect("open db");

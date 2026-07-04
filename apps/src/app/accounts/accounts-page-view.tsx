@@ -364,16 +364,16 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                    <SelectGroup>
-                <SelectItem value="all">
-                  {t("全部类型")} ({totalAccounts})
-                </SelectItem>
-                {planTypes.map((planType) => (
-                  <SelectItem key={planType.value} value={planType.value}>
-                    {formatAccountPlanValueLabel(planType.value, t)} (
-                    {planType.count})
+                <SelectGroup>
+                  <SelectItem value="all">
+                    {t("全部类型")} ({totalAccounts})
                   </SelectItem>
-                ))}
+                  {planTypes.map((planType) => (
+                    <SelectItem key={planType.value} value={planType.value}>
+                      {formatAccountPlanValueLabel(planType.value, t)} (
+                      {planType.count})
+                    </SelectItem>
+                  ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -389,12 +389,12 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                    <SelectGroup>
-                {statusFilterOptions.map((filter) => (
-                  <SelectItem key={filter.id} value={filter.id}>
-                    {filter.label}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  {statusFilterOptions.map((filter) => (
+                    <SelectItem key={filter.id} value={filter.id}>
+                      {filter.label}
+                    </SelectItem>
+                  ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -546,9 +546,8 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                     className="h-9 rounded-lg px-2"
                     disabled={
                       !isServiceReady ||
-                      !canReorderAccounts ||
                       isReorderingAccounts ||
-                      accounts.length < 2
+                      totalAccounts < 2
                     }
                     onClick={() => void handleApplyAccountSizeSort("large-first")}
                   >
@@ -560,9 +559,8 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                     className="h-9 rounded-lg px-2"
                     disabled={
                       !isServiceReady ||
-                      !canReorderAccounts ||
                       isReorderingAccounts ||
-                      accounts.length < 2
+                      totalAccounts < 2
                     }
                     onClick={() => void handleApplyAccountSizeSort("small-first")}
                   >

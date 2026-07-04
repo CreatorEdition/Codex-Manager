@@ -210,6 +210,7 @@ pub struct AccountListParams {
     pub status_filter: Option<String>,
     #[serde(alias = "sort_mode")]
     pub sort_mode: Option<String>,
+    pub include_plan_types: bool,
 }
 
 impl Default for AccountListParams {
@@ -223,6 +224,7 @@ impl Default for AccountListParams {
             plan_filter: None,
             status_filter: None,
             sort_mode: None,
+            include_plan_types: false,
         }
     }
 }
@@ -242,8 +244,16 @@ impl AccountListParams {
             plan_filter: self.plan_filter,
             status_filter: self.status_filter,
             sort_mode: self.sort_mode,
+            include_plan_types: self.include_plan_types,
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountPlanTypeSummary {
+    pub value: String,
+    pub count: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -253,6 +263,8 @@ pub struct AccountListResult {
     pub total: i64,
     pub page: i64,
     pub page_size: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan_types: Vec<AccountPlanTypeSummary>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

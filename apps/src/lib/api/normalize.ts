@@ -3,6 +3,7 @@
 import {
   Account,
   AccountListResult,
+  AccountPlanTypeOption,
   AccountUsage,
   AggregateApi,
   AggregateApiBalanceRefreshResult,
@@ -485,6 +486,17 @@ export function normalizeAccountList(
     total: asInteger(source.total, normalizedItems.length, 0),
     page: asInteger(source.page, 1, 1),
     pageSize: asInteger(source.pageSize, normalizedItems.length || 20, 1),
+    planTypes: asArray(source.planTypes ?? source.plan_types)
+      .map((item) => {
+        const current = asObject(item);
+        const value = asString(current.value);
+        if (!value) return null;
+        return {
+          value,
+          count: asInteger(current.count, 0, 0),
+        };
+      })
+      .filter((item): item is AccountPlanTypeOption => Boolean(item)),
   };
 }
 

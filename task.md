@@ -1,6 +1,6 @@
 # Codex-Manager Fork Hardening 任务记录
 
-## 当前状态总览（2026-07-04）
+## 当前状态总览（2026-07-05）
 
 ### ✅ 当前可发布状态
 
@@ -39,15 +39,22 @@
 - 验证：`cargo fmt --all --check` 通过；`cargo test -p codexmanager-service --lib model_catalog_auto_remote_fetch_defaults_true_and_persists_false -- --nocapture` 通过；`cargo test -p codexmanager-service --test app_settings app_settings_set_roundtrips_model_catalog_auto_remote_fetch -- --nocapture` 通过；`cargo test -p codexmanager-service --test app_settings -- --nocapture` 29 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`git diff --check` 通过；冲突标记扫描无命中。
 - 未验证：未跑完整 workspace 测试；本轮仅覆盖相关 service/app_settings 与前端类型门禁。
 
+### ✅ 已完成：P1 账号页后端分页等价能力
+
+- 行为：账号页计划类型筛选已接入后端分页链路，`K12` 等未知计划按原值小写 `k12` 参与筛选和计划类型 facet，不再只落到“未知”。
+- 行为：账号页状态筛选补齐后端 `limited` / `banned` 精确筛选；`available` / `low_quota` 继续复用既有后端可用与低配额分页能力。
+- 行为：账号页“大号优先 / 小号优先”改为后端全局展示排序，不再只对当前页或前端本地列表排序；行内上下移动仍在后端分页模式下保持禁用，避免破坏全局顺序。
+- 验证：`cargo test -j 1 -p codexmanager-service --test rpc account_list -- --nocapture` 7 项通过；`cargo test -j 1 -p codexmanager-core account_list_result_serialization_includes_pagination_fields -- --nocapture` 通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`node --test apps\tests\account-list-cache.test.mjs` 2 项通过；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描无命中。
+- 未验证：未跑完整 workspace 测试；既有 Rust warning（`delivery.rs` unreachable pattern、维护模块 dead code、usage aggregate dead code）仍未清理，继续作为 P2 独立任务处理。
+
 ### 📌 后续待完成任务
 
-1. P1：补齐账号页后端分页等价能力，包括计划类型筛选、限流/封禁状态筛选和全局排序。
-2. P1：继续梳理 Web RPC 超时/重试矩阵，覆盖批量导入、手动全量刷新和长耗时维护类操作。
-3. P1：继续观察并优化 `request_logs`、`events`、`usage_snapshots` 与 WAL 体积，复核留存策略、后台维护批大小和 WAL 收缩效果。
-4. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
-5. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
-6. P2：清理既有 Rust warning，包括 `delivery.rs` unreachable pattern、维护模块 dead code 和 usage aggregate dead code。
-7. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
+1. P1：继续梳理 Web RPC 超时/重试矩阵，覆盖批量导入、手动全量刷新和长耗时维护类操作。
+2. P1：继续观察并优化 `request_logs`、`events`、`usage_snapshots` 与 WAL 体积，复核留存策略、后台维护批大小和 WAL 收缩效果。
+3. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
+4. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
+5. P2：清理既有 Rust warning，包括 `delivery.rs` unreachable pattern、维护模块 dead code 和 usage aggregate dead code。
+6. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
 
 ### 🗂️ 历史记录说明
 

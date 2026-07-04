@@ -100,6 +100,10 @@ export interface AccountListParams {
   query?: string | null;
   filter?: string | null;
   groupFilter?: string | null;
+  planFilter?: string | null;
+  statusFilter?: string | null;
+  sortMode?: string | null;
+  includePlanTypes?: boolean;
 }
 
 export interface AccountWarmupPayload {

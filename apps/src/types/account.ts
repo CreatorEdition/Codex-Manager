@@ -51,6 +51,12 @@ export interface AccountListResult {
   total: number;
   page: number;
   pageSize: number;
+  planTypes: AccountPlanTypeOption[];
+}
+
+export interface AccountPlanTypeOption {
+  value: string;
+  count: number;
 }
 
 export interface UsageAggregateSummary {

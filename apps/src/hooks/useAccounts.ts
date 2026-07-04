@@ -58,12 +58,20 @@ function normalizeAccountListParams(
   const query = String(params?.query || "").trim();
   const filter = String(params?.filter || "all").trim() || "all";
   const groupFilter = String(params?.groupFilter || "all").trim() || "all";
+  const planFilter = String(params?.planFilter || "all").trim() || "all";
+  const statusFilter = String(params?.statusFilter || "all").trim() || "all";
+  const sortMode = String(params?.sortMode || "manual").trim() || "manual";
+  const includePlanTypes = Boolean(params?.includePlanTypes);
   return {
     page,
     pageSize,
     query,
     filter,
     groupFilter,
+    planFilter,
+    statusFilter,
+    sortMode,
+    includePlanTypes,
   };
 }
 
@@ -172,6 +180,7 @@ function buildAccountListResultFromSnapshot(accounts: Account[]): AccountListRes
     total: accounts.length,
     page: 1,
     pageSize: accounts.length,
+    planTypes: [],
   };
 }
 
@@ -235,13 +244,17 @@ export function useAccounts(params?: AccountListParams) {
     normalizedListParams.page === 1 &&
     !normalizedListParams.query &&
     normalizedListParams.filter === "all" &&
-    normalizedListParams.groupFilter === "all";
+    normalizedListParams.groupFilter === "all" &&
+    normalizedListParams.planFilter === "all" &&
+    normalizedListParams.statusFilter === "all" &&
+    normalizedListParams.sortMode === "manual";
   const startupAccountPage = canUseStartupAccountPlaceholder
     ? {
         items: startupAccounts.slice(0, normalizedListParams.pageSize),
         total: startupAccounts.length,
         page: 1,
         pageSize: normalizedListParams.pageSize,
+        planTypes: [],
       }
     : undefined;
 
@@ -414,10 +427,15 @@ export function useAccounts(params?: AccountListParams) {
     total: 0,
     page: normalizedListParams.page,
     pageSize: normalizedListParams.pageSize,
+    planTypes: [],
   };
   const totalAccounts = accountListResult.total;
 
   const planTypes = useMemo(() => {
+    if (visibleAccountList?.planTypes?.length || normalizedListParams.includePlanTypes) {
+      return visibleAccountList?.planTypes || [];
+    }
+
     const map = new Map<string, number>();
     const sortOrder = [
       "free",
@@ -462,7 +480,7 @@ export function useAccounts(params?: AccountListParams) {
         return left[0].localeCompare(right[0], "zh-Hans-CN");
       })
       .map(([value, count]) => ({ value, count }));
-  }, [accounts]);
+  }, [accounts, normalizedListParams.includePlanTypes, visibleAccountList?.planTypes]);
 
   /**
    * 函数 `invalidateUsageData`
