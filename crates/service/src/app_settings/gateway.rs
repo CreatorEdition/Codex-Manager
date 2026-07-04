@@ -25,12 +25,14 @@ struct CodexNpmLatestResponse {
 }
 
 use super::{
-    normalize_optional_text, save_persisted_app_setting, save_persisted_bool_setting,
+    get_persisted_app_setting, normalize_optional_text, parse_bool_with_default,
+    save_persisted_app_setting, save_persisted_bool_setting,
     APP_SETTING_GATEWAY_ACCOUNT_MAX_INFLIGHT_KEY, APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY,
     APP_SETTING_GATEWAY_COMPACT_MODEL_FORWARD_RULES_KEY,
-    APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY, APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY,
-    APP_SETTING_GATEWAY_ORIGINATOR_KEY, APP_SETTING_GATEWAY_QUOTA_GUARD_KEY,
-    APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
+    APP_SETTING_GATEWAY_FREE_ACCOUNT_MAX_MODEL_KEY,
+    APP_SETTING_GATEWAY_MODEL_CATALOG_AUTO_REMOTE_FETCH_KEY,
+    APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY, APP_SETTING_GATEWAY_ORIGINATOR_KEY,
+    APP_SETTING_GATEWAY_QUOTA_GUARD_KEY, APP_SETTING_GATEWAY_REQUEST_COMPRESSION_ENABLED_KEY,
     APP_SETTING_GATEWAY_RESIDENCY_REQUIREMENT_KEY, APP_SETTING_GATEWAY_ROUTE_STRATEGY_KEY,
     APP_SETTING_GATEWAY_SSE_KEEPALIVE_INTERVAL_MS_KEY, APP_SETTING_GATEWAY_UPSTREAM_PROXY_URL_KEY,
     APP_SETTING_GATEWAY_UPSTREAM_STREAM_TIMEOUT_MS_KEY,
@@ -219,6 +221,20 @@ pub fn set_gateway_compact_model_forward_rules(raw: &str) -> Result<String, Stri
 
 pub fn current_gateway_compact_model_forward_rules() -> String {
     gateway::current_compact_model_forward_rules()
+}
+
+pub fn set_gateway_model_catalog_auto_remote_fetch(enabled: bool) -> Result<bool, String> {
+    save_persisted_bool_setting(
+        APP_SETTING_GATEWAY_MODEL_CATALOG_AUTO_REMOTE_FETCH_KEY,
+        enabled,
+    )?;
+    Ok(enabled)
+}
+
+pub fn current_gateway_model_catalog_auto_remote_fetch() -> bool {
+    get_persisted_app_setting(APP_SETTING_GATEWAY_MODEL_CATALOG_AUTO_REMOTE_FETCH_KEY)
+        .map(|value| parse_bool_with_default(&value, true))
+        .unwrap_or(true)
 }
 
 /// 函数 `set_gateway_account_max_inflight`
@@ -652,8 +668,11 @@ pub(crate) fn current_background_tasks_snapshot_value() -> Result<serde_json::Va
 
 #[cfg(test)]
 mod tests {
+    use super::APP_SETTING_GATEWAY_MODEL_CATALOG_AUTO_REMOTE_FETCH_KEY;
     use super::{
-        fetch_codex_latest_version_from_url, sync_gateway_user_agent_version_from_codex_latest_url,
+        current_gateway_model_catalog_auto_remote_fetch, fetch_codex_latest_version_from_url,
+        set_gateway_model_catalog_auto_remote_fetch,
+        sync_gateway_user_agent_version_from_codex_latest_url,
     };
     use crate::APP_SETTING_GATEWAY_USER_AGENT_VERSION_KEY;
     use codexmanager_core::storage::Storage;
@@ -727,6 +746,27 @@ mod tests {
         assert_eq!(result.version, "0.120.0");
         assert_eq!(result.dist_tag, "latest");
         assert_eq!(result.registry_url, registry_url);
+    }
+
+    #[test]
+    fn model_catalog_auto_remote_fetch_defaults_true_and_persists_false() {
+        let _guard = crate::test_env_guard();
+        let db_path = unique_temp_db_path();
+        let _db_env = EnvGuard::set("CODEXMANAGER_DB_PATH", Some(&db_path.to_string_lossy()));
+        crate::initialize_storage_if_needed().expect("init storage");
+
+        assert!(current_gateway_model_catalog_auto_remote_fetch());
+        assert!(!set_gateway_model_catalog_auto_remote_fetch(false).expect("disable auto fetch"));
+        assert!(!current_gateway_model_catalog_auto_remote_fetch());
+
+        let storage = Storage::open(&db_path).expect("open storage");
+        assert_eq!(
+            storage
+                .get_app_setting(APP_SETTING_GATEWAY_MODEL_CATALOG_AUTO_REMOTE_FETCH_KEY)
+                .expect("read persisted auto fetch"),
+            Some("0".to_string())
+        );
+        let _ = std::fs::remove_file(db_path);
     }
 
     #[test]

@@ -107,9 +107,6 @@ export function useManagedModels() {
     }
 
     const models = serializeManagedModelCatalogForCodexCache(catalog.items || []);
-    if (models.length === 0) {
-      return null;
-    }
 
     const fingerprint = JSON.stringify(models);
     if (!options?.force && syncedCatalogFingerprintRef.current === fingerprint) {

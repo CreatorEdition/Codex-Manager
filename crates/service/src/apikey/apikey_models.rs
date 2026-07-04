@@ -74,7 +74,10 @@ pub(crate) fn read_managed_model_catalog(
     let storage =
         storage_helpers::open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let cached_catalog = read_managed_model_catalog_from_storage(&storage)?;
-    if !refresh_remote {
+    let should_fetch_remote = refresh_remote
+        || (!managed_catalog_has_catalog_text_model(&cached_catalog)
+            && crate::app_settings::current_gateway_model_catalog_auto_remote_fetch());
+    if !should_fetch_remote {
         return Ok(cached_catalog);
     }
 

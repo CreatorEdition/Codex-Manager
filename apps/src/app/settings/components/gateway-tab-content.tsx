@@ -32,6 +32,7 @@ export function GatewayTabContent({
   t,
   snapshot,
   updateSettings,
+  onModelCatalogAutoRemoteFetchChange,
   quotaGuardInputValues,
   setQuotaGuardDraft,
   saveQuotaGuardField,
@@ -55,6 +56,7 @@ export function GatewayTabContent({
     mutate: (patch: Partial<AppSettings>) => void;
     mutateAsync: (patch: Partial<AppSettings>) => Promise<unknown>;
   };
+  onModelCatalogAutoRemoteFetchChange: (checked: boolean) => void;
   quotaGuardInputValues: {
     primaryMinRemainingPercent: string;
     secondaryMinRemainingPercent: string;
@@ -241,6 +243,19 @@ export function GatewayTabContent({
               "设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。",
             )}
           </p>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <Label>{t("自动拉取远端模型目录")}</Label>
+            <p className="text-[10px] text-muted-foreground">
+              {t("开启后本地模型目录为空时会自动从远端拉取；关闭后只在点击远端并入时拉取。")}
+            </p>
+          </div>
+          <Switch
+            checked={snapshot.modelCatalogAutoRemoteFetch}
+            onCheckedChange={onModelCatalogAutoRemoteFetchChange}
+          />
         </div>
 
         <div className="grid gap-2">

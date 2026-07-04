@@ -30,6 +30,15 @@
 - 验证：`cargo test -p codexmanager-service app_settings_get_migrates_legacy_compact_model_forward_rules -- --nocapture` 通过；`cargo test -p codexmanager-service app_settings_get_ignores_empty_legacy_compact_model_forward_rules -- --nocapture` 通过；`cargo test -p codexmanager-service --lib model_forward_rules -- --nocapture` 9 项通过；`node --test apps\tests\settings-page-helpers.test.mjs` 4 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`cargo fmt --all --check` 通过；`git diff --check` 通过。
 - 未验证：未跑完整 workspace 测试。
 
+### ✅ 已完成：P2 模型目录自动远端拉取开关
+
+- 目标：语义移植上游 `84ac0560` / `ce5d3f38`，新增 `modelCatalogAutoRemoteFetch` 设置，不直接合并上游代码。
+- 行为：默认开启；本地模型目录没有可用文本模型时，普通模型目录读取会自动从远端拉取；关闭后普通读取只返回本地缓存，只有显式点击“远端并入”或传 `refreshRemote=true` 才访问远端。
+- 联动：设置页开启该开关后会立即触发一次模型目录读取并刷新 `managed-model-catalog`、`apikey-models` 与 `startup-snapshot` 缓存；桌面端 Codex 模型缓存同步允许写入空目录，避免关闭自动拉取后继续保留旧缓存。
+- 审计：子代理仅完成后端半成品，CodeX-GPT 主代理已接管补齐设置快照、PATCH、前端、文档与验证；最终以主代理审计和本节记录为准。
+- 验证：`cargo fmt --all --check` 通过；`cargo test -p codexmanager-service --lib model_catalog_auto_remote_fetch_defaults_true_and_persists_false -- --nocapture` 通过；`cargo test -p codexmanager-service --test app_settings app_settings_set_roundtrips_model_catalog_auto_remote_fetch -- --nocapture` 通过；`cargo test -p codexmanager-service --test app_settings -- --nocapture` 29 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`git diff --check` 通过；冲突标记扫描无命中。
+- 未验证：未跑完整 workspace 测试；本轮仅覆盖相关 service/app_settings 与前端类型门禁。
+
 ### 📌 后续待完成任务
 
 1. P1：补齐账号页后端分页等价能力，包括计划类型筛选、限流/封禁状态筛选和全局排序。

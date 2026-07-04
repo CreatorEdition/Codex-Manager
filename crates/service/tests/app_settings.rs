@@ -85,6 +85,7 @@ fn reset_runtime_defaults() {
     let _ = codexmanager_service::app_settings_set(Some(&json!({
         "routeStrategy": "balanced",
         "freeAccountMaxModel": "gpt-5.2",
+        "modelCatalogAutoRemoteFetch": true,
         "modelForwardRules": "",
         "compactModelForwardRules": "",
         "quotaGuard": {
@@ -1011,6 +1012,44 @@ fn app_settings_set_preserves_model_forward_rules_case() {
                 .expect("read model forward rules"),
             Some("Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro".to_string())
         );
+    });
+}
+
+/// 函数 `app_settings_set_roundtrips_model_catalog_auto_remote_fetch`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-05
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn app_settings_set_roundtrips_model_catalog_auto_remote_fetch() {
+    with_temp_db(|db_path| {
+        let snapshot = codexmanager_service::app_settings_set(Some(&json!({
+            "modelCatalogAutoRemoteFetch": false
+        })))
+        .expect("disable model catalog auto fetch");
+
+        assert_eq!(snapshot["modelCatalogAutoRemoteFetch"], false);
+        let storage = Storage::open(db_path).expect("open storage");
+        assert_eq!(
+            storage
+                .get_app_setting(
+                    codexmanager_service::APP_SETTING_GATEWAY_MODEL_CATALOG_AUTO_REMOTE_FETCH_KEY
+                )
+                .expect("read model catalog auto fetch"),
+            Some("0".to_string())
+        );
+
+        let snapshot = codexmanager_service::app_settings_set(Some(&json!({
+            "modelCatalogAutoRemoteFetch": true
+        })))
+        .expect("enable model catalog auto fetch");
+        assert_eq!(snapshot["modelCatalogAutoRemoteFetch"], true);
     });
 }
 
