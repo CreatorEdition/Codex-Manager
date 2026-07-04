@@ -1081,13 +1081,9 @@ function AdminDashboard() {
     isServiceReady,
   );
 
-  const { data: quotaModelPools, isLoading: isQuotaModelPoolsLoading } = useQuery({
-    queryKey: ["quota", "model-pools", "summary"],
-    queryFn: () =>
-      quotaClient.modelPools({
-        includeSources: false,
-        includeConfig: false,
-      }),
+  const { data: quotaModelPoolSummary, isLoading: isQuotaModelPoolSummaryLoading } = useQuery({
+    queryKey: ["quota", "model-pool-summary", 8],
+    queryFn: () => quotaClient.modelPoolSummary({ limit: 8 }),
     enabled: isServiceReady,
     retry: 1,
   });
@@ -1143,8 +1139,8 @@ function AdminDashboard() {
 
   const poolPrimary = stats.poolRemain?.primary ?? 0;
   const poolSecondary = stats.poolRemain?.secondary ?? 0;
-  const allModelPoolItems = quotaModelPools?.items ?? [];
-  const modelPoolItems = allModelPoolItems.slice(0, 8);
+  const modelPoolItems = quotaModelPoolSummary?.items ?? [];
+  const modelPoolTotal = quotaModelPoolSummary?.total ?? modelPoolItems.length;
   const isCustomAdminUsageRangeInvalid =
     adminUsageRangePreset === "custom" &&
     (() => {
@@ -1303,7 +1299,7 @@ function AdminDashboard() {
           </a>
         </CardHeader>
         <CardContent>
-          {isOverviewLoading || isQuotaModelPoolsLoading ? (
+          {isOverviewLoading || isQuotaModelPoolSummaryLoading ? (
             <Skeleton className="h-24 w-full rounded-xl" />
           ) : modelPoolItems.length === 0 ? (
             <Empty className="min-h-28 border bg-background/35">
@@ -1358,11 +1354,11 @@ function AdminDashboard() {
                   </div>
                 ))}
               </div>
-              {allModelPoolItems.length > modelPoolItems.length ? (
+              {modelPoolTotal > modelPoolItems.length ? (
                 <div className="text-[11px] text-muted-foreground">
                   {t("已按排序权重展示前 {visible} 个，共 {total} 个模型；完整列表在模型管理页。", {
                     visible: modelPoolItems.length,
-                    total: allModelPoolItems.length,
+                    total: modelPoolTotal,
                   })}
                 </div>
               ) : null}

@@ -3486,6 +3486,64 @@ fn rpc_quota_model_pools_defaults_to_summary_without_sources_or_config() {
         Some(0)
     );
 
+    let summary_server =
+        codexmanager_service::start_one_shot_server().expect("start model pool summary server");
+    let summary_req = JsonRpcRequest {
+        id: 822.into(),
+        method: "quota/modelPoolSummary".to_string(),
+        params: Some(serde_json::json!({ "limit": 1 })),
+        trace: None,
+    };
+    let summary_json = serde_json::to_string(&summary_req).expect("serialize model pool summary");
+    let summary_v = post_rpc(&summary_server.addr, &summary_json);
+    let summary_result = summary_v.get("result").expect("model pool summary result");
+    let summary_items = summary_result
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("model pool summary items");
+    assert_eq!(
+        summary_items.len(),
+        1,
+        "model pool summary should honor the limit"
+    );
+    assert!(
+        summary_result
+            .get("total")
+            .and_then(|value| value.as_i64())
+            .is_some_and(|total| total >= 1),
+        "model pool summary should return total model count"
+    );
+    assert!(
+        summary_result.get("templates").is_none(),
+        "model pool summary should not return capacity templates"
+    );
+    assert!(
+        summary_result.get("accountOverrides").is_none(),
+        "model pool summary should not return account overrides"
+    );
+    let summary_item = summary_items.first().expect("first summary item");
+    assert_eq!(
+        summary_item
+            .get("sources")
+            .and_then(|value| value.as_array())
+            .map(Vec::len),
+        Some(0),
+        "model pool summary should not return source details"
+    );
+    assert!(
+        summary_item
+            .get("sourceCount")
+            .and_then(|value| value.as_i64())
+            .is_some_and(|count| count > 0),
+        "model pool summary should accumulate source counts"
+    );
+    assert!(
+        summary_item
+            .get("totalRemainingTokens")
+            .is_some_and(|value| !value.is_null()),
+        "model pool summary should compute capacity"
+    );
+
     let full_server =
         codexmanager_service::start_one_shot_server().expect("start full model pools server");
     let full_req = JsonRpcRequest {

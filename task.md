@@ -12,7 +12,8 @@
 - 观测数据维护已确认走后台调度：请求日志写入后不再同步执行 retention 清理或 WAL checkpoint。
 - 当前 `cargo check -p codexmanager-service` 已无 Rust warning。
 - Dashboard 管理员概览已与排行/趋势加载拆分：首屏基础快照不再随自定义区间刷新重复拉取排行聚合。
-- 发布前本地门禁已完成：完整 workspace 测试、`cargo fmt --all --check`、空白检查和冲突标记扫描均已通过；后续每次发版前仍需重复运行。
+- 首页模型池容量已改走独立轻量汇总 `quota/modelPoolSummary`，不再依赖 `quota/modelPools(includeSources:true)` 全量来源明细。
+- 最近一次发布前本地门禁已完成：完整 workspace 测试、`cargo fmt --all --check`、空白检查和冲突标记扫描均已通过；本轮新增改动已跑相关门禁，正式发版前仍需重复完整 workspace 门禁。
 
 ### 🔄 本轮整理
 
@@ -80,11 +81,17 @@
 - 行为：管理员首页基础卡片、账号快照和最近日志继续由 `dashboard/adminOverview` 加载；排行、趋势和自定义区间分析卡改为独立请求 `dashboard/adminUsageSummary`，并沿用 Top 8 默认限载。
 - 验证：`node --test apps\tests\transport-web-commands.test.mjs` 15 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`cargo check -p codexmanager-service` 通过且无 warning；`cargo test -p codexmanager-service --lib admin_overview_returns_base_snapshot_without_usage_rankings -- --nocapture` 通过；`cargo test -p codexmanager-service --lib admin_usage_summary -- --nocapture` 2 项通过；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描无命中。
 
+### ✅ 已完成：P2 首页模型池容量轻量汇总
+
+- 目标：为首页模型额度池卡片提供可估算容量汇总，不回退到 `quota/modelPools(includeSources:true)` 的全量来源明细。
+- 行为：新增 `quota/modelPoolSummary` / `service_quota_model_pool_summary`，默认 Top 8、上限 100，只返回可估算模型池的汇总字段和总数，不返回 `sources`、capacity templates 或 account overrides；首页改为调用该轻量 RPC。
+- 约束：保留既有 `quota/modelPools` 默认轻量 skeleton 行为，模型页和聚合 API 页继续使用既有全量/分页来源接口；子代理仅做只读分析，最终实现由 CodeX-GPT 主代理审计并验证。
+- 验证：`node --test apps\tests\transport-web-commands.test.mjs` 15 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`cargo check -p codexmanager-service` 通过；`cargo check --manifest-path apps\src-tauri\Cargo.toml` 通过；`cargo test -p codexmanager-service --test rpc quota_model_pool -- --nocapture` 3 项通过；`cargo fmt --all --check` 通过。
+
 ### 📌 后续待完成任务
 
 1. P2：评估把管理员排行聚合迁移到日级 rollup，进一步降低长区间分析查询成本。
-2. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
-3. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
+2. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
 
 ### 🗂️ 历史记录说明
 

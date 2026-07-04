@@ -1413,6 +1413,8 @@ export const RU_MESSAGES: MessageCatalog = {
     "При выборе «Следовать запросу» модели для free / 7-дневных аккаунтов с одним окном не переписываются. Они будут переписаны только при выборе конкретной модели и попадании на такие аккаунты.",
   "RPC quota/modelPools 超时：模型池查询超过 30 秒":
     "Таймаут RPC quota/modelPools: запрос пула моделей превысил 30 секунд",
+  "RPC quota/modelPoolSummary 超时：模型池容量汇总超过 30 秒":
+    "Таймаут RPC quota/modelPoolSummary: сводка емкости пула моделей превысила 30 секунд",
   "RPC requestlog/list 超时：请求日志查询超过 30 秒":
     "Таймаут RPC requestlog/list: запрос журнала превысил 30 секунд",
   "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒":

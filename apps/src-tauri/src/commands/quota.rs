@@ -84,6 +84,21 @@ pub async fn service_quota_model_pools(
 }
 
 #[tauri::command]
+pub async fn service_quota_model_pool_summary(
+    addr: Option<String>,
+    limit: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    rpc_call_in_background(
+        "quota/modelPoolSummary",
+        addr,
+        Some(serde_json::json!({
+            "limit": limit,
+        })),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn service_quota_model_pool_sources(
     addr: Option<String>,
     source_kind: Option<String>,

@@ -8,6 +8,7 @@ import type {
   QuotaCapacityConfigResult,
   QuotaModelPoolItem,
   QuotaModelPoolSourcesResult,
+  QuotaModelPoolSummaryResult,
   QuotaModelPoolsResult,
   QuotaModelUsageItem,
   QuotaOverviewResult,
@@ -289,6 +290,15 @@ function normalizeModelPools(payload: unknown): QuotaModelPoolsResult {
   };
 }
 
+function normalizeModelPoolSummary(payload: unknown): QuotaModelPoolSummaryResult {
+  const source = asRecord(payload);
+  const items = readItems(payload).map(normalizeModelPoolItem);
+  return {
+    items,
+    total: Math.max(0, toNullableNumber(source.total) ?? items.length),
+  };
+}
+
 function normalizeModelPoolSources(payload: unknown): QuotaModelPoolSourcesResult {
   const source = asRecord(payload);
   return {
@@ -520,6 +530,18 @@ export const quotaClient = {
           includeSources: params?.includeSources ?? false,
           includeConfig: params?.includeConfig ?? false,
           sourceKind,
+        }),
+      ),
+    );
+  },
+  async modelPoolSummary(params?: {
+    limit?: number | null;
+  }): Promise<QuotaModelPoolSummaryResult> {
+    return normalizeModelPoolSummary(
+      await invoke<unknown>(
+        "service_quota_model_pool_summary",
+        withAddr({
+          limit: params?.limit ?? null,
         }),
       ),
     );

@@ -6,7 +6,7 @@ use codexmanager_core::rpc::types::{
     QuotaAggregateApiOverviewResult, QuotaApiKeyModelUsageItem, QuotaApiKeyOverviewResult,
     QuotaApiKeyUsageItem, QuotaApiKeyUsageResult, QuotaBillingRulesResult,
     QuotaCapacityConfigResult, QuotaModelPoolItem, QuotaModelPoolSourcesResult,
-    QuotaModelPoolsResult, QuotaModelUsageItem, QuotaModelUsageResult,
+    QuotaModelPoolSummaryResult, QuotaModelPoolsResult, QuotaModelUsageItem, QuotaModelUsageResult,
     QuotaOpenAiAccountOverviewResult, QuotaOverviewResult, QuotaPoolSourceBreakdown,
     QuotaRefreshSourceResult, QuotaRefreshSourcesResult, QuotaSourceListResult,
     QuotaSourceModelAssignmentResult, QuotaSourceSummary, QuotaSystemPoolResult,
@@ -65,12 +65,20 @@ pub(crate) struct QuotaModelPoolsInput {
     pub(crate) include_sources: bool,
     pub(crate) include_config: bool,
     pub(crate) source_kind: Option<String>,
+    pub(crate) accumulate_sources: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct QuotaModelPoolSummaryInput {
+    pub(crate) limit: Option<i64>,
 }
 
 const DEFAULT_QUOTA_API_KEY_USAGE_PAGE_SIZE: i64 = 100;
 const MAX_QUOTA_API_KEY_USAGE_PAGE_SIZE: i64 = 500;
 const DEFAULT_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 100;
 const MAX_MODEL_POOL_SOURCE_PAGE_SIZE: i64 = 500;
+const DEFAULT_MODEL_POOL_SUMMARY_LIMIT: i64 = 8;
+const MAX_MODEL_POOL_SUMMARY_LIMIT: i64 = 100;
 const DEFAULT_QUOTA_SOURCE_LIST_PAGE_SIZE: i64 = 100;
 const MAX_QUOTA_SOURCE_LIST_PAGE_SIZE: i64 = 500;
 
@@ -80,6 +88,7 @@ impl Default for QuotaModelPoolsInput {
             include_sources: false,
             include_config: false,
             source_kind: None,
+            accumulate_sources: false,
         }
     }
 }
@@ -186,6 +195,7 @@ impl QuotaModelPoolsInput {
             include_sources: self.include_sources,
             include_config: self.include_config,
             source_kind,
+            accumulate_sources: self.accumulate_sources,
         }
     }
 
@@ -200,7 +210,7 @@ impl QuotaModelPoolsInput {
     }
 
     fn should_accumulate_sources(&self) -> bool {
-        self.include_sources || self.source_kind.is_some()
+        self.accumulate_sources || self.include_sources || self.source_kind.is_some()
     }
 
     fn should_return_source_kind(&self, source_kind: &str) -> bool {
@@ -341,6 +351,12 @@ fn normalized_model_pool_source_page_size(value: Option<i64>) -> i64 {
     value
         .unwrap_or(DEFAULT_MODEL_POOL_SOURCE_PAGE_SIZE)
         .clamp(1, MAX_MODEL_POOL_SOURCE_PAGE_SIZE)
+}
+
+fn normalized_model_pool_summary_limit(value: Option<i64>) -> i64 {
+    value
+        .unwrap_or(DEFAULT_MODEL_POOL_SUMMARY_LIMIT)
+        .clamp(1, MAX_MODEL_POOL_SUMMARY_LIMIT)
 }
 
 fn normalized_quota_source_list_page_size(value: Option<i64>) -> i64 {
@@ -908,28 +924,7 @@ pub(crate) fn read_quota_model_pools(
             .list_quota_source_model_assignments()
             .map_err(|err| format!("list quota source assignments failed: {err}"))?,
     );
-    let pools =
-        build_model_pool_accumulators(&storage, &price_rules, &api_models, &assignments, &input)?;
-    let mut items = pools
-        .into_iter()
-        .map(|(model, pool)| pool_to_model_item(model, pool))
-        .collect::<Vec<_>>();
-    let model_order = api_models
-        .iter()
-        .enumerate()
-        .map(|(index, model)| (model.as_str(), index))
-        .collect::<HashMap<_, _>>();
-    items.sort_by(|a, b| {
-        let a_order = model_order
-            .get(a.model.as_str())
-            .copied()
-            .unwrap_or(usize::MAX);
-        let b_order = model_order
-            .get(b.model.as_str())
-            .copied()
-            .unwrap_or(usize::MAX);
-        a_order.cmp(&b_order).then_with(|| a.model.cmp(&b.model))
-    });
+    let items = read_model_pool_items(&storage, &price_rules, &api_models, &assignments, &input)?;
     let templates = if input.include_config {
         capacity_template_results_with_slots(
             storage
@@ -954,6 +949,37 @@ pub(crate) fn read_quota_model_pools(
         templates,
         account_overrides,
     })
+}
+
+pub(crate) fn read_quota_model_pool_summary(
+    input: QuotaModelPoolSummaryInput,
+) -> Result<QuotaModelPoolSummaryResult, String> {
+    let limit = normalized_model_pool_summary_limit(input.limit);
+    let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
+    let price_rules = model_pricing::load_enabled_price_rules(&storage)?;
+    let api_models = api_available_model_slugs(&storage, &price_rules)?;
+    let assignments = assignment_map(
+        storage
+            .list_quota_source_model_assignments()
+            .map_err(|err| format!("list quota source assignments failed: {err}"))?,
+    );
+    let summary_input = QuotaModelPoolsInput {
+        include_sources: false,
+        include_config: false,
+        source_kind: None,
+        accumulate_sources: true,
+    };
+    let mut items = read_model_pool_items(
+        &storage,
+        &price_rules,
+        &api_models,
+        &assignments,
+        &summary_input,
+    )?;
+    items.retain(|item| item.source_count > 0);
+    let total = items.len() as i64;
+    items.truncate(limit as usize);
+    Ok(QuotaModelPoolSummaryResult { items, total })
 }
 
 pub(crate) fn read_quota_model_pool_sources(
@@ -1717,6 +1743,38 @@ fn source_models(
         .filter(|models| !models.is_empty())
         .cloned()
         .unwrap_or_else(|| api_models.to_vec())
+}
+
+fn read_model_pool_items(
+    storage: &codexmanager_core::storage::Storage,
+    price_rules: &[ModelPriceRule],
+    api_models: &[String],
+    assignments: &HashMap<(String, String), Vec<String>>,
+    input: &QuotaModelPoolsInput,
+) -> Result<Vec<QuotaModelPoolItem>, String> {
+    let pools =
+        build_model_pool_accumulators(storage, price_rules, api_models, assignments, input)?;
+    let mut items = pools
+        .into_iter()
+        .map(|(model, pool)| pool_to_model_item(model, pool))
+        .collect::<Vec<_>>();
+    let model_order = api_models
+        .iter()
+        .enumerate()
+        .map(|(index, model)| (model.as_str(), index))
+        .collect::<HashMap<_, _>>();
+    items.sort_by(|a, b| {
+        let a_order = model_order
+            .get(a.model.as_str())
+            .copied()
+            .unwrap_or(usize::MAX);
+        let b_order = model_order
+            .get(b.model.as_str())
+            .copied()
+            .unwrap_or(usize::MAX);
+        a_order.cmp(&b_order).then_with(|| a.model.cmp(&b.model))
+    });
+    Ok(items)
 }
 
 fn api_available_model_slugs(

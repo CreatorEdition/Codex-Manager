@@ -1575,6 +1575,8 @@ export const EN_MESSAGES: MessageCatalog = {
     "When set to Follow request, models for free or 7-day single-window accounts are not rewritten. They are rewritten only when you choose a specific model and those accounts are selected.",
   "RPC quota/modelPools 超时：模型池查询超过 30 秒":
     "RPC quota/modelPools timed out: model pool query exceeded 30 seconds",
+  "RPC quota/modelPoolSummary 超时：模型池容量汇总超过 30 秒":
+    "RPC quota/modelPoolSummary timed out: model pool capacity summary exceeded 30 seconds",
   "RPC requestlog/list 超时：请求日志查询超过 30 秒":
     "RPC requestlog/list timed out: request log query exceeded 30 seconds",
   "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒":

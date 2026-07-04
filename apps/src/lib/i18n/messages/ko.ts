@@ -1407,6 +1407,8 @@ export const KO_MESSAGES: MessageCatalog = {
     "“요청 따름”으로 설정하면 free / 7일 단일 창 계정의 모델을 추가로 덮어쓰지 않습니다. 구체적인 모델을 선택했고 해당 계정이 선택될 때만 그 모델로 통일됩니다.",
   "RPC quota/modelPools 超时：模型池查询超过 30 秒":
     "RPC quota/modelPools 시간 초과: 모델 풀 조회가 30초를 초과했습니다",
+  "RPC quota/modelPoolSummary 超时：模型池容量汇总超过 30 秒":
+    "RPC quota/modelPoolSummary 시간 초과: 모델 풀 용량 요약이 30초를 초과했습니다",
   "RPC requestlog/list 超时：请求日志查询超过 30 秒":
     "RPC requestlog/list 시간 초과: 요청 로그 조회가 30초를 초과했습니다",
   "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒":

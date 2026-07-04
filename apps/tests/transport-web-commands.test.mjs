@@ -308,6 +308,13 @@ test("createWebCommandMap 为重 RPC 配置独立超时且不默认重试", () =
     timeoutMessage: "RPC quota/modelPools 超时：模型池查询超过 30 秒",
   });
 
+  assert.equal(commandMap.service_quota_model_pool_summary.rpcMethod, "quota/modelPoolSummary");
+  assert.deepEqual(commandMap.service_quota_model_pool_summary.requestOptions, {
+    timeoutMs: 30000,
+    retries: 0,
+    timeoutMessage: "RPC quota/modelPoolSummary 超时：模型池容量汇总超过 30 秒",
+  });
+
   assert.deepEqual(commandMap.service_requestlog_list.requestOptions, {
     timeoutMs: 30000,
     retries: 0,

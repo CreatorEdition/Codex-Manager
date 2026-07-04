@@ -693,6 +693,13 @@ pub struct QuotaModelPoolsResult {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct QuotaModelPoolSummaryResult {
+    pub items: Vec<QuotaModelPoolItem>,
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuotaModelPoolSourcesResult {
     pub items: Vec<QuotaPoolSourceBreakdown>,
     pub total: i64,

@@ -205,6 +205,11 @@ export interface QuotaModelPoolsResult {
   accountOverrides: AccountQuotaCapacityOverride[];
 }
 
+export interface QuotaModelPoolSummaryResult {
+  items: QuotaModelPoolItem[];
+  total: number;
+}
+
 export interface QuotaModelPoolSourcesResult {
   items: QuotaPoolSourceBreakdown[];
   total: number;
