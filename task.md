@@ -1,5 +1,36 @@
 # Codex-Manager Fork Hardening 任务记录
 
+## 当前状态总览（2026-07-04）
+
+### ✅ 当前可发布状态
+
+- `main` 已包含发布版本注入修复：Release workflow 会从 GitHub tag 注入构建版本，避免 `v0.3.10` 继续生成 `0.3.8` 文件名产物。
+- GitHub Release 更新时会先清理旧 `CodexManager_*` / compose 资产，再上传新产物，避免同一 tag 内混入旧版本号文件。
+- 账号计划类型已改为保留未知原值；`K12` 会保存并显示为 `k12`，未来 `student`、`researcher_beta`、`nonprofit` 等未在白名单中的非空计划也不会被统一写死成 `unknown`。
+- 账号直连统计提示已修正：请求未经过 CodexManager 本地网关时不可统计；本地网关内部混合轮转仍属于可统计流量。
+- 发布前本地门禁已完成：完整 workspace 测试、`cargo fmt --all --check`、空白检查和冲突标记扫描均已通过；后续每次发版前仍需重复运行。
+
+### 🔄 本轮整理
+
+- 根目录临时分析材料已归档到 `.teamwork/`，不再混放在项目主目录。
+- `target-release-gate/` 是本地发布门禁隔离构建产物，不属于源码；已加入 `.gitignore`，后续不应提交。
+- `target/` 仍是 Rust 默认本地构建产物，已由既有 `.gitignore` 忽略。
+
+### 📌 后续待完成任务
+
+1. P1：补齐账号页后端分页等价能力，包括计划类型筛选、限流/封禁状态筛选和全局排序。
+2. P1：继续梳理 Web RPC 超时/重试矩阵，覆盖批量导入、手动全量刷新和长耗时维护类操作。
+3. P1：继续观察并优化 `request_logs`、`events`、`usage_snapshots` 与 WAL 体积，复核留存策略、后台维护批大小和 WAL 收缩效果。
+4. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
+5. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
+6. P2：清理既有 Rust warning，包括 `delivery.rs` unreachable pattern、维护模块 dead code 和 usage aggregate dead code。
+7. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
+
+### 🗂️ 历史记录说明
+
+- 下方为按时间累积的实施记录，包含已完成项、阶段性审计和历史待办。
+- 判断当前是否阻塞发布时，以本节“当前状态总览”和最新提交为准；旧日期章节中的“待处理”若已在本节标为完成，不再视为发布阻塞。
+
 ## 2026-06-04
 
 ### 🔄 进行中：CreatorEdition fork 第一阶段治理

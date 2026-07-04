@@ -1,6 +1,8 @@
 # Rust
 /target/
 **/target/
+/target-release-gate/
+/target-verify/
 **/*.rs.bk
 
 # Tauri
