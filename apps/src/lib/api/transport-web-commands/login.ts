@@ -1,4 +1,5 @@
 import type { WebCommandDescriptor } from "./shared";
+import { WEB_RPC_LONG_OPERATION_TIMEOUT_MS, noRetryTimeoutOptions } from "./shared";
 
 export function createLoginWebCommands(): Record<string, WebCommandDescriptor> {
   return {
@@ -9,6 +10,12 @@ export function createLoginWebCommands(): Record<string, WebCommandDescriptor> {
     service_account_read: { rpcMethod: "account/read" },
     service_account_logout: { rpcMethod: "account/logout" },
     service_chatgpt_auth_tokens_refresh: { rpcMethod: "account/chatgptAuthTokens/refresh" },
-    service_chatgpt_auth_tokens_refresh_all: { rpcMethod: "account/chatgptAuthTokens/refreshAll" },
+    service_chatgpt_auth_tokens_refresh_all: {
+      rpcMethod: "account/chatgptAuthTokens/refreshAll",
+      requestOptions: noRetryTimeoutOptions(
+        WEB_RPC_LONG_OPERATION_TIMEOUT_MS,
+        "RPC account/chatgptAuthTokens/refreshAll 超时：全量 Refresh Token 刷新超过 120 秒",
+      ),
+    },
   };
 }

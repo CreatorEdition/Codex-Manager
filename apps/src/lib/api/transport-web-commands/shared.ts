@@ -1,5 +1,8 @@
 import type { RequestOptions } from "../../utils/request";
 
+export const WEB_RPC_LONG_OPERATION_TIMEOUT_MS = 120000;
+export const WEB_RPC_MAINTENANCE_TIMEOUT_MS = 60000;
+
 export type InvokeParams = Record<string, unknown>;
 
 export type WebCommandDescriptor = {
@@ -33,5 +36,16 @@ export function mapKeyIdToId(params?: InvokeParams): InvokeParams {
   return {
     ...source,
     id: keyId,
+  };
+}
+
+export function noRetryTimeoutOptions(
+  timeoutMs: number,
+  timeoutMessage: string,
+): RequestOptions {
+  return {
+    timeoutMs,
+    retries: 0,
+    timeoutMessage,
   };
 }

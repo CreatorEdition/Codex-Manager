@@ -107,6 +107,11 @@ test("createWebCommandMap 为账号预热命令提供 Web RPC 映射", () => {
   const warmup = commandMap.service_account_warmup;
   assert.deepEqual(warmup, {
     rpcMethod: "account/warmup",
+    requestOptions: {
+      timeoutMs: 120000,
+      retries: 0,
+      timeoutMessage: "RPC account/warmup 超时：账号预热超过 120 秒",
+    },
   });
 });
 
@@ -141,6 +146,11 @@ test("createWebCommandMap 为按状态清理账号提供 Web RPC 映射", () => 
   const cleanup = commandMap.service_account_delete_by_statuses;
   assert.deepEqual(cleanup, {
     rpcMethod: "account/deleteByStatuses",
+    requestOptions: {
+      timeoutMs: 120000,
+      retries: 0,
+      timeoutMessage: "RPC account/deleteByStatuses 超时：按状态清理账号超过 120 秒",
+    },
   });
 });
 
@@ -227,9 +237,10 @@ test("createWebCommandMap 为模型来源映射命令提供 Web RPC 映射", () 
     { supplierKey: "Provider", providerType: "codex", upstreamModel: "provider-model" },
   );
 
-  assert.deepEqual(commandMap.service_aggregate_api_supplier_models_import, {
-    rpcMethod: "aggregateApi/sourceModels/importSupplier",
-  });
+  assert.equal(
+    commandMap.service_aggregate_api_supplier_models_import.rpcMethod,
+    "aggregateApi/sourceModels/importSupplier",
+  );
 });
 
 test("createWebCommandMap 为配额来源刷新透传显式全量开关", () => {
@@ -253,6 +264,11 @@ test("createWebCommandMap 为配额来源刷新透传显式全量开关", () => 
     kinds: [],
     sourceIds: [],
     refreshAll: false,
+  });
+  assert.deepEqual(refreshSources.requestOptions, {
+    timeoutMs: 120000,
+    retries: 0,
+    timeoutMessage: "RPC quota/refreshSources 超时：配额来源刷新超过 120 秒",
   });
 });
 
@@ -279,6 +295,77 @@ test("createWebCommandMap 为重 RPC 配置独立超时且不默认重试", () =
     timeoutMs: 30000,
     retries: 0,
     timeoutMessage: "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒",
+  });
+});
+
+test("createWebCommandMap 为长耗时 Web RPC 配置独立超时且不重试", () => {
+  assert.deepEqual(commandMap.service_account_import.requestOptions, {
+    timeoutMs: 120000,
+    retries: 0,
+    timeoutMessage: "RPC account/import 超时：账号批量导入超过 120 秒",
+  });
+
+  assert.deepEqual(commandMap.service_account_delete_many.requestOptions, {
+    timeoutMs: 120000,
+    retries: 0,
+    timeoutMessage: "RPC account/deleteMany 超时：批量删除账号超过 120 秒",
+  });
+
+  assert.deepEqual(commandMap.service_usage_refresh.requestOptions, {
+    timeoutMs: 120000,
+    retries: 0,
+    timeoutMessage: "RPC account/usage/refresh 超时：账号用量刷新超过 120 秒",
+  });
+
+  assert.deepEqual(commandMap.service_chatgpt_auth_tokens_refresh_all.requestOptions, {
+    timeoutMs: 120000,
+    retries: 0,
+    timeoutMessage: "RPC account/chatgptAuthTokens/refreshAll 超时：全量 Refresh Token 刷新超过 120 秒",
+  });
+
+  assert.deepEqual(commandMap.service_aggregate_api_supplier_models_import.requestOptions, {
+    timeoutMs: 120000,
+    retries: 0,
+    timeoutMessage:
+      "RPC aggregateApi/sourceModels/importSupplier 超时：供应商模型导入超过 120 秒",
+  });
+});
+
+test("createWebCommandMap 为维护类 Web RPC 配置独立超时且不重试", () => {
+  assert.deepEqual(commandMap.service_requestlog_clear.requestOptions, {
+    timeoutMs: 60000,
+    retries: 0,
+    timeoutMessage: "RPC requestlog/clear 超时：请求日志清理超过 60 秒",
+  });
+
+  assert.deepEqual(commandMap.service_plugin_catalog_refresh.requestOptions, {
+    timeoutMs: 60000,
+    retries: 0,
+    timeoutMessage: "RPC plugin/catalog/refresh 超时：插件目录刷新超过 60 秒",
+  });
+
+  assert.deepEqual(commandMap.service_plugin_install.requestOptions, {
+    timeoutMs: 60000,
+    retries: 0,
+    timeoutMessage: "RPC plugin/install 超时：插件安装超过 60 秒",
+  });
+
+  assert.deepEqual(commandMap.service_plugin_update.requestOptions, {
+    timeoutMs: 60000,
+    retries: 0,
+    timeoutMessage: "RPC plugin/update 超时：插件更新超过 60 秒",
+  });
+
+  assert.deepEqual(commandMap.service_plugin_uninstall.requestOptions, {
+    timeoutMs: 60000,
+    retries: 0,
+    timeoutMessage: "RPC plugin/uninstall 超时：插件卸载超过 60 秒",
+  });
+
+  assert.deepEqual(commandMap.service_plugin_tasks_run.requestOptions, {
+    timeoutMs: 60000,
+    retries: 0,
+    timeoutMessage: "RPC plugin/tasks/run 超时：插件任务运行超过 60 秒",
   });
 });
 

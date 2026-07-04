@@ -1,4 +1,5 @@
 import type { WebCommandDescriptor } from "./shared";
+import { WEB_RPC_LONG_OPERATION_TIMEOUT_MS, noRetryTimeoutOptions } from "./shared";
 
 export function createQuotaWebCommands(): Record<string, WebCommandDescriptor> {
   return {
@@ -44,6 +45,13 @@ export function createQuotaWebCommands(): Record<string, WebCommandDescriptor> {
     },
     service_quota_capacity_template_update: { rpcMethod: "quota/capacityTemplate/update" },
     service_quota_account_capacity_override_update: { rpcMethod: "quota/accountCapacityOverride/update" },
-    service_quota_refresh_sources: { rpcMethod: "quota/refreshSources", mapParams: (params) => ({ kinds: Array.isArray(params?.kinds) ? params.kinds : [], sourceIds: Array.isArray(params?.sourceIds) ? params.sourceIds : Array.isArray(params?.source_ids) ? params.source_ids : [], refreshAll: params?.refreshAll === true }) },
+    service_quota_refresh_sources: {
+      rpcMethod: "quota/refreshSources",
+      mapParams: (params) => ({ kinds: Array.isArray(params?.kinds) ? params.kinds : [], sourceIds: Array.isArray(params?.sourceIds) ? params.sourceIds : Array.isArray(params?.source_ids) ? params.source_ids : [], refreshAll: params?.refreshAll === true }),
+      requestOptions: noRetryTimeoutOptions(
+        WEB_RPC_LONG_OPERATION_TIMEOUT_MS,
+        "RPC quota/refreshSources 超时：配额来源刷新超过 120 秒",
+      ),
+    },
   };
 }

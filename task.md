@@ -8,6 +8,7 @@
 - GitHub Release 更新时会先清理旧 `CodexManager_*` / compose 资产，再上传新产物，避免同一 tag 内混入旧版本号文件。
 - 账号计划类型已改为保留未知原值；`K12` 会保存并显示为 `k12`，未来 `student`、`researcher_beta`、`nonprofit` 等未在白名单中的非空计划也不会被统一写死成 `unknown`。
 - 账号直连统计提示已修正：请求未经过 CodexManager 本地网关时不可统计；本地网关内部混合轮转仍属于可统计流量。
+- Web 运行壳的批量导入、手动全量刷新和维护类长耗时 RPC 已配置独立超时且默认不重试，避免默认 10 秒超时或自动重试放大重操作。
 - 发布前本地门禁已完成：完整 workspace 测试、`cargo fmt --all --check`、空白检查和冲突标记扫描均已通过；后续每次发版前仍需重复运行。
 
 ### 🔄 本轮整理
@@ -47,14 +48,20 @@
 - 验证：`cargo test -j 1 -p codexmanager-service --test rpc account_list -- --nocapture` 7 项通过；`cargo test -j 1 -p codexmanager-core account_list_result_serialization_includes_pagination_fields -- --nocapture` 通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`node --test apps\tests\account-list-cache.test.mjs` 2 项通过；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描无命中。
 - 未验证：未跑完整 workspace 测试；既有 Rust warning（`delivery.rs` unreachable pattern、维护模块 dead code、usage aggregate dead code）仍未清理，继续作为 P2 独立任务处理。
 
+### ✅ 已完成：P1 Web RPC 超时/重试矩阵
+
+- 行为：Web 运行壳下账号批量导入、批量删除、按状态清理、不可用免费账号清理、账号预热、手动用量刷新、全量 ChatGPT Auth Token 刷新、配额来源刷新和供应商模型导入均使用 120 秒独立超时且不默认重试。
+- 行为：请求日志清理、插件目录刷新、插件安装、插件更新、插件卸载和插件任务运行使用 60 秒维护类超时且不默认重试。
+- 约束：仅调整 Web RPC descriptor 与相关前端回归测试；不通过恢复全量裸调用规避超时，不改变后端业务语义。
+- 验证：`node --test apps\tests\transport-web-commands.test.mjs` 14 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`git diff --check` 通过；冲突标记扫描无命中。
+
 ### 📌 后续待完成任务
 
-1. P1：继续梳理 Web RPC 超时/重试矩阵，覆盖批量导入、手动全量刷新和长耗时维护类操作。
-2. P1：继续观察并优化 `request_logs`、`events`、`usage_snapshots` 与 WAL 体积，复核留存策略、后台维护批大小和 WAL 收缩效果。
-3. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
-4. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
-5. P2：清理既有 Rust warning，包括 `delivery.rs` unreachable pattern、维护模块 dead code 和 usage aggregate dead code。
-6. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
+1. P1：继续观察并优化 `request_logs`、`events`、`usage_snapshots` 与 WAL 体积，复核留存策略、后台维护批大小和 WAL 收缩效果。
+2. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
+3. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
+4. P2：清理既有 Rust warning，包括 `delivery.rs` unreachable pattern、维护模块 dead code 和 usage aggregate dead code。
+5. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
 
 ### 🗂️ 历史记录说明
 
