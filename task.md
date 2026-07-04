@@ -9,6 +9,7 @@
 - 账号计划类型已改为保留未知原值；`K12` 会保存并显示为 `k12`，未来 `student`、`researcher_beta`、`nonprofit` 等未在白名单中的非空计划也不会被统一写死成 `unknown`。
 - 账号直连统计提示已修正：请求未经过 CodexManager 本地网关时不可统计；本地网关内部混合轮转仍属于可统计流量。
 - Web 运行壳的批量导入、手动全量刷新和维护类长耗时 RPC 已配置独立超时且默认不重试，避免默认 10 秒超时或自动重试放大重操作。
+- 观测数据维护已确认走后台调度：请求日志写入后不再同步执行 retention 清理或 WAL checkpoint。
 - 发布前本地门禁已完成：完整 workspace 测试、`cargo fmt --all --check`、空白检查和冲突标记扫描均已通过；后续每次发版前仍需重复运行。
 
 ### 🔄 本轮整理
@@ -55,13 +56,20 @@
 - 约束：仅调整 Web RPC descriptor 与相关前端回归测试；不通过恢复全量裸调用规避超时，不改变后端业务语义。
 - 验证：`node --test apps\tests\transport-web-commands.test.mjs` 14 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`git diff --check` 通过；冲突标记扫描无命中。
 
+### ✅ 已完成：P1 观测数据维护热路径收敛
+
+- 根因：已有后台调度器 `schedule_observability_maintenance()` 未被调用，`write_request_log()` 末尾仍直接调用 core 的同步 `maybe_run_observability_maintenance()`，导致 retention 清理和 `PRAGMA wal_checkpoint(TRUNCATE)` 仍可能回到请求写日志路径。
+- 行为：请求日志写入后改为只调用后台维护调度器；实际清理仍由独立 storage handle 在线程中执行，core 的显式维护 API 保留给测试/手动维护使用。
+- 约束：未改变 request logs、events、usage snapshots 的 retention SQL、batch limit 和 WAL checkpoint 条件。
+- 验证：`cargo test -p codexmanager-service --lib gateway::maintenance::tests -- --nocapture` 5 项通过；`cargo test -p codexmanager-service --lib gateway::request_log::tests -- --nocapture` 17 项通过；`cargo test -p codexmanager-core --lib observability -- --nocapture` 2 项通过、1 项按预期 ignored；`cargo fmt --all --check` 通过；`git diff --check` 通过；冲突标记扫描无命中。
+- 未处理：既有 `delivery.rs` unreachable pattern warning 仍作为 P2 独立任务保留。
+
 ### 📌 后续待完成任务
 
-1. P1：继续观察并优化 `request_logs`、`events`、`usage_snapshots` 与 WAL 体积，复核留存策略、后台维护批大小和 WAL 收缩效果。
-2. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
-3. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
-4. P2：清理既有 Rust warning，包括 `delivery.rs` unreachable pattern、维护模块 dead code 和 usage aggregate dead code。
-5. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
+1. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup。
+2. P2：为首页模型池容量提供独立轻量汇总或分页来源懒加载，不回退到全量 `quota/modelPools(includeSources:true)`。
+3. P2：清理既有 Rust warning，包括 `delivery.rs` unreachable pattern、维护模块 dead code 和 usage aggregate dead code。
+4. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
 
 ### 🗂️ 历史记录说明
 
