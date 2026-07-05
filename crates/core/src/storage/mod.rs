@@ -1240,6 +1240,11 @@ impl Storage {
             "075_app_wallet_ledger_request_charge_index",
             include_str!("../../migrations/075_app_wallet_ledger_request_charge_index.sql"),
         )?;
+        self.apply_sql_or_compat_migration(
+            "076_request_token_stats_daily_rollup_marker",
+            include_str!("../../migrations/076_request_token_stats_daily_rollup_marker.sql"),
+            |s| s.ensure_request_token_stats_daily_rollup_marker(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_supplier_model_tables()?;

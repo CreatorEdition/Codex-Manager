@@ -1,4 +1,5 @@
 use super::{RequestLog, RequestTokenStat, Storage};
+use crate::storage::{ApiKey, ApiKeyOwner, AppUser};
 use std::sync::{Mutex, OnceLock};
 
 fn env_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -9,6 +10,28 @@ fn env_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|err| err.into_inner())
 }
 
+fn test_api_key(id: &str, created_at: i64) -> ApiKey {
+    ApiKey {
+        id: id.to_string(),
+        name: Some(id.to_string()),
+        model_slug: Some("gpt-5".to_string()),
+        reasoning_effort: None,
+        service_tier: None,
+        rotation_strategy: "account_rotation".to_string(),
+        aggregate_api_id: None,
+        account_plan_filter: None,
+        aggregate_api_url: None,
+        client_type: "codex".to_string(),
+        protocol_type: "openai_compat".to_string(),
+        auth_scheme: "authorization_bearer".to_string(),
+        upstream_base_url: None,
+        static_headers_json: None,
+        key_hash: format!("hash-{id}"),
+        status: "active".to_string(),
+        created_at,
+        last_used_at: None,
+    }
+}
 /// 函数 `collect_query_plan_details`
 ///
 /// 作者: gaohongshun
@@ -831,4 +854,328 @@ fn summarize_request_log_error_codes_groups_and_dedups() {
         .expect("aggregate limited");
     assert_eq!(limited.len(), 1);
     assert_eq!(limited[0].error_code, "refresh_token_reused");
+}
+
+#[test]
+fn daily_rollup_mixed_dashboard_queries_survive_token_stat_prune() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let day_start = 1_700_000_000;
+    let next_day = day_start + 86_400;
+    let day_after = next_day + 86_400;
+    let key_id = "gk-daily-rollup".to_string();
+    let account_id = "acc-daily-rollup".to_string();
+    let user_id = "user-daily-rollup".to_string();
+
+    storage
+        .insert_api_key(&test_api_key(&key_id, day_start))
+        .expect("insert api key");
+    storage
+        .insert_app_user(&AppUser {
+            id: user_id.clone(),
+            username: user_id.clone(),
+            display_name: None,
+            password_hash: "test-hash".to_string(),
+            role: "member".to_string(),
+            status: "active".to_string(),
+            created_at: day_start,
+            updated_at: day_start,
+            last_login_at: None,
+        })
+        .expect("insert user");
+    storage
+        .upsert_api_key_owner(&ApiKeyOwner {
+            key_id: key_id.clone(),
+            owner_kind: "user".to_string(),
+            owner_user_id: Some(user_id.clone()),
+            project_id: None,
+            updated_at: day_start,
+        })
+        .expect("insert owner");
+
+    for (request_id, trace_id, created_at, total_tokens) in [
+        (1_i64, "trace-rollup-history", day_start + 60, 30_i64),
+        (2_i64, "trace-rollup-live", next_day + 60, 20_i64),
+    ] {
+        let log_id = storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(trace_id.to_string()),
+                key_id: Some(key_id.clone()),
+                account_id: Some(account_id.clone()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                model: Some("gpt-5".to_string()),
+                actual_source_kind: Some("openai_account".to_string()),
+                actual_source_id: Some(account_id.clone()),
+                status_code: Some(200),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
+        assert_eq!(log_id, request_id);
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id: log_id,
+                key_id: Some(key_id.clone()),
+                account_id: Some(account_id.clone()),
+                model: Some("gpt-5".to_string()),
+                input_tokens: Some(total_tokens / 2),
+                output_tokens: Some(total_tokens / 2),
+                total_tokens: Some(total_tokens),
+                estimated_cost_usd: Some(total_tokens as f64 / 100.0),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert token stat");
+    }
+
+    assert_eq!(
+        storage
+            .rollup_request_token_stats_daily_before_limited(next_day, next_day, 86_400, 100)
+            .expect("daily rollup"),
+        1
+    );
+    assert_eq!(
+        storage
+            .rollup_request_token_stats_daily_before_limited(next_day, next_day, 86_400, 100)
+            .expect("daily rollup idempotent"),
+        0
+    );
+    let daily_rows = storage
+        .query_request_token_stat_daily_rollups(day_start)
+        .expect("query daily rollup");
+    assert_eq!(daily_rows.len(), 1);
+    assert_eq!(daily_rows[0].total_tokens, 30);
+    assert_eq!(daily_rows[0].user_id, user_id);
+    assert_eq!(daily_rows[0].source_kind, "openai_account");
+    assert_eq!(daily_rows[0].source_id, account_id);
+
+    storage
+        .rollup_request_token_stats_before(next_day)
+        .expect("legacy rollup deletes history stats");
+    let live_rows: i64 = storage
+        .conn
+        .query_row("SELECT COUNT(1) FROM request_token_stats", [], |row| {
+            row.get(0)
+        })
+        .expect("count token stats");
+    assert_eq!(live_rows, 1);
+
+    let daily_usage = storage
+        .summarize_request_token_stats_daily_mixed(day_start, day_after, 86_400, next_day)
+        .expect("mixed daily usage");
+    assert_eq!(daily_usage.len(), 2);
+    assert_eq!(daily_usage[0].usage.total_tokens, 30);
+    assert_eq!(daily_usage[1].usage.total_tokens, 20);
+
+    let user_ranking = storage
+        .summarize_request_token_stats_user_ranking_between_mixed(
+            next_day, day_after, day_start, day_after, next_day, 10,
+        )
+        .expect("mixed user ranking");
+    assert_eq!(user_ranking.len(), 1);
+    assert_eq!(user_ranking[0].user_id, user_id);
+    assert_eq!(user_ranking[0].today_usage.total_tokens, 20);
+    assert_eq!(user_ranking[0].range_usage.total_tokens, 50);
+
+    let source_ranking = storage
+        .summarize_request_token_stats_source_ranking_between_mixed(
+            "openai_account",
+            next_day,
+            day_after,
+            day_start,
+            day_after,
+            next_day,
+            10,
+        )
+        .expect("mixed source ranking");
+    assert_eq!(source_ranking.len(), 1);
+    assert_eq!(source_ranking[0].source_id, account_id);
+    assert_eq!(source_ranking[0].today_usage.total_tokens, 20);
+    assert_eq!(source_ranking[0].range_usage.total_tokens, 50);
+}
+#[test]
+fn observability_prune_rolls_complete_local_days_before_deleting_retained_detail() {
+    let _guard = env_guard();
+    std::env::set_var("CODEXMANAGER_OBSERVABILITY_MAINTENANCE_BATCH_LIMIT", "100");
+    std::env::set_var("CODEXMANAGER_REQUEST_TOKEN_STATS_RETENTION_DAYS", "1");
+    std::env::set_var("CODEXMANAGER_REQUEST_LOG_RETENTION_DAYS", "1");
+
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let today_start = 1_700_086_400;
+    let previous_day = today_start - 86_400;
+    let now = today_start + 3_600;
+    let key_id = "gk-complete-day-rollup".to_string();
+    let account_id = "acc-complete-day-rollup".to_string();
+
+    for (trace_id, created_at, total_tokens) in [
+        ("trace-retention-deleted", previous_day + 60, 10_i64),
+        ("trace-retention-kept", previous_day + 7_200, 20_i64),
+    ] {
+        let log_id = storage
+            .insert_request_log(&RequestLog {
+                trace_id: Some(trace_id.to_string()),
+                key_id: Some(key_id.clone()),
+                account_id: Some(account_id.clone()),
+                request_path: "/v1/responses".to_string(),
+                method: "POST".to_string(),
+                model: Some("gpt-5".to_string()),
+                actual_source_kind: Some("openai_account".to_string()),
+                actual_source_id: Some(account_id.clone()),
+                status_code: Some(200),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert request log");
+        storage
+            .insert_request_token_stat(&RequestTokenStat {
+                request_log_id: log_id,
+                key_id: Some(key_id.clone()),
+                account_id: Some(account_id.clone()),
+                model: Some("gpt-5".to_string()),
+                total_tokens: Some(total_tokens),
+                estimated_cost_usd: Some(total_tokens as f64 / 100.0),
+                created_at,
+                ..Default::default()
+            })
+            .expect("insert token stat");
+    }
+
+    storage
+        .prune_observability_history_with_daily_rollup_anchor(now, today_start)
+        .expect("maintenance");
+
+    let previous_rollups = storage
+        .query_request_token_stat_daily_rollups(previous_day)
+        .expect("query previous daily rollup");
+    assert_eq!(previous_rollups.len(), 1);
+    assert_eq!(previous_rollups[0].total_tokens, 30);
+
+    let remaining_stats: i64 = storage
+        .conn
+        .query_row("SELECT COUNT(1) FROM request_token_stats", [], |row| {
+            row.get(0)
+        })
+        .expect("count token stats");
+    assert_eq!(
+        remaining_stats, 1,
+        "只应删除 retention cutoff 之前且已固化的明细"
+    );
+
+    let remaining_created_at: i64 = storage
+        .conn
+        .query_row("SELECT created_at FROM request_token_stats", [], |row| {
+            row.get(0)
+        })
+        .expect("load remaining token stat");
+    assert_eq!(remaining_created_at, previous_day + 7_200);
+
+    let mixed_daily = storage
+        .summarize_request_token_stats_daily_mixed(previous_day, today_start, 86_400, today_start)
+        .expect("mixed daily usage");
+    assert_eq!(mixed_daily.len(), 1);
+    assert_eq!(mixed_daily[0].usage.total_tokens, 30);
+
+    let request_logs: i64 = storage
+        .conn
+        .query_row("SELECT COUNT(1) FROM request_logs", [], |row| row.get(0))
+        .expect("count request logs");
+    assert_eq!(
+        request_logs, 1,
+        "已删除明细对应的旧请求日志可以按 retention 清理"
+    );
+
+    std::env::remove_var("CODEXMANAGER_OBSERVABILITY_MAINTENANCE_BATCH_LIMIT");
+    std::env::remove_var("CODEXMANAGER_REQUEST_TOKEN_STATS_RETENTION_DAYS");
+    std::env::remove_var("CODEXMANAGER_REQUEST_LOG_RETENTION_DAYS");
+}
+#[test]
+fn daily_rollup_mixed_queries_use_unrolled_live_stats_when_rollup_is_not_ready() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let day_start = 1_700_000_000;
+    let next_day = day_start + 86_400;
+    let key_id = "gk-unrolled-fallback".to_string();
+    let account_id = "acc-unrolled-fallback".to_string();
+    let user_id = "user-unrolled-fallback".to_string();
+
+    storage
+        .insert_api_key(&test_api_key(&key_id, day_start))
+        .expect("insert api key");
+    storage
+        .insert_app_user(&AppUser {
+            id: user_id.clone(),
+            username: user_id.clone(),
+            display_name: None,
+            password_hash: "test-hash".to_string(),
+            role: "member".to_string(),
+            status: "active".to_string(),
+            created_at: day_start,
+            updated_at: day_start,
+            last_login_at: None,
+        })
+        .expect("insert user");
+    storage
+        .upsert_api_key_owner(&ApiKeyOwner {
+            key_id: key_id.clone(),
+            owner_kind: "user".to_string(),
+            owner_user_id: Some(user_id.clone()),
+            project_id: None,
+            updated_at: day_start,
+        })
+        .expect("insert owner");
+
+    let log_id = storage
+        .insert_request_log(&RequestLog {
+            trace_id: Some("trace-unrolled-fallback".to_string()),
+            key_id: Some(key_id.clone()),
+            account_id: Some(account_id.clone()),
+            request_path: "/v1/responses".to_string(),
+            method: "POST".to_string(),
+            model: Some("gpt-5".to_string()),
+            actual_source_kind: Some("openai_account".to_string()),
+            actual_source_id: Some(account_id.clone()),
+            status_code: Some(200),
+            created_at: day_start + 60,
+            ..Default::default()
+        })
+        .expect("insert request log");
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: log_id,
+            key_id: Some(key_id),
+            account_id: Some(account_id.clone()),
+            model: Some("gpt-5".to_string()),
+            total_tokens: Some(30),
+            estimated_cost_usd: Some(0.3),
+            created_at: day_start + 60,
+            ..Default::default()
+        })
+        .expect("insert token stat");
+
+    let daily_usage = storage
+        .summarize_request_token_stats_daily_mixed(day_start, next_day, 86_400, next_day)
+        .expect("mixed daily usage");
+    assert_eq!(daily_usage.len(), 1);
+    assert_eq!(daily_usage[0].usage.total_tokens, 30);
+
+    let user_usage = storage
+        .summarize_request_token_stats_by_user_between_mixed(day_start, next_day, next_day)
+        .expect("mixed user usage");
+    assert_eq!(user_usage.len(), 1);
+    assert_eq!(user_usage[0].user_id, user_id);
+    assert_eq!(user_usage[0].usage.total_tokens, 30);
+
+    let source_usage = storage
+        .summarize_request_token_stats_by_source_between_mixed(
+            "openai_account",
+            day_start,
+            next_day,
+            next_day,
+        )
+        .expect("mixed source usage");
+    assert_eq!(source_usage.len(), 1);
+    assert_eq!(source_usage[0].source_id, account_id);
+    assert_eq!(source_usage[0].usage.total_tokens, 30);
 }

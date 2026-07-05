@@ -51,7 +51,7 @@ pub(crate) fn read_admin_usage_summary(
     let ranking_limit = normalize_admin_usage_ranking_limit(ranking_limit);
 
     let today_usage = storage
-        .summarize_request_token_stats_daily(today_start, today_end, DAY_SECONDS)
+        .summarize_request_token_stats_daily_mixed(today_start, today_end, DAY_SECONDS, today_start)
         .map_err(|err| format!("summarize today usage failed: {err}"))?
         .into_iter()
         .next()
@@ -62,7 +62,12 @@ pub(crate) fn read_admin_usage_summary(
         range_end,
         DAY_SECONDS,
         storage
-            .summarize_request_token_stats_daily(range_start, range_end, DAY_SECONDS)
+            .summarize_request_token_stats_daily_mixed(
+                range_start,
+                range_end,
+                DAY_SECONDS,
+                today_start,
+            )
             .map_err(|err| format!("summarize daily usage failed: {err}"))?,
     );
     let users = read_dashboard_user_summaries(
@@ -227,11 +232,12 @@ fn read_dashboard_user_summaries(
         return build_dashboard_user_summaries_from_rankings(
             storage,
             storage
-                .summarize_request_token_stats_user_ranking_between(
+                .summarize_request_token_stats_user_ranking_between_mixed(
                     today_start,
                     today_end,
                     range_start,
                     range_end,
+                    today_start,
                     limit,
                 )
                 .map_err(|err| format!("summarize ranked user usage failed: {err}"))?,
@@ -240,10 +246,18 @@ fn read_dashboard_user_summaries(
     build_dashboard_user_summaries(
         storage,
         storage
-            .summarize_request_token_stats_by_user_between(today_start, today_end)
+            .summarize_request_token_stats_by_user_between_mixed(
+                today_start,
+                today_end,
+                today_start,
+            )
             .map_err(|err| format!("summarize today user usage failed: {err}"))?,
         storage
-            .summarize_request_token_stats_by_user_between(range_start, range_end)
+            .summarize_request_token_stats_by_user_between_mixed(
+                range_start,
+                range_end,
+                today_start,
+            )
             .map_err(|err| format!("summarize range user usage failed: {err}"))?,
         None,
     )
@@ -263,12 +277,13 @@ fn read_dashboard_source_summaries(
             storage,
             source_kind,
             storage
-                .summarize_request_token_stats_source_ranking_between(
+                .summarize_request_token_stats_source_ranking_between_mixed(
                     source_kind,
                     today_start,
                     today_end,
                     range_start,
                     range_end,
+                    today_start,
                     limit,
                 )
                 .map_err(|err| format!("summarize ranked {source_kind} usage failed: {err}"))?,
@@ -278,10 +293,20 @@ fn read_dashboard_source_summaries(
         storage,
         source_kind,
         storage
-            .summarize_request_token_stats_by_source_between(source_kind, today_start, today_end)
+            .summarize_request_token_stats_by_source_between_mixed(
+                source_kind,
+                today_start,
+                today_end,
+                today_start,
+            )
             .map_err(|err| format!("summarize today {source_kind} usage failed: {err}"))?,
         storage
-            .summarize_request_token_stats_by_source_between(source_kind, range_start, range_end)
+            .summarize_request_token_stats_by_source_between_mixed(
+                source_kind,
+                range_start,
+                range_end,
+                today_start,
+            )
             .map_err(|err| format!("summarize range {source_kind} usage failed: {err}"))?,
         None,
     )

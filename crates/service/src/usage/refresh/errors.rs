@@ -39,11 +39,20 @@ pub(super) fn record_usage_refresh_failure(storage: &Storage, account_id: &str, 
     if !should_record_failure_event(account_id, &error_class, created_at, dedupe_window_secs) {
         return;
     }
+    if dedupe_window_secs > 0 {
+        let cutoff_ts = created_at.saturating_sub(dedupe_window_secs);
+        if storage
+            .has_recent_usage_refresh_failure_event(account_id, &error_class, cutoff_ts)
+            .unwrap_or(false)
+        {
+            return;
+        }
+    }
 
     let _ = storage.insert_event(&Event {
         account_id: Some(account_id.to_string()),
         event_type: "usage_refresh_failed".to_string(),
-        message: message.to_string(),
+        message: usage_refresh_failure_event_message(&error_class, message),
         created_at,
     });
 }
@@ -143,6 +152,18 @@ fn classify_usage_refresh_error(message: &str) -> String {
     "other".to_string()
 }
 
+fn usage_refresh_failure_event_message(error_class: &str, message: &str) -> String {
+    let detail = message
+        .trim()
+        .chars()
+        .map(|ch| if ch == '\r' || ch == '\n' { ' ' } else { ch })
+        .collect::<String>();
+    let mut truncated = detail.chars().take(512).collect::<String>();
+    if detail.chars().count() > 512 {
+        truncated.push_str("...");
+    }
+    format!("class={} detail={}", error_class.trim(), truncated)
+}
 /// 函数 `extract_usage_status_code`
 ///
 /// 作者: gaohongshun

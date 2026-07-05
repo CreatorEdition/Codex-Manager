@@ -5,6 +5,9 @@ use super::{Event, Storage};
 
 const DEFAULT_EVENTS_RETENTION_DAYS: i64 = 14;
 const EVENTS_RETENTION_DAYS_ENV: &str = "CODEXMANAGER_EVENTS_RETENTION_DAYS";
+const DEFAULT_USAGE_REFRESH_FAILURE_DUPLICATE_WINDOW_SECS: i64 = 6 * 60 * 60;
+const USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS_ENV: &str =
+    "CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS";
 
 pub(super) fn events_retention_days() -> i64 {
     std::env::var(EVENTS_RETENTION_DAYS_ENV)
@@ -13,6 +16,12 @@ pub(super) fn events_retention_days() -> i64 {
         .unwrap_or(DEFAULT_EVENTS_RETENTION_DAYS)
 }
 
+fn usage_refresh_failure_duplicate_window_secs() -> i64 {
+    std::env::var(USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS_ENV)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .unwrap_or(DEFAULT_USAGE_REFRESH_FAILURE_DUPLICATE_WINDOW_SECS)
+}
 impl Storage {
     /// 函数 `insert_event`
     ///
@@ -103,6 +112,72 @@ impl Storage {
         )
     }
 
+    pub fn prune_duplicate_usage_refresh_failed_events_limited(
+        &self,
+        limit: usize,
+    ) -> Result<usize> {
+        if limit == 0 {
+            return Ok(0);
+        }
+        let duplicate_window_secs = usage_refresh_failure_duplicate_window_secs();
+        if duplicate_window_secs <= 0 {
+            return Ok(0);
+        }
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        self.conn.execute(
+            "DELETE FROM events
+             WHERE id IN (
+                SELECT e.id
+                FROM events e
+                WHERE e.type = 'usage_refresh_failed'
+                  AND e.account_id IS NOT NULL
+                  AND TRIM(e.account_id) <> ''
+                  AND e.message IS NOT NULL
+                  AND TRIM(e.message) <> ''
+                  AND EXISTS (
+                    SELECT 1
+                    FROM events newer
+                    WHERE newer.type = 'usage_refresh_failed'
+                      AND newer.account_id = e.account_id
+                      AND newer.message = e.message
+                      AND newer.created_at >= e.created_at
+                      AND newer.created_at <= e.created_at + ?1
+                      AND (
+                        newer.created_at > e.created_at
+                        OR (newer.created_at = e.created_at AND newer.id > e.id)
+                      )
+                    LIMIT 1
+                  )
+                ORDER BY e.created_at ASC, e.id ASC
+                LIMIT ?2
+             )",
+            (duplicate_window_secs, limit_i64),
+        )
+    }
+    pub fn has_recent_usage_refresh_failure_event(
+        &self,
+        account_id: &str,
+        error_class: &str,
+        cutoff_ts: i64,
+    ) -> Result<bool> {
+        if account_id.trim().is_empty() || error_class.trim().is_empty() {
+            return Ok(false);
+        }
+        let message_prefix = format!("class={} %", error_class.trim());
+        self.conn.query_row(
+            "SELECT EXISTS (
+                SELECT 1
+                FROM events
+                WHERE type = 'usage_refresh_failed'
+                  AND account_id = ?1
+                  AND created_at >= ?2
+                  AND message LIKE ?3
+                LIMIT 1
+             )",
+            (account_id.trim(), cutoff_ts, message_prefix),
+            |row| row.get::<_, i64>(0).map(|value| value != 0),
+        )
+    }
     /// 函数 `latest_account_status_reasons`
     ///
     /// 作者: gaohongshun

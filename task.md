@@ -14,6 +14,9 @@
 - Dashboard 管理员概览已与排行/趋势加载拆分：首屏基础快照不再随自定义区间刷新重复拉取排行聚合。
 - 首页模型池容量已改走独立轻量汇总 `quota/modelPoolSummary`，不再依赖 `quota/modelPools(includeSources:true)` 全量来源明细。
 - 最近一次发布前本地门禁已完成：完整 workspace 测试、`cargo fmt --all --check`、空白检查和冲突标记扫描均已通过；本轮新增改动已跑相关门禁，正式发版前仍需重复完整 workspace 门禁。
+- `request_token_stat_daily_rollups` 生产链路已接入后台观测维护，Dashboard 管理员用量趋势/排行已切到 daily rollup + live mixed 查询；历史完整本地日优先读日级 rollup，未固化明细保留 live 兜底，避免升级窗口显示 0。
+- 本地 `D:\Apps\CodexManager\codexmanager.db` 膨胀根因已确认：`events` 表中 `usage_refresh_failed` 约 133 万行占主要体积；已补 DB 侧同账号同错误类去重、事件 message 分类前缀，以及后台维护中同账号同 message 重复失败事件批量清理，防止继续写爆并逐步降低行数。
+- 注意：SQLite 文件物理体积不会仅因 DELETE 立即下降；现有生产库需要在停止 CodexManager 后运行 `crates/db-optimize --check-only` 评估，并按需执行 VACUUM/既有优化工具回收空闲页，本轮不在运行中直接操作用户 DB。
 
 ### 🔄 本轮整理
 
@@ -87,6 +90,16 @@
 - 行为：新增 `quota/modelPoolSummary` / `service_quota_model_pool_summary`，默认 Top 8、上限 100，只返回可估算模型池的汇总字段和总数，不返回 `sources`、capacity templates 或 account overrides；首页改为调用该轻量 RPC。
 - 约束：保留既有 `quota/modelPools` 默认轻量 skeleton 行为，模型页和聚合 API 页继续使用既有全量/分页来源接口；子代理仅做只读分析，最终实现由 CodeX-GPT 主代理审计并验证。
 - 验证：`node --test apps\tests\transport-web-commands.test.mjs` 15 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`cargo check -p codexmanager-service` 通过；`cargo check --manifest-path apps\src-tauri\Cargo.toml` 通过；`cargo test -p codexmanager-service --test rpc quota_model_pool -- --nocapture` 3 项通过；`cargo fmt --all --check` 通过。
+
+### ✅ 已完成：P2 日级 Token rollup 生产链路与 DB 膨胀治理
+
+- 行为：后台观测维护会按本地今日 0 点作为日级边界，先将今天之前的完整本地日 token 明细固化到 `request_token_stat_daily_rollups`，再只删除已经 daily rollup 的过期明细，避免半日边界误固化或统计丢失。
+- 行为：`dashboard/adminUsageSummary` 的趋势、用户排行、OpenAI 账号排行和聚合 API 排行已改为 mixed 查询：完整历史日读 daily rollup，未固化历史日补读 `daily_rolled_at IS NULL` 明细，当前日/非完整区间继续读 live 明细。
+- 行为：`usage_refresh_failed` 事件写入新增 DB 侧去重；事件 message 改为 `class=<error_class> detail=<message>`，并截断/去换行，避免同账号同错误类在进程重启后继续重复写入。
+- 行为：后台维护新增同账号同 message 的 `usage_refresh_failed` 重复事件批量清理，默认沿用 `CODEXMANAGER_USAGE_REFRESH_FAILURE_EVENT_WINDOW_SECS` 窗口，每轮受观测维护 batch limit 限制，降低已有大库的长期行数压力。
+- 本地 DB 诊断：`D:\Apps\CodexManager\codexmanager.db` 约 726 MB，`events` 表约 406 MB，`idx_events_type_account_created_at` 约 195 MB；`usage_refresh_failed` 约 1,334,134 行，是当前体积主因，`request_logs` 与 token stats 不是主因。
+- 运维建议：现有文件物理缩小仍需停止应用后执行 checkpoint/VACUUM（可先用 `crates/db-optimize --check-only` 查看），运行中只做批量 DELETE 与 WAL checkpoint，不做阻塞式 VACUUM。
+- 验证：`cargo test -p codexmanager-core --lib daily_rollup_mixed_dashboard_queries_survive_token_stat_prune -- --nocapture` 通过；`cargo test -p codexmanager-core --lib observability_prune_rolls_complete_local_days_before_deleting_retained_detail -- --nocapture` 通过；`cargo test -p codexmanager-core --lib daily_rollup_mixed_queries_use_unrolled_live_stats_when_rollup_is_not_ready -- --nocapture` 通过；`cargo test -p codexmanager-core --lib prune_duplicate_usage_refresh_failed_events_limited_removes_old_same_message_failures -- --nocapture` 通过；`cargo test -p codexmanager-service --lib usage_refresh_failure_db_dedupe_survives_process_memory_loss -- --nocapture` 通过；`cargo test -p codexmanager-service --lib usage_refresh_failure_event_message_keeps_class_and_sanitizes_detail -- --nocapture` 通过；`cargo test -p codexmanager-service --lib admin_usage_summary -- --nocapture` 通过；`cargo check -p codexmanager-service` 通过。
 
 ### ✅ 已完成：P2 管理员排行日级 rollup 迁移评估
 

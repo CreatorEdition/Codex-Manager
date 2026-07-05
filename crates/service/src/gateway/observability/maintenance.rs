@@ -1,7 +1,9 @@
+use chrono::{Local, LocalResult, TimeZone};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::thread;
 
 const DEFAULT_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS: i64 = 900;
+const DAY_SECONDS: i64 = 86_400;
 const OBSERVABILITY_MAINTENANCE_INTERVAL_SECS_ENV: &str =
     "CODEXMANAGER_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS";
 
@@ -117,6 +119,23 @@ fn finish_observability_maintenance_slot_with_state(
     running.store(false, Ordering::Release);
 }
 
+/// 函数 `local_today_start_ts`
+///
+/// # 返回
+/// 返回当前本地日期的起始 Unix 时间戳，供日级 rollup 与 dashboard 日边界保持一致。
+fn local_today_start_ts() -> i64 {
+    let now = Local::now();
+    let Some(start_naive) = now.date_naive().and_hms_opt(0, 0, 0) else {
+        return now.timestamp();
+    };
+    match Local.from_local_datetime(&start_naive) {
+        LocalResult::Single(value) => value.timestamp(),
+        LocalResult::Ambiguous(a, b) => a.timestamp().min(b.timestamp()),
+        LocalResult::None => now
+            .timestamp()
+            .saturating_sub(now.timestamp().rem_euclid(DAY_SECONDS)),
+    }
+}
 /// 函数 `schedule_observability_maintenance`
 ///
 /// # 参数
@@ -152,7 +171,9 @@ pub(crate) fn schedule_observability_maintenance(now: i64) {
 /// 无
 fn run_observability_maintenance(now: i64, previous_last: i64) {
     let succeeded = match crate::storage_helpers::open_storage() {
-        Some(storage) => match storage.prune_observability_history(now) {
+        Some(storage) => match storage
+            .prune_observability_history_with_daily_rollup_anchor(now, local_today_start_ts())
+        {
             Ok(()) => {
                 log::debug!("event=gateway_observability_maintenance_completed");
                 true

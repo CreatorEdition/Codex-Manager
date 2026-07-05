@@ -212,3 +212,46 @@ fn prune_events_by_retention_limited_counts_stale_status_history_in_batch() {
     assert_eq!(removed, 1);
     assert_eq!(storage.event_count().expect("event count"), 2);
 }
+#[test]
+fn prune_duplicate_usage_refresh_failed_events_limited_removes_old_same_message_failures() {
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    for created_at in [100_i64, 200, 300] {
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-dup".to_string()),
+                event_type: "usage_refresh_failed".to_string(),
+                message: "usage endpoint status 503 Service Unavailable".to_string(),
+                created_at,
+            })
+            .expect("insert duplicate failure");
+    }
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-other".to_string()),
+            event_type: "usage_refresh_failed".to_string(),
+            message: "usage endpoint status 503 Service Unavailable".to_string(),
+            created_at: 200,
+        })
+        .expect("insert other account failure");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-dup".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=usage_http_503".to_string(),
+            created_at: 200,
+        })
+        .expect("insert status event");
+
+    let first = storage
+        .prune_duplicate_usage_refresh_failed_events_limited(1)
+        .expect("prune first batch");
+    assert_eq!(first, 1);
+    assert_eq!(storage.event_count().expect("event count"), 4);
+
+    let second = storage
+        .prune_duplicate_usage_refresh_failed_events_limited(10)
+        .expect("prune second batch");
+    assert_eq!(second, 1);
+    assert_eq!(storage.event_count().expect("event count"), 3);
+}
