@@ -52,6 +52,8 @@ const SETTINGS_SNAPSHOT = {
 };
 
 test("accounts toolbar shows warmup button and tooltip", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 800 });
+
   const usageRefreshPayloads: Record<string, unknown>[] = [];
   const rtRefreshPayloads: Record<string, unknown>[] = [];
   let refreshAllRtCount = 0;
@@ -182,6 +184,11 @@ test("accounts toolbar shows warmup button and tooltip", async ({ page }) => {
   await page.goto("/accounts/");
 
   await expect(page.getByRole("heading", { name: "账号管理" })).toBeVisible();
+  const searchInput = page.getByPlaceholder("搜索账号名 / 编号...");
+  await expect(searchInput).toBeVisible();
+  const searchBox = await searchInput.boundingBox();
+  expect(searchBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+  expect(searchBox?.width ?? 0).toBeGreaterThan(180);
 
   const warmupButton = page.getByRole("button", { name: "预热" });
   await expect(warmupButton).toBeVisible();

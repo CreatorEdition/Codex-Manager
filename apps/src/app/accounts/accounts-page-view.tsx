@@ -343,7 +343,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
       ) : null}
 
       <Card className="glass-card shadow-sm">
-        <CardContent className="grid gap-3 pt-0 lg:grid-cols-[200px_auto_minmax(0,1fr)_auto] lg:items-center">
+        <CardContent className="flex flex-col gap-3 pt-0 xl:grid xl:grid-cols-[220px_auto_minmax(0,1fr)_auto] xl:items-center">
           <div className="min-w-0">
             <Input
               placeholder={t("搜索账号名 / 编号...")}
@@ -353,10 +353,10 @@ export function AccountsPageView(props: AccountsPageViewProps) {
             />
           </div>
 
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <Select value={planFilter} onValueChange={handlePlanFilterChange}>
               <SelectTrigger
-                className="h-10 w-[140px] shrink-0 rounded-xl bg-card/50"
+                className="h-10 w-full min-w-[140px] flex-1 rounded-xl bg-card/50 sm:w-[140px] sm:flex-none"
                 disabled={!canUsePlanFilter}
               >
                 <SelectValue placeholder={t("全部类型")}>
@@ -383,7 +383,7 @@ export function AccountsPageView(props: AccountsPageViewProps) {
                 handleStatusFilterChange(value as StatusFilter)
               }
             >
-              <SelectTrigger className="h-10 w-[152px] shrink-0 rounded-xl bg-card/50">
+              <SelectTrigger className="h-10 w-full min-w-[152px] flex-1 rounded-xl bg-card/50 sm:w-[152px] sm:flex-none">
                 <SelectValue placeholder={t("全部状态")}>
                   {(value) => formatStatusFilterLabel(String(value || ""), t)}
                 </SelectValue>
@@ -400,9 +400,9 @@ export function AccountsPageView(props: AccountsPageViewProps) {
             </Select>
           </div>
 
-          <div className="hidden min-w-0 lg:block" />
+          <div className="hidden min-w-0 xl:block" />
 
-          <div className="ml-auto flex shrink-0 items-center gap-2 lg:ml-0 lg:justify-self-end">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 xl:ml-0 xl:justify-self-end">
             <Tooltip>
               <TooltipTrigger render={<span />} className="inline-flex">
                 <Button

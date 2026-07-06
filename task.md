@@ -17,6 +17,7 @@
 - `request_token_stat_daily_rollups` 生产链路已接入后台观测维护，Dashboard 管理员用量趋势/排行已切到 daily rollup + live mixed 查询；历史完整本地日优先读日级 rollup，未固化明细保留 live 兜底，避免升级窗口显示 0。
 - 本地 `D:\Apps\CodexManager\codexmanager.db` 膨胀根因已确认：`events` 表中 `usage_refresh_failed` 约 133 万行占主要体积；已补 DB 侧同账号同错误类去重、事件 message 分类前缀，以及后台维护中同账号同 message 重复失败事件批量清理，防止继续写爆并逐步降低行数。
 - 注意：SQLite 文件物理体积不会仅因 DELETE 立即下降；现有生产库需要在停止 CodexManager 后运行 `crates/db-optimize --check-only` 评估，并按需执行 VACUUM/既有优化工具回收空闲页，本轮不在运行中直接操作用户 DB。
+- 账号页搜索/筛选栏已修复中等宽度下的横向挤压：`lg` 宽度不再强制搜索、筛选、操作同排，避免搜索框被挤到可视区外。
 
 ### 🔄 本轮整理
 
@@ -100,6 +101,13 @@
 - 本地 DB 诊断：`D:\Apps\CodexManager\codexmanager.db` 约 726 MB，`events` 表约 406 MB，`idx_events_type_account_created_at` 约 195 MB；`usage_refresh_failed` 约 1,334,134 行，是当前体积主因，`request_logs` 与 token stats 不是主因。
 - 运维建议：现有文件物理缩小仍需停止应用后执行 checkpoint/VACUUM（可先用 `crates/db-optimize --check-only` 查看），运行中只做批量 DELETE 与 WAL checkpoint，不做阻塞式 VACUUM。
 - 验证：`cargo test -p codexmanager-core --lib daily_rollup_mixed_dashboard_queries_survive_token_stat_prune -- --nocapture` 通过；`cargo test -p codexmanager-core --lib observability_prune_rolls_complete_local_days_before_deleting_retained_detail -- --nocapture` 通过；`cargo test -p codexmanager-core --lib daily_rollup_mixed_queries_use_unrolled_live_stats_when_rollup_is_not_ready -- --nocapture` 通过；`cargo test -p codexmanager-core --lib prune_duplicate_usage_refresh_failed_events_limited_removes_old_same_message_failures -- --nocapture` 通过；`cargo test -p codexmanager-service --lib usage_refresh_failure_db_dedupe_survives_process_memory_loss -- --nocapture` 通过；`cargo test -p codexmanager-service --lib usage_refresh_failure_event_message_keeps_class_and_sanitizes_detail -- --nocapture` 通过；`cargo test -p codexmanager-service --lib admin_usage_summary -- --nocapture` 通过；`cargo check -p codexmanager-service` 通过。
+
+### ✅ 已完成：P1 账号页搜索栏响应式修复
+
+- 根因：账号页工具栏在 `lg` 断点强制使用四列同排布局；中等宽度窗口下，搜索框、计划类型筛选、状态筛选和操作按钮合计宽度接近或超过内容区，搜索框可能被挤到截图左侧可视区域外。
+- 行为：工具栏改为默认纵向/换行布局，仅在 `xl` 及以上恢复网格同排；计划类型和状态筛选允许在小宽度下自适应换行，操作按钮也允许换行。
+- 查询链路复核：`search` 仍由账号页传入 `useAccounts({ query: deferredSearch })`，并由 account client 发送到 `account/list` RPC；本轮没有改动搜索语义。
+- 验证：`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`apps` 下 `.\node_modules\.bin\next.cmd build` 通过；`git diff --check` 通过。Playwright 项目用例已补充搜索框可见性断言，但本机 `pnpm` ignored-builds 策略会阻断该用例的 webServer 启动，需在 CI/已批准 pnpm build scripts 的环境中执行。
 
 ### ✅ 已完成：P2 管理员排行日级 rollup 迁移评估
 
