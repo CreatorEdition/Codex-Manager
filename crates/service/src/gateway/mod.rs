@@ -428,6 +428,10 @@ pub(crate) fn reload_runtime_config_from_env() {
     http_bridge::reload_from_env();
 }
 
+pub(crate) fn ensure_idle_db_maintenance_scheduler() {
+    maintenance::ensure_idle_db_maintenance_scheduler();
+}
+
 /// 函数 `current_route_strategy`
 ///
 /// 作者: gaohongshun

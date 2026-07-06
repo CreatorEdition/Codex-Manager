@@ -75,6 +75,7 @@
 - Windows：`%APPDATA%\\com.codexmanager.desktop\\codexmanager.db`
 - macOS：`~/Library/Application Support/com.codexmanager.desktop/codexmanager.db`
 - Linux：`~/.local/share/com.codexmanager.desktop/codexmanager.db`
+- 数据库会自动做观测明细 retention、rollup、WAL checkpoint；如需在长期不关闭服务时回收主 `.db` 文件物理空间，可在环境配置中开启空闲自动 `VACUUM`。
 - 如需调整数据库、代理、监听地址等运行配置，可继续查看 [环境变量与运行配置](docs/zh-CN/report/环境变量与运行配置说明.md)。
 
 ## 页面展示

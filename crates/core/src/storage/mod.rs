@@ -11,6 +11,7 @@ mod aggregate_apis;
 mod api_key_quota_limits;
 mod api_keys;
 mod conversation_bindings;
+mod db_maintenance;
 mod events;
 mod model_groups;
 mod model_options;
@@ -164,6 +165,31 @@ pub struct Event {
     pub event_type: String,
     pub message: String,
     pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DatabasePageStats {
+    pub page_count: i64,
+    pub page_size: i64,
+    pub freelist_count: i64,
+}
+
+impl DatabasePageStats {
+    pub fn total_bytes(&self) -> i64 {
+        self.page_count.saturating_mul(self.page_size)
+    }
+
+    pub fn free_bytes(&self) -> i64 {
+        self.freelist_count.saturating_mul(self.page_size)
+    }
+
+    pub fn free_percent(&self) -> i64 {
+        let total = self.total_bytes();
+        if total <= 0 {
+            return 0;
+        }
+        self.free_bytes().saturating_mul(100) / total
+    }
 }
 
 #[derive(Debug, Clone)]

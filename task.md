@@ -17,6 +17,7 @@
 - `request_token_stat_daily_rollups` 生产链路已接入后台观测维护，Dashboard 管理员用量趋势/排行已切到 daily rollup + live mixed 查询；历史完整本地日优先读日级 rollup，未固化明细保留 live 兜底，避免升级窗口显示 0。
 - 本地 `D:\Apps\CodexManager\codexmanager.db` 膨胀根因已确认：`events` 表中 `usage_refresh_failed` 约 133 万行占主要体积；已补 DB 侧同账号同错误类去重、事件 message 分类前缀，以及后台维护中同账号同 message 重复失败事件批量清理，防止继续写爆并逐步降低行数。
 - 注意：SQLite 文件物理体积不会仅因 DELETE 立即下降；现有生产库需要在停止 CodexManager 后运行 `crates/db-optimize --check-only` 评估，并按需执行 VACUUM/既有优化工具回收空闲页，本轮不在运行中直接操作用户 DB。
+- 常驻服务的数据库物理压缩已补安全自动化入口：默认关闭；开启后仅在网关聊天空闲、可回收空间和时间窗口满足条件时执行 `VACUUM`，压缩期间新网关请求返回 `429`。
 - 账号页搜索/筛选栏已修复中等宽度下的横向挤压：`lg` 宽度不再强制搜索、筛选、操作同排，避免搜索框被挤到可视区外。
 - 同类前端工具栏已完成补强：平台密钥、聚合 API、请求日志、插件自定义源和环境变量设置页均补齐换行、`min-w-0` 与更保守断点，避免中等宽度下搜索/筛选/按钮被挤出视口。
 - 大批量账号导入已改为单次 RPC 最多 10 条或 4MB：Web、桌面端直接导入、文件导入和目录导入都会分批调用 `account/import` 并合并统计，避免一次性导入大量小文件时单个 RPC 卡死或超时。
@@ -103,6 +104,15 @@
 - 本地 DB 诊断：`D:\Apps\CodexManager\codexmanager.db` 约 726 MB，`events` 表约 406 MB，`idx_events_type_account_created_at` 约 195 MB；`usage_refresh_failed` 约 1,334,134 行，是当前体积主因，`request_logs` 与 token stats 不是主因。
 - 运维建议：现有文件物理缩小仍需停止应用后执行 checkpoint/VACUUM（可先用 `crates/db-optimize --check-only` 查看），运行中只做批量 DELETE 与 WAL checkpoint，不做阻塞式 VACUUM。
 - 验证：`cargo test -p codexmanager-core --lib daily_rollup_mixed_dashboard_queries_survive_token_stat_prune -- --nocapture` 通过；`cargo test -p codexmanager-core --lib observability_prune_rolls_complete_local_days_before_deleting_retained_detail -- --nocapture` 通过；`cargo test -p codexmanager-core --lib daily_rollup_mixed_queries_use_unrolled_live_stats_when_rollup_is_not_ready -- --nocapture` 通过；`cargo test -p codexmanager-core --lib prune_duplicate_usage_refresh_failed_events_limited_removes_old_same_message_failures -- --nocapture` 通过；`cargo test -p codexmanager-service --lib usage_refresh_failure_db_dedupe_survives_process_memory_loss -- --nocapture` 通过；`cargo test -p codexmanager-service --lib usage_refresh_failure_event_message_keeps_class_and_sanitizes_detail -- --nocapture` 通过；`cargo test -p codexmanager-service --lib admin_usage_summary -- --nocapture` 通过；`cargo check -p codexmanager-service` 通过。
+
+### ✅ 已完成：P2 空闲数据库物理压缩保护
+
+- 结论：700MB 主库文件不代表 retention 没生效；SQLite 删除旧行后会留下 freelist 空闲页，只有 `VACUUM` 会重写数据库并把空间归还给操作系统。
+- 方案：不在请求热路径或启动迁移中自动 `VACUUM`；新增低频后台巡检线程，默认关闭，需显式设置 `CODEXMANAGER_DB_AUTO_VACUUM_ENABLED=1`。
+- 安全条件：仅当网关聊天请求空闲达到 `CODEXMANAGER_DB_AUTO_VACUUM_IDLE_SECS`（默认 3600 秒）、距离上次压缩超过 `CODEXMANAGER_DB_AUTO_VACUUM_MIN_INTERVAL_SECS`（默认 86400 秒）、空闲页达到 `CODEXMANAGER_DB_AUTO_VACUUM_MIN_FREE_MB`（默认 128 MB）和 `CODEXMANAGER_DB_AUTO_VACUUM_MIN_FREE_PERCENT`（默认 25%）时执行；可选配置本地小时窗口。
+- 网关保护：压缩运行时新网关聊天请求直接返回 `429` 和 `Retry-After: 60`，避免在 SQLite 排他锁期间继续进入账号选择、路由和日志写入链路。
+- 兼容：保留手动 `crates/db-optimize --check-only` / `VACUUM` 工具；自动压缩只服务长期不关机的常驻场景，重启/关机场景仍可继续用手动维护。
+- 验证：`cargo fmt --all --check` 通过；`git diff --check` 通过；`cargo test -p codexmanager-core --lib database_page_stats_reports_non_negative_sizes -- --nocapture` 通过；`cargo test -p codexmanager-service --lib gateway::maintenance::tests -- --nocapture` 9 项通过；`cargo check -p codexmanager-service` 通过。
 
 ### ✅ 已完成：P1 账号页搜索栏响应式修复
 

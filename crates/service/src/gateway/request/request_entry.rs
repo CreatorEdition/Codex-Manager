@@ -25,6 +25,11 @@ pub(crate) fn handle_gateway_request(mut request: Request) -> Result<(), String>
         let _ = request.respond(response);
         return Ok(());
     }
+    if super::maintenance::db_compaction_in_progress() {
+        super::record_gateway_request_outcome(request.url(), 429, None);
+        let _ = request.respond(super::maintenance::db_compaction_busy_response());
+        return Ok(());
+    }
 
     let _request_guard = super::begin_gateway_request();
     let trace_id = super::trace_log::next_trace_id();

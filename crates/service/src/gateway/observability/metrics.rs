@@ -1,13 +1,16 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 static ACCOUNT_INFLIGHT: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
 static GATEWAY_REQUEST_LABELS: OnceLock<Mutex<HashMap<GatewayRequestLabelKey, usize>>> =
     OnceLock::new();
 static GATEWAY_TOTAL_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 static GATEWAY_ACTIVE_REQUESTS: AtomicUsize = AtomicUsize::new(0);
+static GATEWAY_LAST_ACTIVITY_AT: AtomicI64 = AtomicI64::new(0);
+static GATEWAY_IDLE_ANCHOR_AT: AtomicI64 = AtomicI64::new(0);
 static GATEWAY_FAILOVER_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
 static GATEWAY_CANDIDATE_SKIPS_TOTAL: AtomicUsize = AtomicUsize::new(0);
 static GATEWAY_CANDIDATE_SKIP_COOLDOWN_TOTAL: AtomicUsize = AtomicUsize::new(0);
@@ -93,6 +96,7 @@ impl Drop for GatewayRequestGuard {
     /// 无
     fn drop(&mut self) {
         GATEWAY_ACTIVE_REQUESTS.fetch_sub(1, Ordering::Relaxed);
+        record_gateway_activity_now();
     }
 }
 
@@ -146,9 +150,51 @@ impl RpcRequestGuard {
 /// # 返回
 /// 返回函数执行结果
 pub(crate) fn begin_gateway_request() -> GatewayRequestGuard {
+    record_gateway_activity_now();
     GATEWAY_TOTAL_REQUESTS.fetch_add(1, Ordering::Relaxed);
     GATEWAY_ACTIVE_REQUESTS.fetch_add(1, Ordering::Relaxed);
     GatewayRequestGuard
+}
+
+fn now_unix_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs().min(i64::MAX as u64) as i64)
+        .unwrap_or(0)
+}
+
+fn record_gateway_activity_now() {
+    let now = now_unix_secs();
+    GATEWAY_LAST_ACTIVITY_AT.store(now, Ordering::Relaxed);
+    GATEWAY_IDLE_ANCHOR_AT.store(now, Ordering::Relaxed);
+}
+
+pub(crate) fn active_gateway_requests() -> usize {
+    GATEWAY_ACTIVE_REQUESTS.load(Ordering::Relaxed)
+}
+
+pub(crate) fn gateway_idle_secs(now: i64) -> i64 {
+    if active_gateway_requests() > 0 {
+        return 0;
+    }
+    let last = GATEWAY_LAST_ACTIVITY_AT.load(Ordering::Relaxed);
+    let anchor = if last > 0 {
+        last
+    } else {
+        let current = GATEWAY_IDLE_ANCHOR_AT.load(Ordering::Relaxed);
+        if current > 0 {
+            current
+        } else {
+            let _ = GATEWAY_IDLE_ANCHOR_AT.compare_exchange(
+                0,
+                now,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            );
+            GATEWAY_IDLE_ANCHOR_AT.load(Ordering::Relaxed).max(now)
+        }
+    };
+    now.saturating_sub(anchor)
 }
 
 /// 函数 `begin_rpc_request`
