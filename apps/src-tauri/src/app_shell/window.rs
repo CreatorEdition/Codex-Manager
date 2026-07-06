@@ -1,6 +1,10 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::webview::Color;
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::Manager;
+#[cfg(debug_assertions)]
+use tauri::Url;
 use tauri::{PhysicalPosition, PhysicalRect, Rect, WebviewUrl, WebviewWindowBuilder};
 
 use super::state::KEEP_ALIVE_FOR_LIGHTWEIGHT_CLOSE;
@@ -10,6 +14,13 @@ pub(crate) const TRAY_PREVIEW_WINDOW_LABEL: &str = "tray-preview";
 const TRAY_PREVIEW_WIDTH: f64 = 360.0;
 const TRAY_PREVIEW_HEIGHT: f64 = 390.0;
 const TRAY_PREVIEW_MARGIN: f64 = 8.0;
+static MAIN_WINDOW_CREATED_ONCE: AtomicBool = AtomicBool::new(false);
+
+struct MainWindowRef {
+    window: tauri::WebviewWindow,
+    created: bool,
+    created_after_existing: bool,
+}
 
 /// 函数 `show_main_window`
 ///
@@ -25,9 +36,16 @@ const TRAY_PREVIEW_MARGIN: f64 = 8.0;
 pub(crate) fn show_main_window(app: &tauri::AppHandle) {
     hide_tray_preview_window(app);
     KEEP_ALIVE_FOR_LIGHTWEIGHT_CLOSE.store(false, std::sync::atomic::Ordering::Relaxed);
-    let Some(window) = ensure_main_window(app) else {
+    let Some(main_window) = ensure_main_window(app) else {
         return;
     };
+    if should_navigate_recreated_main_window_to_app(
+        main_window.created,
+        main_window.created_after_existing,
+    ) {
+        navigate_recreated_main_window_to_app(&main_window.window);
+    }
+    let window = main_window.window;
     if let Err(err) = window.show() {
         log::warn!("show main window failed: {}", err);
         return;
@@ -78,9 +96,14 @@ pub(crate) fn toggle_tray_preview_window(
 ///
 /// # 返回
 /// 返回函数执行结果
-fn ensure_main_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+fn ensure_main_window(app: &tauri::AppHandle) -> Option<MainWindowRef> {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        return Some(window);
+        MAIN_WINDOW_CREATED_ONCE.store(true, Ordering::Release);
+        return Some(MainWindowRef {
+            window,
+            created: false,
+            created_after_existing: false,
+        });
     }
 
     let mut config = app
@@ -94,15 +117,49 @@ fn ensure_main_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     config.label = MAIN_WINDOW_LABEL.to_string();
 
     match WebviewWindowBuilder::from_config(app, &config).and_then(|builder| builder.build()) {
-        Ok(window) => Some(window),
+        Ok(window) => {
+            let created_after_existing = MAIN_WINDOW_CREATED_ONCE.swap(true, Ordering::AcqRel);
+            Some(MainWindowRef {
+                window,
+                created: true,
+                created_after_existing,
+            })
+        }
         Err(err) => {
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                return Some(window);
+                MAIN_WINDOW_CREATED_ONCE.store(true, Ordering::Release);
+                return Some(MainWindowRef {
+                    window,
+                    created: false,
+                    created_after_existing: false,
+                });
             }
             log::warn!("create main window failed: {}", err);
             None
         }
     }
+}
+
+fn should_navigate_recreated_main_window_to_app(created: bool, created_after_existing: bool) -> bool {
+    cfg!(debug_assertions) && created && created_after_existing
+}
+
+fn navigate_recreated_main_window_to_app(window: &tauri::WebviewWindow) {
+    if let Err(err) = navigate_window_to_app_url(window) {
+        log::warn!("navigate recreated main window to app root failed: {}", err);
+    }
+}
+
+#[cfg(debug_assertions)]
+fn navigate_window_to_app_url(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    let url = Url::parse("http://127.0.0.1:3005/")
+        .expect("hard-coded desktop dev server url must be valid");
+    window.navigate(url)
+}
+
+#[cfg(not(debug_assertions))]
+fn navigate_window_to_app_url(_window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    Ok(())
 }
 
 fn ensure_tray_preview_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
@@ -208,7 +265,7 @@ fn resolve_tray_preview_position(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_tray_preview_position;
+    use super::{resolve_tray_preview_position, should_navigate_recreated_main_window_to_app};
     use tauri::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalRect, PhysicalSize, Rect};
 
     #[test]
@@ -243,5 +300,15 @@ mod tests {
 
         assert!(position.y < 870);
         assert!(position.y >= 8);
+    }
+
+    #[test]
+    fn recreated_main_window_navigation_only_runs_for_debug_recreate() {
+        assert!(!should_navigate_recreated_main_window_to_app(false, true));
+        assert!(!should_navigate_recreated_main_window_to_app(true, false));
+        #[cfg(debug_assertions)]
+        assert!(should_navigate_recreated_main_window_to_app(true, true));
+        #[cfg(not(debug_assertions))]
+        assert!(!should_navigate_recreated_main_window_to_app(true, true));
     }
 }

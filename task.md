@@ -23,7 +23,7 @@
 - 大批量账号导入已改为单次 RPC 最多 10 条或 4MB：Web、桌面端直接导入、文件导入和目录导入都会分批调用 `account/import` 并合并统计，避免一次性导入大量小文件时单个 RPC 卡死或超时。
 - 账号导入格式已补齐 Token 中转工具常见输出：支持 `{accounts:[...]}`、`cpa_batch.tokens[]`、Sub2API `credentials`、9Router `providerSpecificData`、OpenAI session `user/account` 嵌套字段；批量导入弹窗和文档已明确支持格式，并明确裸 `refresh_token` / 普通文本 token 暂不支持。
 - 作者/赞助推广残留已清理：删除 `/author/` 路由、远程 author content runtime 能力、专用 sponsor 归一化工具、Playwright 作者页测试和残留赞助静态资源；Tauri CSP 不再允许 `author.qxnm.top`。
-- 上游差异已重新拉取复核：`upstream/main` 最新为 `f3efb3a2`；已按语义移植 `2c912580`、`84ac0560`、`ce5d3f38`、`83ca26f7`/`359580a7`、`4ba9a139` 等功能项；`0508c19a`、`99bb0c2d`、`03ca2052`、`09223f6f`、`f3efb3a2` 仍需按 CE 约束逐项评估，禁止整包合并上游推广/作者内容。
+- 上游差异已重新拉取复核：`upstream/main` 最新为 `f3efb3a2`；已按语义移植 `2c912580`、`84ac0560`、`ce5d3f38`、`83ca26f7`/`359580a7`、`4ba9a139`、`99bb0c2d` 等功能项；`0508c19a`、`03ca2052`、`09223f6f`、`f3efb3a2` 仍需按 CE 约束逐项评估，禁止整包合并上游推广/作者内容。
 
 ### ✅ 已完成：P1 账号导入格式兼容与格式提示
 
@@ -174,10 +174,16 @@
 - 前端：平台密钥表格的“Token / 金额”列拆成“今日”和“累计”两段；累计额度上限、剩余额度和费用口径保持不变。
 - 验证：`cargo test -p codexmanager-core --lib api_key_usage_stat_summary_serialization_uses_camel_case -- --nocapture` 通过；`cargo test -p codexmanager-service --test rpc rpc_apikey_usage_stats_filters_requested_key_ids -- --exact --nocapture` 通过；`apps` 下 `tsc --noEmit` 通过；`cargo fmt --all --check` 通过；`git diff --check` 通过。
 
+### ✅ 已完成：P2 托盘恢复导航语义移植
+
+- 目标：语义移植上游 `99bb0c2d` 的桌面端托盘恢复导航修复，但不合并上游额外窗口状态机改造。
+- 行为：主窗口轻量关闭后再次从托盘、单实例唤起或系统命令恢复时，会标记这是“已有主窗口后的重建”；debug 模式下重建窗口会显式导航到桌面开发服务根页，避免停留在启动/占位页面。生产构建保持 no-op，不改变已打包页面加载路径。
+- 验证：`cargo test --manifest-path apps/src-tauri/Cargo.toml recreated_main_window_navigation_only_runs_for_debug_recreate -- --nocapture` 通过；`cargo check --manifest-path apps/src-tauri/Cargo.toml` 通过。
+
 ### 📌 后续待完成任务
 
 1. P2：上游差异语义评估与 PR/分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
-2. P2：评估是否移植上游 `0508c19a` Web 启动设置读取优化、`99bb0c2d` 托盘恢复导航，以及 `03ca2052`/`09223f6f`/`f3efb3a2` 启动渲染和 UI 密度优化；每项必须先剥离上游作者/推广内容并按 CE 当前性能改造复核。
+2. P2：评估是否移植上游 `0508c19a` Web 启动设置读取优化，以及 `03ca2052`/`09223f6f`/`f3efb3a2` 启动渲染和 UI 密度优化；每项必须先剥离上游作者/推广内容并按 CE 当前性能改造复核。
 
 ### 🗂️ 历史记录说明
 
