@@ -19,6 +19,7 @@
 - 注意：SQLite 文件物理体积不会仅因 DELETE 立即下降；现有生产库需要在停止 CodexManager 后运行 `crates/db-optimize --check-only` 评估，并按需执行 VACUUM/既有优化工具回收空闲页，本轮不在运行中直接操作用户 DB。
 - 账号页搜索/筛选栏已修复中等宽度下的横向挤压：`lg` 宽度不再强制搜索、筛选、操作同排，避免搜索框被挤到可视区外。
 - 同类前端工具栏已完成补强：平台密钥、聚合 API、请求日志、插件自定义源和环境变量设置页均补齐换行、`min-w-0` 与更保守断点，避免中等宽度下搜索/筛选/按钮被挤出视口。
+- 大批量账号导入已改为单次 RPC 最多 10 条或 4MB：Web、桌面端直接导入、文件导入和目录导入都会分批调用 `account/import` 并合并统计，避免一次性导入大量小文件时单个 RPC 卡死或超时。
 
 ### 🔄 本轮整理
 
@@ -121,6 +122,14 @@
 - 验证：`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`apps` 下 `.\node_modules\.bin\next.cmd build` 通过；`git diff --check` 通过。
 - 浏览器验证：已用本机 Microsoft Edge Headless 直连 `apps/out` 静态测试服务，复用新增用例的 mock 与断言检查 `/apikeys/`、`/aggregate-api/`、`/logs/`、`/models/` 核心工具栏，所有目标元素均在视口内且搜索框宽度满足断言。
 - 未完整执行：`.\node_modules\.bin\playwright.cmd test tests\toolbar-layout.spec.ts` 仍被仓库 Playwright 配置中的 `pnpm run build:desktop` 阻断；直接定位为本机 pnpm 策略问题：非 TTY 先报 `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`，设置 `CI=true` 后报 `ERR_PNPM_IGNORED_BUILDS`（`msw`、`sharp`、`unrs-resolver` 需要 `pnpm approve-builds`）。
+
+### ✅ 已完成：P1 大批量账号导入 RPC 分片
+
+- 根因：后端 `account/import` 内部已有事务分批，但前端/Web 和桌面命令仍可能把大量小 JSON 合并成一次长耗时 RPC；文件数量很多时，单次 RPC 会长时间占用并触发 Web 超时或桌面端卡顿感。
+- 行为：账号内容导入统一按“最多 10 条或 4MB 请求体”拆分；Web `accountClient.import()` 会多次调用 `service_account_import` 并合并 `total/created/updated/failed/errors`，错误下标按全量导入偏移修正。
+- 行为：桌面端 `service_account_import`、`service_account_import_by_file` 和 `service_account_import_by_directory` 共用同一分片导入函数，目录/文件导入也不再把所有内容塞进一次 `account/import` RPC。
+- 边界：单条内容超过 4MB 时继续拒绝并提示“单条导入内容过大，请拆分后重试”；合并错误列表继续限制最多返回 50 条，避免失败明细撑大响应。
+- 验证：`git diff --check` 通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`node --test tests\account-maintenance.test.mjs` 5 项通过；`cargo test --manifest-path apps\src-tauri\Cargo.toml split_account_import_batches -- --nocapture` 3 项通过。
 
 ### ✅ 已完成：P2 管理员排行日级 rollup 迁移评估
 

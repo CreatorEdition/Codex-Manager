@@ -57,6 +57,29 @@ test("readAccountImportResult 统一清洗导入结果与错误列表", () => {
   assert.deepEqual(result.errors, [{ index: 2, message: "invalid" }]);
 });
 
+test("splitAccountImportContents 同时按条数与请求体大小拆分", () => {
+  const contents = Array.from({ length: 11 }, (_, index) =>
+    JSON.stringify({ id: `account-${index}` })
+  );
+  const batches = accountMaintenance.splitAccountImportContents(contents);
+
+  assert.equal(accountMaintenance.ACCOUNT_IMPORT_RPC_BATCH_ITEM_LIMIT, 10);
+  assert.equal(batches.length, 2);
+  assert.equal(batches[0].length, 10);
+  assert.equal(batches[1].length, 1);
+});
+
+test("splitAccountImportContents 拒绝单条过大的导入内容", () => {
+  const oversized = "x".repeat(
+    accountMaintenance.ACCOUNT_IMPORT_RPC_BATCH_BODY_LIMIT_BYTES + 1
+  );
+
+  assert.throws(
+    () => accountMaintenance.splitAccountImportContents([oversized]),
+    /单条导入内容过大/
+  );
+});
+
 test("readAccountExportResult 与 readDeleteUnavailableFreeResult 对齐数字字段", () => {
   const exportResult = accountMaintenance.readAccountExportResult({
     canceled: true,

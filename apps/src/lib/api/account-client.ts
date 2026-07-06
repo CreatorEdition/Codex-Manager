@@ -41,6 +41,7 @@ import {
   readDeleteAccountsByStatusesResult,
   readApiKeySecret,
   readDeleteUnavailableFreeResult,
+  splitAccountImportContents,
 } from "./account-maintenance";
 import { serializeManagedModelForRpc } from "./model-catalog";
 import { unwrapUsageSnapshotPayload } from "./usage-response";
@@ -258,7 +259,6 @@ interface AggregateApiPayload {
   modelSlugs?: string[] | null;
 }
 
-const MAX_IMPORT_RPC_BODY_BYTES = 4 * 1024 * 1024;
 const MAX_IMPORT_ERROR_ITEMS = 50;
 
 /**
@@ -282,61 +282,6 @@ function createEmptyImportResult(): AccountImportResult {
     failed: 0,
     errors: [],
   };
-}
-
-/**
- * 函数 `estimateImportRequestBytes`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - contents: 参数 contents
- *
- * # 返回
- * 返回函数执行结果
- */
-function estimateImportRequestBytes(contents: string[]): number {
-  return new Blob([JSON.stringify({ contents })]).size;
-}
-
-/**
- * 函数 `splitImportContents`
- *
- * 作者: gaohongshun
- *
- * 时间: 2026-04-02
- *
- * # 参数
- * - contents: 参数 contents
- *
- * # 返回
- * 返回函数执行结果
- */
-function splitImportContents(contents: string[]): string[][] {
-  const chunks: string[][] = [];
-  let current: string[] = [];
-
-  for (const content of contents) {
-    const next = current.concat(content);
-    if (current.length > 0 && estimateImportRequestBytes(next) > MAX_IMPORT_RPC_BODY_BYTES) {
-      chunks.push(current);
-      current = [content];
-      if (estimateImportRequestBytes(current) > MAX_IMPORT_RPC_BODY_BYTES) {
-        throw new Error("单条导入内容过大，请拆分后重试");
-      }
-      continue;
-    }
-
-    current = next;
-  }
-
-  if (current.length > 0) {
-    chunks.push(current);
-  }
-
-  return chunks;
 }
 
 /**
@@ -393,7 +338,7 @@ function mergeImportResult(
  * 返回函数执行结果
  */
 async function importAccountContents(contents: string[]): Promise<AccountImportResult> {
-  const batches = splitImportContents(contents);
+  const batches = splitAccountImportContents(contents);
   if (batches.length === 0) {
     return createEmptyImportResult();
   }

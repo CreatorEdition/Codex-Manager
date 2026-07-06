@@ -90,6 +90,57 @@ export interface AccountWarmupResult {
   results?: AccountWarmupItemResult[];
 }
 
+export const ACCOUNT_IMPORT_RPC_BATCH_ITEM_LIMIT = 10;
+export const ACCOUNT_IMPORT_RPC_BATCH_BODY_LIMIT_BYTES = 4 * 1024 * 1024;
+
+export function estimateAccountImportRequestBytes(contents: string[]): number {
+  return new Blob([JSON.stringify({ contents })]).size;
+}
+
+export function splitAccountImportContents(contents: string[]): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+
+  for (const content of contents) {
+    if (current.length >= ACCOUNT_IMPORT_RPC_BATCH_ITEM_LIMIT) {
+      chunks.push(current);
+      current = [];
+    }
+
+    const next = current.concat(content);
+    if (
+      current.length > 0 &&
+      estimateAccountImportRequestBytes(next) >
+        ACCOUNT_IMPORT_RPC_BATCH_BODY_LIMIT_BYTES
+    ) {
+      chunks.push(current);
+      current = [content];
+      if (
+        estimateAccountImportRequestBytes(current) >
+        ACCOUNT_IMPORT_RPC_BATCH_BODY_LIMIT_BYTES
+      ) {
+        throw new Error("单条导入内容过大，请拆分后重试");
+      }
+      continue;
+    }
+
+    current = next;
+    if (
+      current.length === 1 &&
+      estimateAccountImportRequestBytes(current) >
+        ACCOUNT_IMPORT_RPC_BATCH_BODY_LIMIT_BYTES
+    ) {
+      throw new Error("单条导入内容过大，请拆分后重试");
+    }
+  }
+
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
 export function readAccountImportResult(payload: unknown): AccountImportResult {
   const source = asRecord(payload);
   const errors = Array.isArray(source?.errors)

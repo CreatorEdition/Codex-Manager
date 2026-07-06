@@ -3,10 +3,10 @@ use rfd::FileDialog;
 use crate::app_storage::{
     read_account_import_contents_from_directory, read_account_import_contents_from_files,
 };
-use crate::commands::shared::rpc_call_in_background;
 use crate::rpc_client::rpc_call;
 
 const ACCOUNT_IMPORT_BATCH_BODY_LIMIT: usize = 4 * 1024 * 1024;
+const ACCOUNT_IMPORT_BATCH_ITEM_LIMIT: usize = 10;
 const ACCOUNT_IMPORT_RETURNED_ERROR_LIMIT: usize = 50;
 
 fn account_import_body_size(contents: &[String]) -> Result<usize, String> {
@@ -20,6 +20,10 @@ fn split_account_import_batches(contents: Vec<String>) -> Result<Vec<Vec<String>
     let mut batch = Vec::new();
 
     for content in contents {
+        if batch.len() >= ACCOUNT_IMPORT_BATCH_ITEM_LIMIT {
+            batches.push(std::mem::take(&mut batch));
+        }
+
         batch.push(content);
         if account_import_body_size(&batch)? <= ACCOUNT_IMPORT_BATCH_BODY_LIMIT {
             continue;
@@ -163,8 +167,14 @@ pub async fn service_account_import(
             payload_contents.push(single);
         }
     }
-    let params = serde_json::json!({ "contents": payload_contents });
-    rpc_call_in_background("account/import", addr, Some(params)).await
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = import_account_contents_in_batches(addr, payload_contents)?;
+        Ok(serde_json::json!({
+            "result": result
+        }))
+    })
+    .await
+    .map_err(|err| format!("service_account_import task failed: {err}"))?
 }
 
 /// 函数 `service_account_import_by_directory`
@@ -295,7 +305,7 @@ pub async fn service_account_export_by_account_files(
 mod tests {
     use super::{
         empty_import_summary, merge_account_import_summary, split_account_import_batches,
-        ACCOUNT_IMPORT_BATCH_BODY_LIMIT,
+        ACCOUNT_IMPORT_BATCH_BODY_LIMIT, ACCOUNT_IMPORT_BATCH_ITEM_LIMIT,
     };
 
     #[test]
@@ -307,6 +317,18 @@ mod tests {
 
         assert_eq!(batches.len(), 2);
         assert_eq!(batches[0].len(), 1);
+        assert_eq!(batches[1].len(), 1);
+    }
+
+    #[test]
+    fn split_account_import_batches_limits_item_count() {
+        let contents = (0..(ACCOUNT_IMPORT_BATCH_ITEM_LIMIT + 1))
+            .map(|index| format!(r#"{{"id":"account-{index}"}}"#))
+            .collect::<Vec<_>>();
+        let batches = split_account_import_batches(contents).expect("split batches");
+
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].len(), ACCOUNT_IMPORT_BATCH_ITEM_LIMIT);
         assert_eq!(batches[1].len(), 1);
     }
 
