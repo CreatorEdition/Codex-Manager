@@ -1,6 +1,6 @@
 # Codex-Manager Fork Hardening 任务记录
 
-## 当前状态总览（2026-07-05）
+## 当前状态总览（2026-07-07）
 
 ### ✅ 当前可发布状态
 
@@ -22,6 +22,8 @@
 - 同类前端工具栏已完成补强：平台密钥、聚合 API、请求日志、插件自定义源和环境变量设置页均补齐换行、`min-w-0` 与更保守断点，避免中等宽度下搜索/筛选/按钮被挤出视口。
 - 大批量账号导入已改为单次 RPC 最多 10 条或 4MB：Web、桌面端直接导入、文件导入和目录导入都会分批调用 `account/import` 并合并统计，避免一次性导入大量小文件时单个 RPC 卡死或超时。
 - 账号导入格式已补齐 Token 中转工具常见输出：支持 `{accounts:[...]}`、`cpa_batch.tokens[]`、Sub2API `credentials`、9Router `providerSpecificData`、OpenAI session `user/account` 嵌套字段；批量导入弹窗和文档已明确支持格式，并明确裸 `refresh_token` / 普通文本 token 暂不支持。
+- 作者/赞助推广残留已清理：删除 `/author/` 路由、远程 author content runtime 能力、专用 sponsor 归一化工具、Playwright 作者页测试和残留赞助静态资源；Tauri CSP 不再允许 `author.qxnm.top`。
+- 上游差异已重新拉取复核：`upstream/main` 最新为 `f3efb3a2`；已按语义移植 `2c912580`、`84ac0560`、`ce5d3f38`、`83ca26f7`/`359580a7` 等功能项；`4ba9a139`、`0508c19a`、`99bb0c2d`、`03ca2052`、`09223f6f`、`f3efb3a2` 仍需按 CE 约束逐项评估，禁止整包合并上游推广/作者内容。
 
 ### ✅ 已完成：P1 账号导入格式兼容与格式提示
 
@@ -158,10 +160,17 @@
 - 产出：评估记录见 `.teamwork/discussions/2026-07-05_admin-ranking-daily-rollup-evaluation.md`。
 - 后续：新增独立实施项，先补日级 rollup 生产链路与 dashboard 混合查询，再迁移排行/趋势。
 
+### ✅ 已完成：P1 作者/赞助推广残留清理
+
+- 根因：复核上游与本地残留时发现 CE 版仍保留 `/author/` 页面、远程 author content 默认地址、赞助/推荐文案、作者联系方式和 Tauri CSP 白名单；这与早期“广告与推广清理完成”的记录冲突。
+- 行为：删除作者/赞助页面、专用测试、sponsor 归一化工具和残留赞助静态资源；运行时能力不再包含 `authorContentUrl`，Web/桌面默认能力不会再指向 `author.qxnm.top`。
+- 边界：插件作者字段、通用“推荐配置/智能推荐”业务文案不属于广告推广残留，本轮未删除。
+- 验证：`rg` 复扫仅剩 `crates/web` 的“不暴露 authorContentUrl”测试断言；`node --test tests\runtime-capabilities.test.mjs` 6 项通过；清理本地 `.next` 旧生成缓存后，`apps` 下 `tsc --noEmit` 通过；`git diff --check` 通过。
+
 ### 📌 后续待完成任务
 
-1. P2：实现 `request_token_stat_daily_rollups` 生产链路与 dashboard 混合查询，避免历史日排行继续扫描明细表。
-2. P2：继续做上游 PR / 分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
+1. P2：上游差异语义评估与 PR/分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
+2. P2：评估是否移植上游 `4ba9a139` 平台密钥今日用量统计、`0508c19a` Web 启动设置读取优化、`99bb0c2d` 托盘恢复导航，以及 `03ca2052`/`09223f6f`/`f3efb3a2` 启动渲染和 UI 密度优化；每项必须先剥离上游作者/推广内容并按 CE 当前性能改造复核。
 
 ### 🗂️ 历史记录说明
 
@@ -1325,17 +1334,17 @@ task.md 累计 A–Z + AA–KK 共 **37 类条目**。本批新增 JJ（P1 token
 
 ## 2026-07-04 发布后待办计划（【CodeX-GPT】）
 
-### 🔄 计划中：非阻塞 backlog 分批处理
+### ✅ 已收口：非阻塞 backlog 分批处理
 
-本节记录已确认不阻塞当前发布候选、但需要继续跟进的事项。处理顺序按风险和收益排序：
+本节为 2026-07-04 的历史计划。当前状态以文件顶部“当前状态总览”和最新提交为准：
 
-1. P1：补齐账号页后端分页等价能力，包括计划类型筛选、限流/封禁状态筛选和全局排序，避免前端用当前页数据伪装全局结果。
-2. P1：继续梳理 Web RPC 超时/重试矩阵，重点覆盖批量导入、手动全量刷新、长耗时维护类操作；禁止通过恢复全量裸调用规避超时。
-3. P1：观察并优化 `request_logs`、`events`、`usage_snapshots` 与 WAL 体积，复核留存策略、后台维护批大小和 WAL 收缩效果。
-4. P2：拆分 `dashboard/adminOverview` 与分页排行 RPC，并评估把排行聚合迁移到日级 rollup，减少首页打开时扫描请求日志窗口。
-5. P2：为首页模型池容量补独立轻量汇总或分页来源懒加载；不得让 summary 模式回退到 `quota/modelPools(includeSources:true)` 的全量扫描。
-6. P2：清理既有 Rust warning，包括 `delivery.rs` 的 unreachable pattern、维护模块 dead code 和 usage aggregate dead code；不得与业务功能变更混在同一提交。
-7. P2：发布/PR 分支治理。当前 `hardening/main` 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包推送到上游 PR。
+1. ✅ 账号页后端分页等价能力已完成。
+2. ✅ Web RPC 超时/重试矩阵已完成。
+3. ✅ `request_logs`、`events`、`usage_snapshots` 与 WAL 体积治理已完成主要实现，并补空闲 `VACUUM` 保护。
+4. ✅ `dashboard/adminOverview` 与排行/趋势加载拆分已完成，日级 rollup mixed 查询已接入生产链路。
+5. ✅ 首页模型池容量轻量汇总已完成。
+6. ✅ Rust warning 清理已完成。
+7. 🔄 发布/PR 分支治理仍保留为 P2 待办；上游新提交需要逐项语义评估，不整包 merge。
 
 ### 下一步执行建议
 

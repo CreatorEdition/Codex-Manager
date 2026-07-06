@@ -1,16 +1,8 @@
 import type { RuntimeCapabilities, RuntimeMode } from "@/types";
 
 export const DEFAULT_WEB_RPC_BASE_URL = "/api/rpc";
-export const DEFAULT_WEB_AUTHOR_CONTENT_URL = "/api/author-content";
 export const DEFAULT_UNSUPPORTED_WEB_REASON =
   "当前页面缺少 CodexManager Web 运行壳，无法访问管理 RPC。请通过 codexmanager-web 打开，或在反向代理中转发 /api/rpc。";
-const CONFIGURED_AUTHOR_CONTENT_URL =
-  normalizeAuthorContentUrl(
-    process.env.NEXT_PUBLIC_CODEXMANAGER_AUTHOR_CONTENT_URL
-  ) || "https://author.qxnm.top/api/public/author-content";
-const CONFIGURED_WEB_AUTHOR_CONTENT_URL = normalizeAuthorContentUrl(
-  process.env.NEXT_PUBLIC_CODEXMANAGER_AUTHOR_CONTENT_URL
-);
 
 export type RuntimeCapabilityView = {
   runtimeCapabilities: RuntimeCapabilities | null;
@@ -24,7 +16,6 @@ export type RuntimeCapabilityView = {
   canOpenLocalDir: boolean;
   canUseBrowserFileImport: boolean;
   canUseBrowserDownloadExport: boolean;
-  authorContentUrl: string | null;
 };
 
 /**
@@ -79,21 +70,6 @@ function asString(value: unknown): string {
  */
 function asBoolean(value: unknown, fallback = false): boolean {
   return typeof value === "boolean" ? value : fallback;
-}
-
-export function normalizeAuthorContentUrl(
-  value: string | null | undefined
-): string {
-  const normalized = asString(value);
-  if (!normalized) {
-    return "";
-  }
-  if (/^https?:\/\//i.test(normalized)) {
-    return normalized;
-  }
-  return normalized.startsWith("/") && !normalized.startsWith("//")
-    ? normalized
-    : "";
 }
 
 /**
@@ -157,7 +133,6 @@ export function buildDesktopRuntimeCapabilities(): RuntimeCapabilities {
   return {
     mode: "desktop-tauri",
     rpcBaseUrl: DEFAULT_WEB_RPC_BASE_URL,
-    authorContentUrl: CONFIGURED_AUTHOR_CONTENT_URL,
     canManageService: true,
     canSelfUpdate: true,
     canCloseToTray: true,
@@ -187,8 +162,6 @@ export function buildWebGatewayRuntimeCapabilities(
   return {
     mode: "web-gateway",
     rpcBaseUrl: normalizeRpcBaseUrl(rpcBaseUrl) || DEFAULT_WEB_RPC_BASE_URL,
-    authorContentUrl:
-      CONFIGURED_WEB_AUTHOR_CONTENT_URL || DEFAULT_WEB_AUTHOR_CONTENT_URL,
     canManageService: false,
     canSelfUpdate: false,
     canCloseToTray: false,
@@ -220,7 +193,6 @@ export function buildUnsupportedWebCapabilities(
   return {
     mode: "unsupported-web",
     rpcBaseUrl: normalizeRpcBaseUrl(rpcBaseUrl) || DEFAULT_WEB_RPC_BASE_URL,
-    authorContentUrl: CONFIGURED_AUTHOR_CONTENT_URL,
     canManageService: false,
     canSelfUpdate: false,
     canCloseToTray: false,
@@ -264,10 +236,6 @@ export function normalizeRuntimeCapabilities(
     rpcBaseUrl:
       normalizeRpcBaseUrl(asString(source.rpcBaseUrl)) ||
       defaultCapabilities.rpcBaseUrl,
-    authorContentUrl:
-      normalizeAuthorContentUrl(asString(source.authorContentUrl)) ||
-      defaultCapabilities.authorContentUrl ||
-      null,
     canManageService: asBoolean(
       source.canManageService,
       defaultCapabilities.canManageService
@@ -334,6 +302,5 @@ export function resolveRuntimeCapabilityView(
     canOpenLocalDir: resolvedCapabilities.canOpenLocalDir,
     canUseBrowserFileImport: resolvedCapabilities.canUseBrowserFileImport,
     canUseBrowserDownloadExport: resolvedCapabilities.canUseBrowserDownloadExport,
-    authorContentUrl: resolvedCapabilities.authorContentUrl || null,
   };
 }

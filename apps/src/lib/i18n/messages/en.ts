@@ -1563,7 +1563,6 @@ export const EN_MESSAGES: MessageCatalog = {
   "搜索名称、ID、模型或上游地址": "Search name, ID, model, or upstream URL",
   条平台密钥: "platform keys",
   没有匹配的密钥: "No matching keys",
-  赞助与推荐: "Sponsors and recommendations",
   代表样例: "Representative sample",
   最后发生: "Last seen",
   次: "times",
