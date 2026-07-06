@@ -1,5 +1,5 @@
 use super::{
-    extract_token_payload, import_account_auth_json, import_single_item,
+    extract_token_payload, import_account_auth_json, import_single_item, parse_items_from_content,
     resolve_logical_account_id, ExistingAccountIndex, ImportTokenPayload,
 };
 use crate::account_identity::build_account_storage_id;
@@ -269,6 +269,155 @@ fn extract_token_payload_allows_missing_id_and_refresh_tokens() {
     assert_eq!(payload.account_id_hint.as_deref(), Some("acc-only"));
 }
 
+/// 函数 `parse_items_from_content_expands_supported_batch_wrappers`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-07
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn parse_items_from_content_expands_supported_batch_wrappers() {
+    let items = parse_items_from_content(
+        r#"{"type":"sub2api-data","accounts":[{"accessToken":"access.a"},{"accessToken":"access.b"}]}
+{"type":"cpa_batch","tokens":[{"access_token":"access.c"}]}"#,
+    )
+    .expect("parse batch wrappers");
+
+    assert_eq!(items.len(), 3);
+    assert_eq!(
+        items[0].get("accessToken").and_then(|v| v.as_str()),
+        Some("access.a")
+    );
+    assert_eq!(
+        items[1].get("accessToken").and_then(|v| v.as_str()),
+        Some("access.b")
+    );
+    assert_eq!(
+        items[2].get("access_token").and_then(|v| v.as_str()),
+        Some("access.c")
+    );
+}
+
+/// 函数 `extract_token_payload_supports_sub2api_credentials`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-07
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn extract_token_payload_supports_sub2api_credentials() {
+    let value = json!({
+        "name": "sub2api@example.com",
+        "credentials": {
+            "access_token": "access.sub2api",
+            "refresh_token": "refresh.sub2api",
+            "chatgpt_account_id": "cgpt-sub2api"
+        },
+        "extra": {
+            "email": "sub2api@example.com",
+            "plan_type": "team"
+        }
+    });
+
+    let payload = extract_token_payload(&value).expect("parse sub2api credentials");
+    assert_eq!(payload.access_token, "access.sub2api");
+    assert_eq!(payload.refresh_token, "refresh.sub2api");
+    assert_eq!(
+        payload.chatgpt_account_id_hint.as_deref(),
+        Some("cgpt-sub2api")
+    );
+}
+
+/// 函数 `extract_token_payload_supports_9router_provider_specific_data`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-07
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn extract_token_payload_supports_9router_provider_specific_data() {
+    let value = json!({
+        "accessToken": "access.9router",
+        "refreshToken": "refresh.9router",
+        "email": "router@example.com",
+        "providerSpecificData": {
+            "chatgptAccountId": "cgpt-9router",
+            "chatgptPlanType": "plus"
+        }
+    });
+
+    let payload = extract_token_payload(&value).expect("parse 9router payload");
+    assert_eq!(payload.access_token, "access.9router");
+    assert_eq!(payload.refresh_token, "refresh.9router");
+    assert_eq!(
+        payload.chatgpt_account_id_hint.as_deref(),
+        Some("cgpt-9router")
+    );
+}
+
+/// 函数 `import_single_item_uses_openai_session_user_and_account_metadata`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-07
+///
+/// # 参数
+/// 无
+///
+/// # 返回
+/// 无
+#[test]
+fn import_single_item_uses_openai_session_user_and_account_metadata() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init");
+    let mut idx = ExistingAccountIndex::build(&storage).expect("build index");
+    let item = json!({
+        "user": {
+            "id": "user-session",
+            "email": "session@example.com"
+        },
+        "account": {
+            "id": "cgpt-session",
+            "planType": "team"
+        },
+        "accessToken": TEST_ACCESS_TOKEN_TEAM_USER_A,
+        "refreshToken": "refresh.session"
+    });
+
+    let created = import_single_item(&storage, &mut idx, &item, 1).expect("import session");
+    assert!(created);
+
+    let accounts = storage.list_accounts().expect("list accounts");
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].label, "session@example.com");
+    assert_eq!(
+        accounts[0].chatgpt_account_id.as_deref(),
+        Some("cgpt-session")
+    );
+    assert_eq!(accounts[0].workspace_id.as_deref(), Some("team-1"));
+
+    let token = storage
+        .find_token_by_account_id(&accounts[0].id)
+        .expect("find token")
+        .expect("token");
+    assert_eq!(token.access_token, TEST_ACCESS_TOKEN_TEAM_USER_A);
+    assert_eq!(token.refresh_token, "refresh.session");
+}
 /// 函数 `import_single_item_reuses_existing_login_account_by_scope_identity`
 ///
 /// 作者: gaohongshun

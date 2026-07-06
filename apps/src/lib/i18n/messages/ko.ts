@@ -416,8 +416,8 @@ export const KO_MESSAGES: MessageCatalog = {
   总: "총",
   输入: "입력",
   缓存: "캐시",
-  "导入内容格式不正确。JSON 账号内容请整段粘贴；普通 Token 才按每行一个导入。":
-    "가져오기 형식이 올바르지 않습니다. JSON 계정 내용은 전체 블록으로 붙여넣고, 일반 Token 은 한 줄에 하나씩 가져오세요.",
+  "导入内容格式不正确。请粘贴完整 JSON、JSON 数组或多段 JSON 对象；不要只粘贴裸 token。":
+    "가져오기 내용 형식이 올바르지 않습니다. 완전한 JSON, JSON 배열 또는 여러 JSON 객체를 붙여넣으세요. token만 붙여넣지 마세요.",
   "JSON 数组格式不正确，请检查括号和逗号后重试。":
     "JSON 배열 형식이 올바르지 않습니다. 괄호와 쉼표를 확인한 후 다시 시도하세요.",
   "服务未连接，账号授权与导入暂不可用；连接恢复后可继续操作。":
@@ -473,12 +473,22 @@ export const KO_MESSAGES: MessageCatalog = {
   "粘贴浏览器跳转后的完整回调 URL（包含 state 和 code）":
     "브라우저 리디렉션 후의 전체 콜백 URL을 붙여넣으세요(state 와 code 포함)",
   解析: "파싱",
-  "账号数据（Token 可每行一个，JSON 可整段粘贴）":
-    "계정 데이터(Token 은 한 줄에 하나, JSON 은 전체 블록 붙여넣기)",
-  "粘贴账号数据。普通 Token 可每行一个；完整 JSON / JSON 数组请整段粘贴。":
-    "계정 데이터를 붙여넣으세요. 일반 Token 은 한 줄에 하나씩, 완전한 JSON / JSON 배열은 전체 블록으로 붙여넣으세요.",
-  "支持格式：ChatGPT 账号（Refresh Token）、Claude Session 等。系统将自动识别格式并导入。":
-    "지원 형식: ChatGPT 계정(Refresh Token), Claude Session 등. 시스템이 형식을 자동 인식하여 가져옵니다.",
+  "账号数据（支持完整 JSON / JSON 数组 / 多段 JSON）":
+    "계정 데이터(완전한 JSON / JSON 배열 / 여러 JSON 객체)",
+  "粘贴完整账号 JSON，例如 ChatGPT /api/auth/session、Codex auth.json、Sub2API、CPA、Cockpit 或 9Router 导出内容。":
+    "ChatGPT /api/auth/session, Codex auth.json, Sub2API, CPA, Cockpit, 9Router 내보내기 같은 완전한 계정 JSON을 붙여넣으세요.",
+  "当前支持以下账号 JSON 格式：":
+    "현재 지원하는 계정 JSON 형식:",
+  "ChatGPT /api/auth/session：包含 accessToken，可选 idToken、refreshToken、user.email、account.id。":
+    "ChatGPT /api/auth/session: accessToken을 포함하며 idToken, refreshToken, user.email, account.id는 선택입니다.",
+  "Codex auth.json：包含 tokens.access_token、tokens.id_token、tokens.refresh_token、tokens.account_id。":
+    "Codex auth.json: tokens.access_token, tokens.id_token, tokens.refresh_token, tokens.account_id를 포함합니다.",
+  "CodexManager/CPA/Cockpit：扁平 access_token 或 accessToken 字段，也支持 tokens 包装。":
+    "CodexManager/CPA/Cockpit: 평면 access_token 또는 accessToken 필드와 tokens 래퍼를 지원합니다.",
+  "Sub2API 与 9Router：支持 accounts 数组、credentials 字段和 providerSpecificData 账号信息。":
+    "Sub2API 및 9Router: accounts 배열, credentials 필드, providerSpecificData 계정 정보를 지원합니다.",
+  "暂不支持只粘贴裸 refresh_token 或普通文本 token；请粘贴完整 JSON，多个账号可用 JSON 数组或多段 JSON 对象。":
+    "refresh_token 또는 일반 텍스트 token만 붙여넣는 방식은 아직 지원하지 않습니다. 완전한 JSON을 붙여넣고, 여러 계정은 JSON 배열 또는 여러 JSON 객체를 사용하세요.",
   开始导入: "가져오기 시작",
   成功请求: "성공 요청",
   客户端错误: "클라이언트 오류",

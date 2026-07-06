@@ -34,16 +34,31 @@
 
 ## 支持的字段形态
 
-批量导入会自动识别常见字段名。`/api/auth/session` 的整段 JSON 通常包含 `accessToken`，软件会按兼容格式解析；如果 JSON 中还带有 `refreshToken`、`idToken` 或账号 ID 信息，也会一并使用。
+批量导入只接受完整 JSON、JSON 数组或多段 JSON 对象；`.txt` 文件也可以导入，但文件内容仍应是这些 JSON 结构。不要只粘贴裸 `refresh_token`、`access_token` 或普通文本 token。
 
-可识别的常见字段包括：
+当前支持的账号 JSON 格式：
+
+| 来源 | 识别方式 |
+| --- | --- |
+| ChatGPT `/api/auth/session` | 根对象包含 `accessToken`，可选 `idToken`、`refreshToken`、`user.email`、`account.id`。 |
+| Codex `auth.json` | 根对象包含 `tokens.access_token`、`tokens.id_token`、`tokens.refresh_token`、`tokens.account_id`。 |
+| CodexManager / CPA / Cockpit | 根对象包含扁平 `access_token` / `accessToken`，也支持 `tokens` 包装。 |
+| Sub2API | `accounts` 数组中的账号对象，或单账号对象中的 `credentials.access_token`、`credentials.refresh_token`、`credentials.chatgpt_account_id`。 |
+| 9Router / AxonHub | `accounts` 数组中的对象，识别 `accessToken`、`refreshToken` 和 `providerSpecificData.chatgptAccountId`。 |
+
+常见单账号示例：
 
 ```json
 {
   "accessToken": "eyJ...",
   "idToken": "eyJ...",
   "refreshToken": "rt_...",
-  "accountId": "acc_..."
+  "user": {
+    "email": "user@example.com"
+  },
+  "account": {
+    "id": "acc_..."
+  }
 }
 ```
 
@@ -54,11 +69,37 @@
   "access_token": "eyJ...",
   "id_token": "eyJ...",
   "refresh_token": "rt_...",
-  "account_id": "acc_..."
+  "chatgpt_account_id": "acc_..."
 }
 ```
 
-实际复制时不需要手动改字段名，直接粘贴 `https://chatgpt.com/api/auth/session` 页面返回的完整 JSON 即可。
+多账号可以使用数组：
+
+```json
+[
+  { "accessToken": "eyJ...", "account": { "id": "acc_1" } },
+  { "accessToken": "eyJ...", "account": { "id": "acc_2" } }
+]
+```
+
+也可以使用包装对象：
+
+```json
+{
+  "type": "sub2api-data",
+  "accounts": [
+    {
+      "credentials": {
+        "access_token": "eyJ...",
+        "refresh_token": "rt_...",
+        "chatgpt_account_id": "acc_..."
+      }
+    }
+  ]
+}
+```
+
+实际复制 ChatGPT session 时不需要手动改字段名，直接粘贴 `https://chatgpt.com/api/auth/session` 页面返回的完整 JSON 即可。
 
 ## 常见问题
 

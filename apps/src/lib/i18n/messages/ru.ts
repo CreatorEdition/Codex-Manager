@@ -418,8 +418,8 @@ export const RU_MESSAGES: MessageCatalog = {
   总: "Всего",
   输入: "Вход",
   缓存: "Кэш",
-  "导入内容格式不正确。JSON 账号内容请整段粘贴；普通 Token 才按每行一个导入。":
-    "Неверный формат импорта. JSON аккаунта вставляйте целиком; обычные Token импортируются по одному в строке.",
+  "导入内容格式不正确。请粘贴完整 JSON、JSON 数组或多段 JSON 对象；不要只粘贴裸 token。":
+    "Неверный формат импорта. Вставьте полный JSON, массив JSON или несколько JSON-объектов; не вставляйте только голые token.",
   "JSON 数组格式不正确，请检查括号和逗号后重试。":
     "Неверный формат JSON-массива. Проверьте скобки и запятые и повторите попытку.",
   "服务未连接，账号授权与导入暂不可用；连接恢复后可继续操作。":
@@ -475,12 +475,22 @@ export const RU_MESSAGES: MessageCatalog = {
   "粘贴浏览器跳转后的完整回调 URL（包含 state 和 code）":
     "Вставьте полный callback URL после перенаправления в браузере (включая state и code)",
   解析: "Разобрать",
-  "账号数据（Token 可每行一个，JSON 可整段粘贴）":
-    "Данные аккаунта (Token по одному в строке, JSON — целиком)",
-  "粘贴账号数据。普通 Token 可每行一个；完整 JSON / JSON 数组请整段粘贴。":
-    "Вставьте данные аккаунта. Обычные Token можно по одному в строке; полный JSON / массив JSON вставляйте целиком.",
-  "支持格式：ChatGPT 账号（Refresh Token）、Claude Session 等。系统将自动识别格式并导入。":
-    "Поддерживаются форматы: аккаунт ChatGPT (Refresh Token), Claude Session и др. Система распознает и импортирует их автоматически.",
+  "账号数据（支持完整 JSON / JSON 数组 / 多段 JSON）":
+    "Данные аккаунта (полный JSON / массив JSON / несколько JSON-объектов)",
+  "粘贴完整账号 JSON，例如 ChatGPT /api/auth/session、Codex auth.json、Sub2API、CPA、Cockpit 或 9Router 导出内容。":
+    "Вставьте полный JSON аккаунта, например ChatGPT /api/auth/session, Codex auth.json, экспорт Sub2API, CPA, Cockpit или 9Router.",
+  "当前支持以下账号 JSON 格式：":
+    "Сейчас поддерживаются следующие JSON-форматы аккаунтов:",
+  "ChatGPT /api/auth/session：包含 accessToken，可选 idToken、refreshToken、user.email、account.id。":
+    "ChatGPT /api/auth/session: содержит accessToken; idToken, refreshToken, user.email и account.id необязательны.",
+  "Codex auth.json：包含 tokens.access_token、tokens.id_token、tokens.refresh_token、tokens.account_id。":
+    "Codex auth.json: содержит tokens.access_token, tokens.id_token, tokens.refresh_token и tokens.account_id.",
+  "CodexManager/CPA/Cockpit：扁平 access_token 或 accessToken 字段，也支持 tokens 包装。":
+    "CodexManager/CPA/Cockpit: плоские поля access_token или accessToken, а также обертка tokens.",
+  "Sub2API 与 9Router：支持 accounts 数组、credentials 字段和 providerSpecificData 账号信息。":
+    "Sub2API и 9Router: поддерживаются массив accounts, поля credentials и данные аккаунта providerSpecificData.",
+  "暂不支持只粘贴裸 refresh_token 或普通文本 token；请粘贴完整 JSON，多个账号可用 JSON 数组或多段 JSON 对象。":
+    "Вставка только голого refresh_token или обычного текстового token пока не поддерживается. Вставляйте полный JSON; для нескольких аккаунтов используйте массив JSON или несколько JSON-объектов.",
   开始导入: "Начать импорт",
   成功请求: "Успешные запросы",
   客户端错误: "Ошибки клиента",

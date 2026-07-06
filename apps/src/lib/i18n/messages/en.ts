@@ -455,8 +455,8 @@ export const EN_MESSAGES: MessageCatalog = {
   总: "Total",
   输入: "Input",
   缓存: "Cached",
-  "导入内容格式不正确。JSON 账号内容请整段粘贴；普通 Token 才按每行一个导入。":
-    "Invalid import content. Paste JSON account content as a whole block; plain Tokens should be imported one per line.",
+  "导入内容格式不正确。请粘贴完整 JSON、JSON 数组或多段 JSON 对象；不要只粘贴裸 token。":
+    "Import content is invalid. Paste a complete JSON object, JSON array, or multiple JSON objects; do not paste bare tokens only.",
   "JSON 数组格式不正确，请检查括号和逗号后重试。":
     "Invalid JSON array format. Please check brackets and commas, then try again.",
   "服务未连接，账号授权与导入暂不可用；连接恢复后可继续操作。":
@@ -512,12 +512,22 @@ export const EN_MESSAGES: MessageCatalog = {
   "粘贴浏览器跳转后的完整回调 URL（包含 state 和 code）":
     "Paste the full callback URL after browser redirect (including state and code)",
   解析: "Parse",
-  "账号数据（Token 可每行一个，JSON 可整段粘贴）":
-    "Account data (one Token per line, or a full JSON block)",
-  "粘贴账号数据。普通 Token 可每行一个；完整 JSON / JSON 数组请整段粘贴。":
-    "Paste account data. Plain Tokens can be one per line; complete JSON / JSON arrays should be pasted as a whole block.",
-  "支持格式：ChatGPT 账号（Refresh Token）、Claude Session 等。系统将自动识别格式并导入。":
-    "Supported formats: ChatGPT account (Refresh Token), Claude Session, etc. The system detects and imports automatically.",
+  "账号数据（支持完整 JSON / JSON 数组 / 多段 JSON）":
+    "Account data (complete JSON / JSON array / multiple JSON objects)",
+  "粘贴完整账号 JSON，例如 ChatGPT /api/auth/session、Codex auth.json、Sub2API、CPA、Cockpit 或 9Router 导出内容。":
+    "Paste complete account JSON, such as ChatGPT /api/auth/session, Codex auth.json, Sub2API, CPA, Cockpit, or 9Router exports.",
+  "当前支持以下账号 JSON 格式：":
+    "Currently supported account JSON formats:",
+  "ChatGPT /api/auth/session：包含 accessToken，可选 idToken、refreshToken、user.email、account.id。":
+    "ChatGPT /api/auth/session: includes accessToken, with optional idToken, refreshToken, user.email, and account.id.",
+  "Codex auth.json：包含 tokens.access_token、tokens.id_token、tokens.refresh_token、tokens.account_id。":
+    "Codex auth.json: includes tokens.access_token, tokens.id_token, tokens.refresh_token, and tokens.account_id.",
+  "CodexManager/CPA/Cockpit：扁平 access_token 或 accessToken 字段，也支持 tokens 包装。":
+    "CodexManager/CPA/Cockpit: flat access_token or accessToken fields, with tokens wrappers also supported.",
+  "Sub2API 与 9Router：支持 accounts 数组、credentials 字段和 providerSpecificData 账号信息。":
+    "Sub2API and 9Router: supports accounts arrays, credentials fields, and providerSpecificData account metadata.",
+  "暂不支持只粘贴裸 refresh_token 或普通文本 token；请粘贴完整 JSON，多个账号可用 JSON 数组或多段 JSON 对象。":
+    "Bare refresh_token or plain text tokens are not supported yet; paste complete JSON. Use a JSON array or multiple JSON objects for multiple accounts.",
   开始导入: "Start import",
   成功请求: "Successful requests",
   客户端错误: "Client errors",

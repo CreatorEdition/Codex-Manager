@@ -196,7 +196,7 @@ function buildBulkImportContents(rawContent: string): string[] {
 function getBulkImportErrorMessage(error: unknown, t: (key: string) => string): string {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("invalid JSON object stream")) {
-    return t("导入内容格式不正确。JSON 账号内容请整段粘贴；普通 Token 才按每行一个导入。");
+    return t("导入内容格式不正确。请粘贴完整 JSON、JSON 数组或多段 JSON 对象；不要只粘贴裸 token。");
   }
   if (message.includes("invalid JSON array")) {
     return t("JSON 数组格式不正确，请检查括号和逗号后重试。");
@@ -704,9 +704,9 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
                 </Alert>
               ) : null}
               <div className="space-y-2">
-                <Label>{t("账号数据（Token 可每行一个，JSON 可整段粘贴）")}</Label>
+                <Label>{t("账号数据（支持完整 JSON / JSON 数组 / 多段 JSON）")}</Label>
                 <Textarea 
-                  placeholder={t("粘贴账号数据。普通 Token 可每行一个；完整 JSON / JSON 数组请整段粘贴。")}
+                  placeholder={t("粘贴完整账号 JSON，例如 ChatGPT /api/auth/session、Codex auth.json、Sub2API、CPA、Cockpit 或 9Router 导出内容。")}
                   className="min-h-[250px] resize-none overflow-auto whitespace-pre-wrap break-all [overflow-wrap:anywhere] font-mono text-[10px] leading-4"
                   value={bulkContent}
                   disabled={!isServiceReady}
@@ -715,8 +715,17 @@ export function AddAccountModal({ open, onOpenChange }: AddAccountModalProps) {
               </div>
               <Alert>
                 <Info />
-                <AlertDescription className="text-xs leading-relaxed">
-                  {t("支持格式：ChatGPT 账号（Refresh Token）、Claude Session 等。系统将自动识别格式并导入。")}
+                <AlertDescription className="space-y-2 text-xs leading-relaxed">
+                  <p>{t("当前支持以下账号 JSON 格式：")}</p>
+                  <ul className="list-disc space-y-1 pl-4">
+                    <li>{t("ChatGPT /api/auth/session：包含 accessToken，可选 idToken、refreshToken、user.email、account.id。")}</li>
+                    <li>{t("Codex auth.json：包含 tokens.access_token、tokens.id_token、tokens.refresh_token、tokens.account_id。")}</li>
+                    <li>{t("CodexManager/CPA/Cockpit：扁平 access_token 或 accessToken 字段，也支持 tokens 包装。")}</li>
+                    <li>{t("Sub2API 与 9Router：支持 accounts 数组、credentials 字段和 providerSpecificData 账号信息。")}</li>
+                  </ul>
+                  <p className="text-muted-foreground">
+                    {t("暂不支持只粘贴裸 refresh_token 或普通文本 token；请粘贴完整 JSON，多个账号可用 JSON 数组或多段 JSON 对象。")}
+                  </p>
                 </AlertDescription>
               </Alert>
               <Button

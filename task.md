@@ -21,6 +21,16 @@
 - 账号页搜索/筛选栏已修复中等宽度下的横向挤压：`lg` 宽度不再强制搜索、筛选、操作同排，避免搜索框被挤到可视区外。
 - 同类前端工具栏已完成补强：平台密钥、聚合 API、请求日志、插件自定义源和环境变量设置页均补齐换行、`min-w-0` 与更保守断点，避免中等宽度下搜索/筛选/按钮被挤出视口。
 - 大批量账号导入已改为单次 RPC 最多 10 条或 4MB：Web、桌面端直接导入、文件导入和目录导入都会分批调用 `account/import` 并合并统计，避免一次性导入大量小文件时单个 RPC 卡死或超时。
+- 账号导入格式已补齐 Token 中转工具常见输出：支持 `{accounts:[...]}`、`cpa_batch.tokens[]`、Sub2API `credentials`、9Router `providerSpecificData`、OpenAI session `user/account` 嵌套字段；批量导入弹窗和文档已明确支持格式，并明确裸 `refresh_token` / 普通文本 token 暂不支持。
+
+### ✅ 已完成：P1 账号导入格式兼容与格式提示
+
+- 背景：用户提供的 `C:\Users\orrin\Desktop\html\token中转` 示例工具会生成 OpenAI Web Session、Sub2API、CPA、Cockpit、9Router 和 Codex `auth.json` 等多种 JSON 输出；原导入链路只稳定覆盖扁平 Codex/auth.json 与 `tokens` 包装，未展开 `{ accounts: [...] }` / `cpa_batch.tokens[]`，也未识别 `credentials`、`user/account`、`providerSpecificData` 等嵌套字段。
+- 行为：`account/import` 现在会递归展开 JSON 数组、`accounts` 数组和 `tokens` 数组；账号字段识别新增 Sub2API `credentials.access_token/refresh_token/chatgpt_account_id`、9Router `providerSpecificData.chatgptAccountId`、OpenAI session `user.email` 与 `account.id`。
+- 兼容边界：继续保持根级 `email` 在 id_token claims 之后作为兜底，避免改变既有 Codex flat 格式命名优先级；暂不支持只粘贴裸 `refresh_token`、裸 `access_token` 或普通文本 token，因为缺少完整账号身份上下文且后端当前需要可用 `access_token`。
+- 前端/文档：批量导入弹窗已明确列出支持的 JSON 格式，移除“普通 Token 可每行一个”的误导提示；英文、韩文、俄文 i18n 已同步；`docs/zh-CN/report/不登陆Codex使用ChatGPT-auth-session导入账号.md` 已补支持矩阵和示例。
+- 验证：`cargo test -p codexmanager-service --lib account::import::tests:: -- --nocapture` 20 项通过；`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`cargo fmt --all --check` 通过；`git diff --check` 通过。
+- 未验证：未跑完整 workspace 测试；本轮仅覆盖账号导入相关 Rust 单元测试和前端类型检查。
 
 ### 🔄 本轮整理
 

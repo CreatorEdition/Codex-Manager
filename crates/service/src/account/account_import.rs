@@ -742,15 +742,60 @@ fn parse_items_from_content(content: &str) -> Result<Vec<Value>, String> {
     if trimmed.starts_with('[') {
         let values: Vec<Value> =
             serde_json::from_str(trimmed).map_err(|err| format!("invalid JSON array: {err}"))?;
-        return Ok(values);
+        let mut out = Vec::new();
+        for value in values {
+            append_import_items(value, &mut out);
+        }
+        return Ok(out);
     }
 
     let mut out = Vec::new();
     let stream = serde_json::Deserializer::from_str(trimmed).into_iter::<Value>();
     for value in stream {
-        out.push(value.map_err(|err| format!("invalid JSON object stream: {err}"))?);
+        append_import_items(
+            value.map_err(|err| format!("invalid JSON object stream: {err}"))?,
+            &mut out,
+        );
     }
     Ok(out)
+}
+
+/// 函数 `append_import_items`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-07
+///
+/// # 参数
+/// - value: 参数 value
+/// - out: 参数 out
+///
+/// # 返回
+/// 无
+fn append_import_items(value: Value, out: &mut Vec<Value>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                append_import_items(item, out);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(Value::Array(items)) = map.get("accounts") {
+                for item in items.iter().cloned() {
+                    append_import_items(item, out);
+                }
+                return;
+            }
+            if let Some(Value::Array(items)) = map.get("tokens") {
+                for item in items.iter().cloned() {
+                    append_import_items(item, out);
+                }
+                return;
+            }
+            out.push(Value::Object(map));
+        }
+        other => out.push(other),
+    }
 }
 
 /// 函数 `import_single_item`
@@ -855,6 +900,12 @@ fn import_single_item_with_account_id(
         })
         .or_else(|| {
             item.get("email")
+                .and_then(Value::as_str)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        })
+        .or_else(|| {
+            item.get("name")
                 .and_then(Value::as_str)
                 .map(|v| v.trim().to_string())
                 .filter(|v| !v.is_empty())
@@ -1022,11 +1073,17 @@ fn extract_import_subject_account_id(
 /// # 返回
 /// 返回函数执行结果
 fn extract_token_payload(item: &Value) -> Result<ImportTokenPayload, String> {
-    let tokens = item.get("tokens").unwrap_or(item);
+    let empty = Value::Null;
+    let tokens = object_field(item, "tokens").unwrap_or(item);
+    let credentials = object_field(item, "credentials").unwrap_or(&empty);
+    let account = object_field(item, "account").unwrap_or(&empty);
+    let provider_specific = object_field(item, "providerSpecificData").unwrap_or(&empty);
     let access_token = required_string_any(
         &[
             (tokens, "access_token"),
             (tokens, "accessToken"),
+            (credentials, "access_token"),
+            (credentials, "accessToken"),
             (item, "access_token"),
             (item, "accessToken"),
         ],
@@ -1042,6 +1099,8 @@ fn extract_token_payload(item: &Value) -> Result<ImportTokenPayload, String> {
     let refresh_token = optional_string_any(&[
         (tokens, "refresh_token"),
         (tokens, "refreshToken"),
+        (credentials, "refresh_token"),
+        (credentials, "refreshToken"),
         (item, "refresh_token"),
         (item, "refreshToken"),
     ])
@@ -1049,12 +1108,19 @@ fn extract_token_payload(item: &Value) -> Result<ImportTokenPayload, String> {
     let account_id_hint = optional_string_any(&[
         (tokens, "account_id"),
         (tokens, "accountId"),
+        (credentials, "account_id"),
+        (credentials, "accountId"),
         (item, "account_id"),
         (item, "accountId"),
     ]);
     let chatgpt_account_id_hint = optional_string_any(&[
         (tokens, "chatgpt_account_id"),
         (tokens, "chatgptAccountId"),
+        (credentials, "chatgpt_account_id"),
+        (credentials, "chatgptAccountId"),
+        (account, "id"),
+        (provider_specific, "chatgpt_account_id"),
+        (provider_specific, "chatgptAccountId"),
         (item, "chatgpt_account_id"),
         (item, "chatgptAccountId"),
     ]);
@@ -1179,9 +1245,20 @@ fn token_fingerprint(refresh_token: &str) -> String {
 /// # 返回
 /// 返回函数执行结果
 fn extract_account_meta(item: &Value) -> ImportAccountMeta {
-    let meta = item.get("meta").unwrap_or(item);
+    let empty = Value::Null;
+    let meta = object_field(item, "meta").unwrap_or(&empty);
+    let user = object_field(item, "user").unwrap_or(&empty);
+    let account = object_field(item, "account").unwrap_or(&empty);
+    let credentials = object_field(item, "credentials").unwrap_or(&empty);
+    let extra = object_field(item, "extra").unwrap_or(&empty);
+    let provider_specific = object_field(item, "providerSpecificData").unwrap_or(&empty);
     ImportAccountMeta {
-        label: optional_string_any(&[(meta, "label"), (item, "label")]),
+        label: optional_string_any(&[
+            (meta, "label"),
+            (item, "label"),
+            (user, "email"),
+            (extra, "email"),
+        ]),
         issuer: optional_string_any(&[(meta, "issuer"), (item, "issuer")]),
         group_name: optional_string_any(&[
             (meta, "group_name"),
@@ -1200,10 +1277,31 @@ fn extract_account_meta(item: &Value) -> ImportAccountMeta {
         chatgpt_account_id: optional_string_any(&[
             (meta, "chatgpt_account_id"),
             (meta, "chatgptAccountId"),
+            (credentials, "chatgpt_account_id"),
+            (credentials, "chatgptAccountId"),
+            (account, "id"),
+            (provider_specific, "chatgpt_account_id"),
+            (provider_specific, "chatgptAccountId"),
             (item, "chatgpt_account_id"),
             (item, "chatgptAccountId"),
         ]),
     }
+}
+
+/// 函数 `object_field`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-07-07
+///
+/// # 参数
+/// - value: 参数 value
+/// - key: 参数 key
+///
+/// # 返回
+/// 返回函数执行结果
+fn object_field<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    value.get(key).filter(|candidate| candidate.is_object())
 }
 
 /// 函数 `required_string`
