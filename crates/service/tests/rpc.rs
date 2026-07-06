@@ -3774,6 +3774,21 @@ fn rpc_apikey_usage_stats_filters_requested_key_ids() {
             })
             .expect("insert api key usage stat");
     }
+    storage
+        .insert_request_token_stat(&RequestTokenStat {
+            request_log_id: 9_500,
+            key_id: Some("key-a".to_string()),
+            account_id: None,
+            model: Some("gpt-5.4".to_string()),
+            input_tokens: Some(1),
+            cached_input_tokens: Some(0),
+            output_tokens: Some(1),
+            total_tokens: Some(500),
+            reasoning_output_tokens: Some(0),
+            estimated_cost_usd: Some(0.5),
+            created_at: now - 3 * 86_400,
+        })
+        .expect("insert historical api key usage stat");
 
     let empty_server =
         codexmanager_service::start_one_shot_server().expect("start empty usage server");
@@ -3804,11 +3819,12 @@ fn rpc_apikey_usage_stats_filters_requested_key_ids() {
     };
     let json = serde_json::to_string(&req).expect("serialize usage stats");
     let v = post_rpc(&filtered_server.addr, &json);
-    let mut ids = v
+    let items = v
         .get("result")
         .and_then(|result| result.get("items"))
         .and_then(|value| value.as_array())
-        .expect("usage stat items")
+        .expect("usage stat items");
+    let mut ids = items
         .iter()
         .map(|item| {
             item.get("keyId")
@@ -3819,13 +3835,30 @@ fn rpc_apikey_usage_stats_filters_requested_key_ids() {
         .collect::<Vec<_>>();
     ids.sort();
     assert_eq!(ids, vec!["key-a".to_string(), "key-b".to_string()]);
+    let key_a = items
+        .iter()
+        .find(|item| item.get("keyId").and_then(|value| value.as_str()) == Some("key-a"))
+        .expect("key-a usage stat");
+    assert_eq!(
+        key_a.get("totalTokens").and_then(|value| value.as_i64()),
+        Some(600)
+    );
+    assert_eq!(
+        key_a.get("todayTokens").and_then(|value| value.as_i64()),
+        Some(100)
+    );
+    let key_a_total_cost = key_a
+        .get("estimatedCostUsd")
+        .and_then(|value| value.as_f64())
+        .expect("key-a total cost");
+    assert!((key_a_total_cost - 0.6).abs() < 1e-9);
+    let key_a_today_cost = key_a
+        .get("todayEstimatedCostUsd")
+        .and_then(|value| value.as_f64())
+        .expect("key-a today cost");
+    assert!((key_a_today_cost - 0.1).abs() < 1e-9);
 }
-
 /// 函数 `rpc_usage_aggregate_returns_backend_summary`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
 ///
 /// # 参数
 /// 无
