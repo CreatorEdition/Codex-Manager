@@ -18,6 +18,7 @@
 - 本地 `D:\Apps\CodexManager\codexmanager.db` 膨胀根因已确认：`events` 表中 `usage_refresh_failed` 约 133 万行占主要体积；已补 DB 侧同账号同错误类去重、事件 message 分类前缀，以及后台维护中同账号同 message 重复失败事件批量清理，防止继续写爆并逐步降低行数。
 - 注意：SQLite 文件物理体积不会仅因 DELETE 立即下降；现有生产库需要在停止 CodexManager 后运行 `crates/db-optimize --check-only` 评估，并按需执行 VACUUM/既有优化工具回收空闲页，本轮不在运行中直接操作用户 DB。
 - 账号页搜索/筛选栏已修复中等宽度下的横向挤压：`lg` 宽度不再强制搜索、筛选、操作同排，避免搜索框被挤到可视区外。
+- 同类前端工具栏已完成补强：平台密钥、聚合 API、请求日志、插件自定义源和环境变量设置页均补齐换行、`min-w-0` 与更保守断点，避免中等宽度下搜索/筛选/按钮被挤出视口。
 
 ### 🔄 本轮整理
 
@@ -108,6 +109,18 @@
 - 行为：工具栏改为默认纵向/换行布局，仅在 `xl` 及以上恢复网格同排；计划类型和状态筛选允许在小宽度下自适应换行，操作按钮也允许换行。
 - 查询链路复核：`search` 仍由账号页传入 `useAccounts({ query: deferredSearch })`，并由 account client 发送到 `account/list` RPC；本轮没有改动搜索语义。
 - 验证：`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`apps` 下 `.\node_modules\.bin\next.cmd build` 通过；`git diff --check` 通过。Playwright 项目用例已补充搜索框可见性断言，但本机 `pnpm` ignored-builds 策略会阻断该用例的 webServer 启动，需在 CI/已批准 pnpm build scripts 的环境中执行。
+
+### ✅ 已完成：P1 同类前端工具栏响应式补强
+
+- 排查范围：`apps/src/app/**` 与 `apps/src/components/**` 中含搜索、筛选、固定列、固定宽、`shrink-0`、`ml-auto`、`lg/md flex-row` 的工具栏和设置区域。
+- 行为：平台密钥筛选栏从 `lg` 横排收敛为 `xl` 横排，搜索框保持 `w-full min-w-0`；状态/每页筛选在窄宽度下允许换行。
+- 行为：聚合 API 查询栏改为默认纵向，筛选区和批量操作按钮区都允许换行，避免“刷新当前页余额 / 新建聚合 API”等长按钮挤压筛选项。
+- 行为：请求日志状态筛选和操作按钮容器去掉固定 `shrink-0`，在 `xl` 横排时仍允许内部换行；插件自定义源输入框补 `min-w-0`，操作按钮允许换行。
+- 行为：设置页环境变量区域把 `300px_1fr` 改为 `minmax(220px,300px)_minmax(0,1fr)`，避免右侧长 key / 值撑开布局。
+- 测试：新增 `apps/tests/toolbar-layout.spec.ts`，对平台密钥、聚合 API、请求日志和模型页核心工具栏做“可见且不越出视口”的 Playwright 断言。
+- 验证：`apps` 下 `.\node_modules\.bin\tsc.cmd --noEmit` 通过；`apps` 下 `.\node_modules\.bin\next.cmd build` 通过；`git diff --check` 通过。
+- 浏览器验证：已用本机 Microsoft Edge Headless 直连 `apps/out` 静态测试服务，复用新增用例的 mock 与断言检查 `/apikeys/`、`/aggregate-api/`、`/logs/`、`/models/` 核心工具栏，所有目标元素均在视口内且搜索框宽度满足断言。
+- 未完整执行：`.\node_modules\.bin\playwright.cmd test tests\toolbar-layout.spec.ts` 仍被仓库 Playwright 配置中的 `pnpm run build:desktop` 阻断；直接定位为本机 pnpm 策略问题：非 TTY 先报 `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`，设置 `CI=true` 后报 `ERR_PNPM_IGNORED_BUILDS`（`msw`、`sharp`、`unrs-resolver` 需要 `pnpm approve-builds`）。
 
 ### ✅ 已完成：P2 管理员排行日级 rollup 迁移评估
 

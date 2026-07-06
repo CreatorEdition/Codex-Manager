@@ -88,8 +88,8 @@ export function EnvTabContent({
         </Button>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[300px_1fr]">
-        <Card className="glass-card flex h-[500px] flex-col shadow-sm">
+      <div className="grid gap-6 md:grid-cols-[minmax(220px,300px)_minmax(0,1fr)]">
+        <Card className="glass-card flex h-[500px] min-w-0 flex-col shadow-sm">
           <CardHeader className="pb-3">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -116,7 +116,7 @@ export function EnvTabContent({
                       : "hover:bg-accent",
                   )}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full min-w-0 items-center gap-2">
                     <span className="min-w-0 flex-1 truncate font-medium">
                       {t(item.label)}
                     </span>
@@ -142,7 +142,7 @@ export function EnvTabContent({
           </CardContent>
         </Card>
 
-        <Card className="glass-card min-h-[500px] shadow-sm">
+        <Card className="glass-card min-h-[500px] min-w-0 shadow-sm">
           {selectedEnvKey ? (
             <>
               <CardHeader>
@@ -151,7 +151,7 @@ export function EnvTabContent({
                     {selectedEnvItem ? t(selectedEnvItem.label) : null}
                   </CardTitle>
                   <div className="flex flex-wrap items-center gap-2">
-                    <code className="w-fit rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                    <code className="max-w-full truncate rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">
                       {selectedEnvKey}
                     </code>
                     <Badge
@@ -216,7 +216,7 @@ export function EnvTabContent({
                 </div>
 
                 <Separator />
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   <Button onClick={onSaveEnv} className="gap-2">
                     <Save className="h-4 w-4" /> {t("保存修改")}
                   </Button>

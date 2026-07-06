@@ -804,14 +804,14 @@ export default function PluginsPage() {
           </div>
           {marketMode === "custom" ? (
             <>
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <div className="flex flex-col gap-3 md:min-w-0 md:flex-row md:items-center">
                 <Input
                   value={sourceUrl}
                   onChange={(event) => setSourceUrlDraft(event.target.value)}
                   placeholder="https://example.com/plugin-market.json"
-                  className="md:flex-1"
+                  className="min-w-0 md:flex-1"
                 />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     onClick={() => saveSourceMutation.mutate()}
                     disabled={saveSourceMutation.isPending}

@@ -153,7 +153,7 @@ export function RequestLogsTabContent({
                 onChange={(event) => onSearchChange(event.target.value)}
               />
             </div>
-            <div className="flex shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1">
+            <div className="flex w-full flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-muted/30 p-1 xl:w-auto">
               {["all", "2xx", "4xx", "5xx"].map((item) => (
                 <Button
                   key={item}
@@ -172,7 +172,7 @@ export function RequestLogsTabContent({
                 </Button>
               ))}
             </div>
-            <div className="flex shrink-0 items-center gap-2 xl:justify-self-end">
+            <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-self-end">
               <Button
                 variant="outline"
                 size="sm"

@@ -1020,14 +1020,14 @@ export default function AggregateApiPage() {
       <div className="space-y-4">
         <Card className="glass-card shadow-sm">
           <CardContent className="px-4 ">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
                 <span className="text-sm text-muted-foreground">{t("查询")}</span>
                 <Select
                   value={providerFilter}
                   onValueChange={(value) => setProviderFilter(value || "all")}
                 >
-                  <SelectTrigger className="w-[160px]">
+                  <SelectTrigger className="w-full min-w-[160px] sm:w-[160px]">
                     <SelectValue>
                       {(value) =>
                         t(
@@ -1051,7 +1051,7 @@ export default function AggregateApiPage() {
                   value={statusFilter}
                   onValueChange={(value) => setStatusFilter(value || "all")}
                 >
-                  <SelectTrigger className="w-[128px]">
+                  <SelectTrigger className="w-full min-w-[128px] sm:w-[128px]">
                     <SelectValue>
                       {(value) =>
                         t(
@@ -1073,7 +1073,7 @@ export default function AggregateApiPage() {
                   </SelectContent>
                 </Select>
                 <Select value={pageSize} onValueChange={(value) => setPageSize(value || "20")}>
-                  <SelectTrigger className="w-[104px]">
+                  <SelectTrigger className="w-full min-w-[104px] sm:w-[104px]">
                     <SelectValue>{(value) => `${value || "20"} / ${t("页")}`}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -1086,7 +1086,7 @@ export default function AggregateApiPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
                 <div className="text-xs text-muted-foreground">
                   {t("共")} {aggregateApiTotal} {t("条")}
                 </div>

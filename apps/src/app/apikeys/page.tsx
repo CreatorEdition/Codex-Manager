@@ -707,19 +707,19 @@ export default function ApiKeysPage() {
       </div>
 
       <Card className="glass-card shadow-sm">
-        <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative min-w-0 flex-1 lg:max-w-[420px]">
+        <CardContent className="flex flex-col gap-3 p-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="relative w-full min-w-0 xl:max-w-[420px]">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={apiKeyQuery}
               onChange={(event) => handleApiKeyQueryChange(event.target.value)}
               placeholder={t("搜索名称、ID、模型或上游地址")}
-              className="pl-8"
+              className="w-full pl-8"
               disabled={!isServiceReady}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:justify-end">
+            <div className="flex min-w-[150px] flex-1 items-center gap-2 sm:min-w-0 sm:flex-none">
               <span className="whitespace-nowrap text-xs text-muted-foreground">
                 {t("状态")}
               </span>
@@ -728,7 +728,7 @@ export default function ApiKeysPage() {
                 onValueChange={handleApiKeyStatusFilterChange}
                 disabled={!isServiceReady}
               >
-                <SelectTrigger className="h-8 w-[104px] text-xs">
+                <SelectTrigger className="h-8 w-full min-w-[104px] text-xs sm:w-[104px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -740,7 +740,7 @@ export default function ApiKeysPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-[150px] flex-1 items-center gap-2 sm:min-w-0 sm:flex-none">
               <span className="whitespace-nowrap text-xs text-muted-foreground">
                 {t("每页显示")}
               </span>
@@ -749,7 +749,7 @@ export default function ApiKeysPage() {
                 onValueChange={handleApiKeyPageSizeChange}
                 disabled={!isServiceReady}
               >
-                <SelectTrigger className="h-8 w-[78px] text-xs">
+                <SelectTrigger className="h-8 w-full min-w-[78px] text-xs sm:w-[78px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
