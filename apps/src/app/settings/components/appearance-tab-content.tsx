@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { THEMES } from "@/app/settings/settings-page-helpers";
+import { ThemePreviewSwatch } from "@/app/settings/components/theme-preview-swatch";
 
 type TranslateFn = (key: string) => string;
 
@@ -116,41 +117,49 @@ export function AppearanceTabContent({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12">
-            {THEMES.map((item) => (
-              <Button
-                key={item.id}
-                type="button"
-                variant="ghost"
-                onClick={() => onThemeChange(item.id)}
-                className={cn(
-                  "group relative h-auto flex-col items-center gap-2.5 rounded-xl border p-4 transition-all duration-300 hover:bg-accent/40",
-                  theme === item.id
-                    ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary"
-                    : "border-transparent bg-muted/20 hover:bg-accent/40",
-                )}
-              >
-                <div
-                  className="h-10 w-10 rounded-full border-2 border-white/20 shadow-sm"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {THEMES.map((item) => {
+              const isActive = theme === item.id;
+              return (
+                <Button
+                  key={item.id}
+                  type="button"
+                  variant="outline"
+                  onClick={() => onThemeChange(item.id)}
                   className={cn(
-                    "whitespace-nowrap text-[10px] font-semibold transition-colors",
-                    theme === item.id
-                      ? "text-primary"
-                      : "text-muted-foreground group-hover:text-foreground",
+                    "group relative h-auto justify-start gap-3 rounded-xl border p-3 text-left transition-all duration-300 hover:bg-accent/40",
+                    isActive
+                      ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/50"
+                      : "border-border/60 bg-background/50 hover:border-primary/25",
                   )}
                 >
-                  {t(item.name)}
-                </span>
-                {theme === item.id ? (
-                  <div className="absolute right-2 top-2 rounded-full bg-primary p-0.5 text-primary-foreground shadow-sm">
-                    <Check className="h-2.5 w-2.5" />
-                  </div>
-                ) : null}
-              </Button>
-            ))}
+                  <ThemePreviewSwatch id={item.id} color={item.color} />
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        "block truncate text-sm font-semibold transition-colors",
+                        isActive
+                          ? "text-primary"
+                          : "text-foreground group-hover:text-primary",
+                      )}
+                    >
+                      {t(item.name)}
+                    </span>
+                    <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-muted">
+                      <span
+                        className="block h-full rounded-full"
+                        style={{ backgroundColor: item.color }}
+                      />
+                    </span>
+                  </span>
+                  {isActive ? (
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                      <Check className="h-3 w-3" />
+                    </span>
+                  ) : null}
+                </Button>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
