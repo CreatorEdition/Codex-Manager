@@ -9,6 +9,7 @@
 - README 恢复保留 Linux.do 认可社区入口，清理策略只排除作者赞助、远程 author content 与发行推广内容，不再误删社区来源说明。
 - 网关本地校验阶段会复用同一次请求 JSON 解析结果生成 service tier 诊断、请求 metadata 与最终文本长度校验；多候选上游尝试也会缓存原始 `prompt_cache_key` 提取结果，降低大请求体重复 parse 开销。
 - 网关候选账号快照缓存新增 single-flight 重建协调，同一缓存窗口 miss 时只允许一个线程重建候选池，其余请求等待后复用新快照，降低并发 miss 下的 DB 与 usage snapshot 查询放大。
+- Compact transport 路径剥离 `service_tier` 与提取 `prompt_cache_key` 复用同一次 JSON 解析，保持大请求体不参与 prompt key 提取的旧限制。
 - 服务启动时 usage polling、gateway keepalive、token refresh 与 warmup cron 后台 loop 会错峰执行首轮任务，降低冷启动瞬时 DB / 网络压力；后续轮询周期保持原配置不变。
 - 模型页搜索框补齐 focus 边框与 ring 反馈，输入框自身保持无边框，避免和外层搜索容器出现双边框。
 - Codex CLI 首次接入引导弹窗收紧最大宽高、间距和代码块高度，在保留完整引导内容的前提下降低小窗口溢出风险。

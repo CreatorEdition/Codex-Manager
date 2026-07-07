@@ -93,6 +93,10 @@ fn extract_prompt_cache_key(body: &[u8]) -> Option<String> {
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) else {
         return None;
     };
+    prompt_cache_key_from_value(&value)
+}
+
+fn prompt_cache_key_from_value(value: &serde_json::Value) -> Option<String> {
     value
         .get("prompt_cache_key")
         .and_then(serde_json::Value::as_str)
@@ -101,6 +105,43 @@ fn extract_prompt_cache_key(body: &[u8]) -> Option<String> {
         .map(str::to_string)
 }
 
+fn compact_transport_body_and_prompt_cache_key(
+    body: &Bytes,
+    preserve_service_tier: bool,
+) -> (Bytes, Option<String>) {
+    if body.is_empty() {
+        return (body.clone(), None);
+    }
+    if preserve_service_tier {
+        return (body.clone(), extract_prompt_cache_key(body.as_ref()));
+    }
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return (body.clone(), None);
+    };
+    let Some(object) = value.as_object_mut() else {
+        let prompt_cache_key = if body.len() <= 64 * 1024 {
+            prompt_cache_key_from_value(&value)
+        } else {
+            None
+        };
+        return (body.clone(), prompt_cache_key);
+    };
+    let body_for_transport = if object.remove("service_tier").is_some() {
+        serde_json::to_vec(&value)
+            .map(Bytes::from)
+            .unwrap_or_else(|_| body.clone())
+    } else {
+        body.clone()
+    };
+    let prompt_cache_key = if body_for_transport.len() <= 64 * 1024 {
+        prompt_cache_key_from_value(&value)
+    } else {
+        None
+    };
+    (body_for_transport, prompt_cache_key)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 fn strip_compact_service_tier_for_transport(body: &Bytes, preserve_service_tier: bool) -> Bytes {
     if preserve_service_tier || body.is_empty() {
         return body.clone();
@@ -717,12 +758,11 @@ fn send_upstream_request_with_compression_override(
     let attempt_started_at = Instant::now();
     let is_compact_request = is_compact_request_path(request_ctx.request_path);
     let chatgpt_account_header = resolve_chatgpt_account_header(account, target_url);
-    let body_for_transport = if is_compact_request {
-        strip_compact_service_tier_for_transport(body, chatgpt_account_header.is_some())
+    let (body_for_transport, prompt_cache_key) = if is_compact_request {
+        compact_transport_body_and_prompt_cache_key(body, chatgpt_account_header.is_some())
     } else {
-        body.clone()
+        (body.clone(), extract_prompt_cache_key(body.as_ref()))
     };
-    let prompt_cache_key = extract_prompt_cache_key(body_for_transport.as_ref());
     let request_affinity = super::super::super::session_affinity::derive_outgoing_session_affinity(
         incoming_headers.session_id(),
         incoming_headers.client_request_id(),
@@ -1397,10 +1437,11 @@ fn send_websocket_upstream_request(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_gemini_codex_compat_header_profile, encode_request_body, resolve_request_compression,
-        resolve_request_compression_with_flag, send_async_stream_request,
-        should_retry_transport_without_compression, should_wrap_upstream_as_stream_response,
-        strip_compact_service_tier_for_transport, RequestCompression, CPA_GEMINI_CODEX_USER_AGENT,
+        apply_gemini_codex_compat_header_profile, compact_transport_body_and_prompt_cache_key,
+        encode_request_body, resolve_request_compression, resolve_request_compression_with_flag,
+        send_async_stream_request, should_retry_transport_without_compression,
+        should_wrap_upstream_as_stream_response, strip_compact_service_tier_for_transport,
+        RequestCompression, CPA_GEMINI_CODEX_USER_AGENT,
     };
     use bytes::Bytes;
     use futures_util::{SinkExt, StreamExt};
@@ -1802,6 +1843,20 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("thread-1")
         );
+    }
+
+    #[test]
+    fn compact_transport_body_prepares_prompt_cache_key_with_single_parse_path() {
+        let body = Bytes::from_static(
+            br#"{"model":"gpt-5.4","input":[],"service_tier":"priority","prompt_cache_key":"thread-1"}"#,
+        );
+
+        let (actual, prompt_cache_key) = compact_transport_body_and_prompt_cache_key(&body, false);
+        let value: serde_json::Value =
+            serde_json::from_slice(&actual).expect("parse stripped compact body");
+
+        assert!(value.get("service_tier").is_none());
+        assert_eq!(prompt_cache_key.as_deref(), Some("thread-1"));
     }
 
     #[test]
