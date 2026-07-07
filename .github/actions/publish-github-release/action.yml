@@ -31,6 +31,8 @@ runs:
         REF="${{ inputs.ref }}"
         PRERELEASE_INPUT="${{ inputs.prerelease-input }}"
         ASSETS_DIR="${{ inputs.assets-dir }}"
+        CHANGELOG_PATH="docs/zh-CN/CHANGELOG.md"
+        RELEASE_NOTES_FILE="$(mktemp)"
 
         if [[ -z "$TAG" ]]; then
           echo "release tag is required"
@@ -72,18 +74,60 @@ runs:
           exit 1
         fi
 
+        write_release_notes() {
+          local version
+          version="${TAG#v}"
+          if [[ ! -f "$CHANGELOG_PATH" ]]; then
+            echo "changelog not found: $CHANGELOG_PATH"
+            exit 1
+          fi
+
+          if ! awk -v version="$version" '
+            index($0, "## [" version "]") == 1 {
+              in_section = 1
+              found = 1
+              print
+              next
+            }
+            in_section && $0 ~ /^## \[/ {
+              exit
+            }
+            in_section {
+              print
+            }
+            END {
+              if (!found) {
+                exit 42
+              }
+            }
+          ' "$CHANGELOG_PATH" > "$RELEASE_NOTES_FILE"; then
+            echo "missing changelog section for $TAG in $CHANGELOG_PATH"
+            echo "expected heading prefix: ## [$version]"
+            exit 1
+          fi
+
+          if [[ ! -s "$RELEASE_NOTES_FILE" ]]; then
+            echo "empty release notes generated for $TAG"
+            exit 1
+          fi
+        }
+
+        write_release_notes
+
         sync_release_meta() {
-          local release_id payload
+          local release_id payload body
           release_id="$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq .id)"
           if [[ -z "$release_id" ]]; then
             echo "failed to resolve release id for tag: $TAG"
             exit 1
           fi
+          body="$(cat "$RELEASE_NOTES_FILE")"
           payload="$(jq -n \
             --arg name "$TITLE" \
             --arg target_commitish "$TARGET_SHA" \
+            --arg body "$body" \
             --argjson prerelease "$PRERELEASE" \
-            '{name: $name, target_commitish: $target_commitish, prerelease: $prerelease}')"
+            '{name: $name, target_commitish: $target_commitish, body: $body, prerelease: $prerelease}')"
           printf '%s' "$payload" | gh api "repos/$GH_REPO/releases/$release_id" --method PATCH --input -
         }
 
@@ -124,7 +168,7 @@ runs:
           delete_stale_release_assets
           gh release upload "$TAG" "${FILES[@]}" --repo "$GH_REPO" --clobber
         else
-          CREATE_ARGS=(--repo "$GH_REPO" --title "$TITLE" --target "$TARGET_SHA" --generate-notes)
+          CREATE_ARGS=(--repo "$GH_REPO" --title "$TITLE" --target "$TARGET_SHA" --notes-file "$RELEASE_NOTES_FILE")
           if [ "$PRERELEASE" = "true" ]; then
             CREATE_ARGS+=(--prerelease)
           fi

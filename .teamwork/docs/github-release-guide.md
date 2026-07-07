@@ -49,6 +49,8 @@ https://github.com/CreatorEdition/Codex-Manager/actions/workflows/release-all.ym
   - `true` - 强制标记为预发布版
   - `false` - 正式发布版
 
+发布前必须确认 `docs/zh-CN/CHANGELOG.md` 存在对应版本小节，例如 `v0.3.11` 必须有 `## [0.3.11]`。Release 正文会从该小节同步；缺少时 workflow 会失败。
+
 ### 步骤 4：确认并运行
 
 1. 检查参数填写是否正确
