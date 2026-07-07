@@ -1404,6 +1404,28 @@ fn openai_responses_api_body_defaults_omitted_stream_to_true_before_rewrite() {
 }
 
 #[test]
+fn openai_responses_default_stream_helper_can_reuse_parsed_payload() {
+    let body = b"not-json".to_vec();
+    let parsed = serde_json::json!({
+        "model": "gpt-5.4",
+        "input": "hi"
+    });
+
+    let (rewritten, parsed) =
+        default_omitted_responses_stream_to_true_with_value(body, Some(parsed));
+    let payload: Value = serde_json::from_slice(&rewritten).expect("json body");
+
+    assert_eq!(payload.get("stream").and_then(Value::as_bool), Some(true));
+    assert_eq!(
+        parsed
+            .as_ref()
+            .and_then(|value| value.get("stream"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+}
+
+#[test]
 fn openai_responses_api_body_preserves_explicit_stream_false() {
     let body = br#"{"model":"gpt-5.4","input":"hi","stream":false}"#.to_vec();
     let rewritten = default_omitted_responses_stream_to_true(body);

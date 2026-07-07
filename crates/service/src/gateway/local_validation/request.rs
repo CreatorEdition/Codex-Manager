@@ -653,17 +653,33 @@ fn adapt_openai_chat_completions_body_to_responses(body: Vec<u8>) -> Result<Vec<
 }
 
 fn default_omitted_responses_stream_to_true(body: Vec<u8>) -> Vec<u8> {
-    let Ok(mut payload) = serde_json::from_slice::<serde_json::Value>(&body) else {
-        return body;
+    default_omitted_responses_stream_to_true_with_value(body, None).0
+}
+
+fn default_omitted_responses_stream_to_true_with_value(
+    body: Vec<u8>,
+    parsed_body: Option<serde_json::Value>,
+) -> (Vec<u8>, Option<serde_json::Value>) {
+    let mut payload = match parsed_body {
+        Some(value) => value,
+        None => {
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&body) else {
+                return (body, None);
+            };
+            value
+        }
     };
     let Some(obj) = payload.as_object_mut() else {
-        return body;
+        return (body, Some(payload));
     };
     if obj.contains_key("stream") {
-        return body;
+        return (body, Some(payload));
     }
     obj.insert("stream".to_string(), serde_json::Value::Bool(true));
-    serde_json::to_vec(&payload).unwrap_or(body)
+    match serde_json::to_vec(&payload) {
+        Ok(defaulted_body) => (defaulted_body, Some(payload)),
+        Err(_) => (body, Some(payload)),
+    }
 }
 
 const DEFAULT_IMAGES_TOOL_MODEL: &str = "gpt-image-2";
@@ -1774,16 +1790,25 @@ pub(super) fn build_local_validation_result(
             effective_service_tier_for_log.as_deref(),
             api_key.service_tier.as_deref(),
         );
+        let mut rewritten_body_value = None;
         if is_non_native_openai_responses_api_request(
             effective_protocol_type,
             logical_path.as_str(),
             native_codex_client,
         ) {
-            rewritten_body = default_omitted_responses_stream_to_true(rewritten_body);
+            let defaulted =
+                default_omitted_responses_stream_to_true_with_value(rewritten_body, None);
+            rewritten_body = defaulted.0;
+            rewritten_body_value = defaulted.1;
         }
         let transport_path = transport_request_path(logical_path.as_str());
-        super::super::validate_text_input_limit_for_path(&transport_path, &rewritten_body)
-            .map_err(|err| LocalValidationError::new(400, err.message()))?;
+        if let Some(value) = rewritten_body_value.as_ref() {
+            super::super::validate_text_input_limit_for_value(&transport_path, value)
+                .map_err(|err| LocalValidationError::new(400, err.message()))?;
+        } else {
+            super::super::validate_text_input_limit_for_path(&transport_path, &rewritten_body)
+                .map_err(|err| LocalValidationError::new(400, err.message()))?;
+        }
         let incoming_headers = incoming_headers
             .with_conversation_id_override(initial_local_conversation_id.as_deref());
         let is_stream = resolve_client_is_stream(
@@ -1845,19 +1870,27 @@ pub(super) fn build_local_validation_result(
         compact_model_override_for_logical_request.as_deref(),
     )
     .0;
+    let mut passthrough_body_value = None;
     if is_non_native_openai_responses_api_request(
         effective_protocol_type,
         logical_path.as_str(),
         native_codex_client,
     ) {
-        passthrough_body = default_omitted_responses_stream_to_true(passthrough_body);
+        let defaulted = default_omitted_responses_stream_to_true_with_value(passthrough_body, None);
+        passthrough_body = defaulted.0;
+        passthrough_body_value = defaulted.1;
     }
     let passthrough_transport_path = transport_request_path(logical_path.as_str());
-    super::super::validate_text_input_limit_for_path(
-        &passthrough_transport_path,
-        &passthrough_body,
-    )
-    .map_err(|err| LocalValidationError::new(400, err.message()))?;
+    if let Some(value) = passthrough_body_value.as_ref() {
+        super::super::validate_text_input_limit_for_value(&passthrough_transport_path, value)
+            .map_err(|err| LocalValidationError::new(400, err.message()))?;
+    } else {
+        super::super::validate_text_input_limit_for_path(
+            &passthrough_transport_path,
+            &passthrough_body,
+        )
+        .map_err(|err| LocalValidationError::new(400, err.message()))?;
+    }
     let original_body = body.clone();
     let (mut path, mut response_adapter, mut gemini_stream_output_mode, mut tool_name_restore_map) =
         if effective_protocol_type == crate::apikey_profile::PROTOCOL_OPENAI_COMPAT
