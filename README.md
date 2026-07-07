@@ -90,6 +90,7 @@
 - `codexmanager-service`：提供本地 OpenAI 兼容网关
 - `codexmanager-web`：提供浏览器管理页面，并承载 `/api/runtime` 与 `/api/rpc` 代理
 - `codexmanager-start`：一键拉起 service + web
+- 源码开发时，如需让 `pnpm -C apps run dev` 直接代理已启动的 `codexmanager-web` 运行壳，可设置 `CODEXMANAGER_DEV_WEB_ORIGIN` 指向 Web 端口。
 
 ## 常用文档
 - 版本历史：[CHANGELOG.md](docs/zh-CN/CHANGELOG.md)

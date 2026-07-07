@@ -47,11 +47,44 @@ const configureDevWebpack: NonNullable<NextConfig["webpack"]> = (config) => {
   return config;
 };
 
+function normalizeDevWebOrigin(rawOrigin: string | undefined): string {
+  const normalized = (rawOrigin ?? "").trim().replace(/\/+$/, "");
+  return normalized || "http://localhost:48761";
+}
+
+const devWebRuntimeOrigin = normalizeDevWebOrigin(
+  process.env.CODEXMANAGER_DEV_WEB_ORIGIN,
+);
+
+const configureDevWebRuntimeRewrites: NonNullable<NextConfig["rewrites"]> =
+  async () => {
+    const runtimePaths = [
+      "/api/runtime",
+      "/api/rpc",
+      "/__auth_status",
+      "/__login",
+      "/__logout",
+    ];
+
+    return [
+      ...runtimePaths.flatMap((source) => [
+        { source, destination: `${devWebRuntimeOrigin}${source}` },
+        { source: `${source}/`, destination: `${devWebRuntimeOrigin}${source}` },
+      ]),
+      {
+        source: "/api/events/:path*",
+        destination: `${devWebRuntimeOrigin}/api/events/:path*`,
+      },
+    ];
+  };
+
 const nextConfig = (phase: string): NextConfig =>
   phase === PHASE_DEVELOPMENT_SERVER
     ? {
         ...baseNextConfig,
+        output: undefined,
         webpack: configureDevWebpack,
+        rewrites: configureDevWebRuntimeRewrites,
       }
     : baseNextConfig;
 
