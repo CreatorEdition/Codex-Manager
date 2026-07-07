@@ -539,6 +539,9 @@ pub(crate) fn write_request_log_with_attempts(
     );
     let (upstream_model, actual_source_kind, actual_source_id) =
         resolve_route_details(storage, &trace_context, account_id, model);
+    let upstream_url_for_log = crate::log_redaction::normalize_optional_url_for_log(upstream_url);
+    let aggregate_api_url_for_log =
+        crate::log_redaction::normalize_optional_url_for_log(trace_context.aggregate_api_url);
     super::trace_log::log_failed_request(super::trace_log::FailedRequestLog {
         ts: created_at,
         trace_id: trace_context.trace_id,
@@ -552,7 +555,7 @@ pub(crate) fn write_request_log_with_attempts(
         model,
         reasoning_effort,
         service_tier,
-        upstream_url,
+        upstream_url: upstream_url_for_log.as_deref(),
         status_code,
         error,
         duration_ms,
@@ -603,11 +606,11 @@ pub(crate) fn write_request_log_with_attempts(
                 .response_adapter
                 .map(response_adapter_label)
                 .map(str::to_string),
-            upstream_url: upstream_url.map(|v| v.to_string()),
+            upstream_url: upstream_url_for_log,
             aggregate_api_supplier_name: trace_context
                 .aggregate_api_supplier_name
                 .map(str::to_string),
-            aggregate_api_url: trace_context.aggregate_api_url.map(str::to_string),
+            aggregate_api_url: aggregate_api_url_for_log,
             status_code: status_code.map(|v| i64::from(v)),
             duration_ms,
             first_response_ms,

@@ -10,13 +10,13 @@
    - 已完成拆分小项：模型页搜索框 focus 反馈、Codex CLI 引导弹窗密度压缩、开发态 Web runtime rewrites、Switch 对比度。
    - 当前无明确可直接移植的小项；后续新增上游提交继续先拆分评估。
    - 禁止项：作者页、赞助、远程 author content、AtomGit 推广、上游整包 README/docs 推广内容。
+   - 保留项：README 中的 Linux.do 认可社区入口需要保留，不能按作者/赞助推广残留误删。
 
 2. P2 分支 / PR 治理
    - 当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交。
    - 不建议整包提交当前 CE 主线到 upstream；先按主题拆分，确保每个 PR 都能独立审计。
 
 3. P2 低优先级性能观察
-   - query-secret 日志脱敏统一。
    - 候选缓存 single-flight / stale-while-revalidate。
    - 流式 usage collector 锁中毒容错。
    - 冷启动首轮后台 loop 错峰。

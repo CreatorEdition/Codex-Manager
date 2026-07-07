@@ -20,9 +20,7 @@ const MAX_REQUEST_LOG_PAGE_SIZE: i64 = 500;
 /// # 返回
 /// 返回函数执行结果
 fn normalize_upstream_url(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
+    crate::log_redaction::normalize_optional_url_for_log(raw)
 }
 
 fn derive_canonical_source(
@@ -486,6 +484,17 @@ mod tests {
         assert_eq!(
             normalize_upstream_url(Some(" https://api.openai.com/v1/responses ")).as_deref(),
             Some("https://api.openai.com/v1/responses")
+        );
+    }
+
+    #[test]
+    fn normalize_upstream_url_redacts_query_and_fragment() {
+        assert_eq!(
+            normalize_upstream_url(Some(
+                "https://gateway.example.com/v1/responses?api_key=secret#frag"
+            ))
+            .as_deref(),
+            Some("https://gateway.example.com/v1/responses")
         );
     }
 

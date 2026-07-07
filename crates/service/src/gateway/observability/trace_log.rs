@@ -297,6 +297,10 @@ fn sanitize_text(value: &str) -> String {
     redacted.replace(['\r', '\n'], " ")
 }
 
+fn sanitize_url_text(value: Option<&str>) -> String {
+    crate::log_redaction::normalize_optional_url_for_log(value).unwrap_or_else(|| "-".to_string())
+}
+
 fn redact_base64_images_for_log(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut rest = value;
@@ -1155,7 +1159,7 @@ pub(crate) fn log_attempt_result(
         current_trace_ts(),
         sanitize_text(trace_id),
         sanitize_text(account_id),
-        sanitize_text(upstream_url.unwrap_or("-")),
+        sanitize_text(sanitize_url_text(upstream_url).as_str()),
         status_code,
         sanitize_text(crate::error_codes::code_or_dash(error)),
         sanitize_text(error.unwrap_or("-")),
@@ -1419,7 +1423,7 @@ pub(crate) fn log_failed_request(params: FailedRequestLog<'_>) {
         sanitize_text(model.unwrap_or("-")),
         sanitize_text(reasoning_effort.unwrap_or("-")),
         sanitize_text(service_tier.unwrap_or("-")),
-        sanitize_text(upstream_url.unwrap_or("-")),
+        sanitize_text(sanitize_url_text(upstream_url).as_str()),
         status_code
             .map(|value| value.to_string())
             .unwrap_or_else(|| "-".to_string()),

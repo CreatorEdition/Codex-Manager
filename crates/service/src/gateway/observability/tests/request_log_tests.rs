@@ -427,6 +427,52 @@ fn write_request_log_skips_success_model_list_insert_by_default() {
 }
 
 #[test]
+fn write_request_log_redacts_query_secret_urls() {
+    let storage = Storage::open_in_memory().expect("open storage");
+    storage.init().expect("init storage");
+
+    write_request_log(
+        &storage,
+        RequestLogTraceContext {
+            trace_id: Some("trc_url_redaction"),
+            original_path: Some("/v1/responses"),
+            adapted_path: Some("/v1/responses"),
+            request_type: Some("http"),
+            aggregate_api_supplier_name: Some("query-supplier"),
+            aggregate_api_url: Some("https://gateway.example.com/v1?api_key=secret#frag"),
+            ..Default::default()
+        },
+        Some("key-1"),
+        None,
+        "/v1/responses",
+        "POST",
+        Some("gpt-5"),
+        None,
+        Some("https://gateway.example.com/v1/responses?api_key=secret#frag"),
+        Some(502),
+        RequestLogUsage::default(),
+        Some("aggregate api upstream error"),
+        Some(12),
+    );
+
+    let logs = storage.list_request_logs(None, 10).expect("list logs");
+    assert_eq!(logs.len(), 1);
+    let item = &logs[0];
+    assert_eq!(
+        item.upstream_url.as_deref(),
+        Some("https://gateway.example.com/v1/responses")
+    );
+    assert_eq!(
+        item.aggregate_api_url.as_deref(),
+        Some("https://gateway.example.com/v1")
+    );
+    assert!(
+        !format!("{:?}", item).contains("secret"),
+        "request log must not contain query secret"
+    );
+}
+
+#[test]
 fn keeps_failed_or_non_model_list_request_logs() {
     let _guard = crate::test_env_guard();
     std::env::remove_var("CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS");

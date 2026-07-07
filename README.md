@@ -16,6 +16,10 @@
 <p align="center"><strong>本地桌面端 + 服务进程的 Codex 账号池管理器</strong></p>
 <p align="center">统一管理账号、用量与平台 Key，并提供本地网关能力。</p>
 
+## 认可社区
+
+- Linux.do：[CodexManager 开源推广](https://linux.do/t/topic/1776670)
+
 ## 免责声明
 
 - 本项目仅用于学习与开发目的。

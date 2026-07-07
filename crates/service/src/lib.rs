@@ -12,6 +12,7 @@ mod errors;
 mod gateway;
 mod http;
 mod lifecycle;
+mod log_redaction;
 mod logging;
 mod model_groups;
 mod plugin;
