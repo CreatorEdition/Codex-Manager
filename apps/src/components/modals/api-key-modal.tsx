@@ -450,8 +450,8 @@ export function ApiKeyModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-[calc(100%-2rem)] sm:max-w-[680px] md:max-w-[760px] max-h-[90vh] overflow-y-auto glass-card">
-        <DialogHeader>
+      <DialogContent className="glass-card flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[680px] md:max-w-[760px]">
+        <DialogHeader className="shrink-0 px-4 pb-4 pt-4 sm:px-6 sm:pt-6">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-full bg-primary/10">
               <Key className="h-5 w-5 text-primary" />
@@ -465,7 +465,7 @@ export function ApiKeyModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-5 py-4">
+        <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto px-4 py-4 sm:px-6">
           {!isServiceReady ? (
             <Alert>
               <Info />
@@ -845,7 +845,7 @@ export function ApiKeyModal({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 shrink-0 rounded-none px-4 sm:px-6">
           <DialogClose
             className={buttonVariants({ variant: "ghost" })}
             type="button"

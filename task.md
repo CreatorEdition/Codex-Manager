@@ -23,7 +23,7 @@
 - 大批量账号导入已改为单次 RPC 最多 10 条或 4MB：Web、桌面端直接导入、文件导入和目录导入都会分批调用 `account/import` 并合并统计，避免一次性导入大量小文件时单个 RPC 卡死或超时。
 - 账号导入格式已补齐 Token 中转工具常见输出：支持 `{accounts:[...]}`、`cpa_batch.tokens[]`、Sub2API `credentials`、9Router `providerSpecificData`、OpenAI session `user/account` 嵌套字段；批量导入弹窗和文档已明确支持格式，并明确裸 `refresh_token` / 普通文本 token 暂不支持。
 - 作者/赞助推广残留已清理：删除 `/author/` 路由、远程 author content runtime 能力、专用 sponsor 归一化工具、Playwright 作者页测试和残留赞助静态资源；Tauri CSP 不再允许 `author.qxnm.top`。
-- 上游差异已重新拉取复核：`upstream/main` 最新为 `6ac01a2a`；已按语义移植 `2c912580`、`84ac0560`、`ce5d3f38`、`83ca26f7`/`359580a7`、`4ba9a139`、`99bb0c2d`、`0508c19a` 等功能项；`03ca2052`、`09223f6f`、`f3efb3a2`、`6ac01a2a` 仍需按 CE 约束逐项评估，禁止整包合并上游推广/作者内容。
+- 上游差异已重新拉取复核：`upstream/main` 最新为 `6ac01a2a`；已按语义移植 `2c912580`、`84ac0560`、`ce5d3f38`、`83ca26f7`/`359580a7`、`4ba9a139`、`99bb0c2d`、`0508c19a`、`6ac01a2a` 等功能项；`03ca2052`、`09223f6f`、`f3efb3a2` 仍需按 CE 约束逐项评估，禁止整包合并上游推广/作者内容。
 
 ### ✅ 已完成：P1 账号导入格式兼容与格式提示
 
@@ -187,10 +187,17 @@
 - 行为：`appSettings/get` 不再每次无条件刷新完整设置快照；只在缺失、默认值变化、环境覆盖清理或设置值实际变化时写入，`appSettings/set` 仍保留完整持久化语义。
 - 验证：`cargo test -p codexmanager-service --test app_settings app_settings_get_does_not_rewrite_unchanged_snapshot -- --exact --nocapture` 通过；`node --test tests\app-bootstrap-startup.test.mjs` 通过；`apps` 下 `tsc --noEmit` 通过；`cargo check -p codexmanager-service` 通过；`cargo fmt --all --check` 通过；`git diff --check` 通过。
 
+### ✅ 已完成：P2 Dialog 布局定位修复
+
+- 目标：语义移植上游 `6ac01a2a` 的弹窗定位修复，但跳过上游 README AtomGit/赞助相关推广内容。
+- 行为：通用 Dialog 改为由 `DialogViewport` 承载 fixed 居中和页面内滚动，弹窗主体改为相对定位，避免高弹窗在窄屏/小高度窗口中被 transform 居中裁切。
+- 行为：平台密钥弹窗改为固定头部和底部、内容区独立滚动；按钮 class 合并顺序改为调用方 class 后置，确保弹窗等场景的尺寸/布局覆写能生效。
+- 验证：`node --test tests\dialog-layout.test.mjs` 通过；`apps` 下 `tsc --noEmit` 通过；`cargo fmt --all --check` 通过；`git diff --check` 通过。
+
 ### 📌 后续待完成任务
 
 1. P2：上游差异语义评估与 PR/分支治理；当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交，不建议整包提交。
-2. P2：评估是否移植上游 `03ca2052`/`09223f6f`/`f3efb3a2` 启动渲染和 UI 密度优化，以及 `6ac01a2a` Dialog 布局修复；每项必须先剥离上游作者/推广内容并按 CE 当前性能改造复核。
+2. P2：评估是否移植上游 `03ca2052`/`09223f6f`/`f3efb3a2` 启动渲染和 UI 密度优化；每项必须先剥离上游作者/推广内容并按 CE 当前性能改造复核。
 
 ### 🗂️ 历史记录说明
 

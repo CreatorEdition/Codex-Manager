@@ -59,6 +59,35 @@ function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
 }
 
 /**
+ * 函数 `DialogViewport`
+ *
+ * 作者: gaohongshun
+ *
+ * 时间: 2026-07-07
+ *
+ * # 参数
+ * - params: 参数 params
+ *
+ * # 返回
+ * 返回函数执行结果
+ */
+function DialogViewport({
+  className,
+  ...props
+}: DialogPrimitive.Viewport.Props) {
+  return (
+    <DialogPrimitive.Viewport
+      data-slot="dialog-viewport"
+      className={cn(
+        "fixed inset-0 isolate z-50 flex min-h-dvh items-center justify-center overflow-y-auto p-4",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+/**
  * 函数 `DialogClose`
  *
  * 作者: gaohongshun
@@ -128,29 +157,31 @@ function DialogContent({
   return (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Popup
-        data-slot="dialog-content"
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-background p-4 text-sm ring-1 ring-foreground/10 duration-100 outline-none max-h-[calc(100vh-2rem)] overflow-hidden sm:max-w-md md:max-w-lg data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className
-        )}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "icon-sm" }),
-              "absolute top-2 right-2"
-            )}
-            type="button"
-          >
-            <XIcon />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Popup>
+      <DialogViewport>
+        <DialogPrimitive.Popup
+          data-slot="dialog-content"
+          className={cn(
+            "relative z-50 grid w-full max-w-[calc(100vw-2rem)] gap-4 rounded-xl bg-background p-4 text-sm ring-1 ring-foreground/10 duration-100 outline-none max-h-[calc(100dvh-2rem)] overflow-hidden sm:max-w-md md:max-w-lg data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            className
+          )}
+          {...props}
+        >
+          {children}
+          {showCloseButton && (
+            <DialogPrimitive.Close
+              data-slot="dialog-close"
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "icon-sm" }),
+                "absolute top-3 right-3 z-[60]"
+              )}
+              type="button"
+            >
+              <XIcon />
+              <span className="sr-only">Close</span>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Popup>
+      </DialogViewport>
     </DialogPortal>
   )
 }
@@ -284,4 +315,5 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
+  DialogViewport,
 }
