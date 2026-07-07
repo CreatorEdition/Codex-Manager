@@ -9,6 +9,9 @@
 - 模型页搜索框补齐 focus 边框与 ring 反馈，输入框自身保持无边框，避免和外层搜索容器出现双边框。
 - Codex CLI 首次接入引导弹窗收紧最大宽高、间距和代码块高度，在保留完整引导内容的前提下降低小窗口溢出风险。
 - GitHub Release 发布动作改为读取 `docs/zh-CN/CHANGELOG.md` 中对应 `## [版本号]` 小节作为 Release 正文；创建和重跑同一 tag 都会同步正文，缺少版本小节时直接失败，避免正式发布页缺失 CE 与上游分叉说明。
+- 开发态 Next 服务会把 `/api/runtime`、`/api/rpc`、`/api/events/*` 和登录状态路由代理到 `codexmanager-web`，便于源码开发时直接使用 Web 运行壳；CE 版继续跳过 `/api/author-content`。
+- Switch 未选中态补齐可见边框、背景和 thumb ring，对浅色/深色主题的开关对比度更稳定。
+- 补齐账号排序、模型目录自动拉取与 Web RPC 超时提示的英/韩/俄翻译，并让首页启动快照显式声明完整模型目录需求，恢复 `test:runtime` 全量门禁。
 
 ## [0.3.11] - 2026-07-07
 

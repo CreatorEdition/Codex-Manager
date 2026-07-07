@@ -1421,6 +1421,43 @@ export const RU_MESSAGES: MessageCatalog = {
     "Расписания выполняются в часовом поясе сервера {timeZone}. Несколько расписаний разделяйте символом |.",
   "设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。":
     "При выборе «Следовать запросу» модели для free / 7-дневных аккаунтов с одним окном не переписываются. Они будут переписаны только при выборе конкретной модели и попадании на такие аккаунты.",
+  未知错误: "Неизвестная ошибка",
+  已恢复手动顺序: "Ручной порядок восстановлен",
+  已按大号优先显示: "Показаны сначала крупные аккаунты",
+  已按小号优先显示: "Показаны сначала малые аккаунты",
+  自动拉取远端模型目录: "Автоматически получать удаленный каталог моделей",
+  "开启后本地模型目录为空时会自动从远端拉取；关闭后只在点击远端并入时拉取。":
+    "Если включено, пустой локальный каталог моделей будет автоматически загружен из удаленного источника. Если выключено, загрузка выполняется только при нажатии на удаленное слияние.",
+  "RPC account/chatgptAuthTokens/refreshAll 超时：全量 Refresh Token 刷新超过 120 秒":
+    "Таймаут RPC account/chatgptAuthTokens/refreshAll: полное обновление Refresh Token превысило 120 секунд",
+  "RPC account/deleteByStatuses 超时：按状态清理账号超过 120 秒":
+    "Таймаут RPC account/deleteByStatuses: очистка аккаунтов по статусу превысила 120 секунд",
+  "RPC account/deleteMany 超时：批量删除账号超过 120 秒":
+    "Таймаут RPC account/deleteMany: массовое удаление аккаунтов превысило 120 секунд",
+  "RPC account/deleteUnavailableFree 超时：清理不可用免费账号超过 120 秒":
+    "Таймаут RPC account/deleteUnavailableFree: очистка недоступных free-аккаунтов превысила 120 секунд",
+  "RPC account/import 超时：账号批量导入超过 120 秒":
+    "Таймаут RPC account/import: массовый импорт аккаунтов превысил 120 секунд",
+  "RPC account/usage/refresh 超时：账号用量刷新超过 120 秒":
+    "Таймаут RPC account/usage/refresh: обновление usage аккаунта превысило 120 секунд",
+  "RPC account/warmup 超时：账号预热超过 120 秒":
+    "Таймаут RPC account/warmup: прогрев аккаунта превысил 120 секунд",
+  "RPC aggregateApi/sourceModels/importSupplier 超时：供应商模型导入超过 120 秒":
+    "Таймаут RPC aggregateApi/sourceModels/importSupplier: импорт моделей поставщика превысил 120 секунд",
+  "RPC plugin/catalog/refresh 超时：插件目录刷新超过 60 秒":
+    "Таймаут RPC plugin/catalog/refresh: обновление каталога плагинов превысило 60 секунд",
+  "RPC plugin/install 超时：插件安装超过 60 秒":
+    "Таймаут RPC plugin/install: установка плагина превысила 60 секунд",
+  "RPC plugin/tasks/run 超时：插件任务运行超过 60 秒":
+    "Таймаут RPC plugin/tasks/run: выполнение задачи плагина превысило 60 секунд",
+  "RPC plugin/uninstall 超时：插件卸载超过 60 秒":
+    "Таймаут RPC plugin/uninstall: удаление плагина превысило 60 секунд",
+  "RPC plugin/update 超时：插件更新超过 60 秒":
+    "Таймаут RPC plugin/update: обновление плагина превысило 60 секунд",
+  "RPC quota/refreshSources 超时：配额来源刷新超过 120 秒":
+    "Таймаут RPC quota/refreshSources: обновление источников квот превысило 120 секунд",
+  "RPC requestlog/clear 超时：请求日志清理超过 60 秒":
+    "Таймаут RPC requestlog/clear: очистка журнала запросов превысила 60 секунд",
   "RPC quota/modelPools 超时：模型池查询超过 30 秒":
     "Таймаут RPC quota/modelPools: запрос пула моделей превысил 30 секунд",
   "RPC quota/modelPoolSummary 超时：模型池容量汇总超过 30 秒":

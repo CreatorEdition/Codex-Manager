@@ -1415,6 +1415,43 @@ export const KO_MESSAGES: MessageCatalog = {
     "일정은 서버 시간대 {timeZone} 기준으로 실행됩니다. 여러 일정은 | 로 구분하세요.",
   "设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。":
     "“요청 따름”으로 설정하면 free / 7일 단일 창 계정의 모델을 추가로 덮어쓰지 않습니다. 구체적인 모델을 선택했고 해당 계정이 선택될 때만 그 모델로 통일됩니다.",
+  未知错误: "알 수 없는 오류",
+  已恢复手动顺序: "수동 순서로 복원했습니다",
+  已按大号优先显示: "큰 계정 우선으로 표시합니다",
+  已按小号优先显示: "작은 계정 우선으로 표시합니다",
+  自动拉取远端模型目录: "원격 모델 카탈로그 자동 가져오기",
+  "开启后本地模型目录为空时会自动从远端拉取；关闭后只在点击远端并入时拉取。":
+    "켜면 로컬 모델 카탈로그가 비어 있을 때 원격에서 자동으로 가져옵니다. 끄면 원격 병합을 클릭할 때만 가져옵니다.",
+  "RPC account/chatgptAuthTokens/refreshAll 超时：全量 Refresh Token 刷新超过 120 秒":
+    "RPC account/chatgptAuthTokens/refreshAll 시간 초과: 전체 Refresh Token 새로고침이 120초를 초과했습니다",
+  "RPC account/deleteByStatuses 超时：按状态清理账号超过 120 秒":
+    "RPC account/deleteByStatuses 시간 초과: 상태별 계정 정리가 120초를 초과했습니다",
+  "RPC account/deleteMany 超时：批量删除账号超过 120 秒":
+    "RPC account/deleteMany 시간 초과: 계정 일괄 삭제가 120초를 초과했습니다",
+  "RPC account/deleteUnavailableFree 超时：清理不可用免费账号超过 120 秒":
+    "RPC account/deleteUnavailableFree 시간 초과: 사용할 수 없는 무료 계정 정리가 120초를 초과했습니다",
+  "RPC account/import 超时：账号批量导入超过 120 秒":
+    "RPC account/import 시간 초과: 계정 일괄 가져오기가 120초를 초과했습니다",
+  "RPC account/usage/refresh 超时：账号用量刷新超过 120 秒":
+    "RPC account/usage/refresh 시간 초과: 계정 사용량 새로고침이 120초를 초과했습니다",
+  "RPC account/warmup 超时：账号预热超过 120 秒":
+    "RPC account/warmup 시간 초과: 계정 예열이 120초를 초과했습니다",
+  "RPC aggregateApi/sourceModels/importSupplier 超时：供应商模型导入超过 120 秒":
+    "RPC aggregateApi/sourceModels/importSupplier 시간 초과: 공급자 모델 가져오기가 120초를 초과했습니다",
+  "RPC plugin/catalog/refresh 超时：插件目录刷新超过 60 秒":
+    "RPC plugin/catalog/refresh 시간 초과: 플러그인 카탈로그 새로고침이 60초를 초과했습니다",
+  "RPC plugin/install 超时：插件安装超过 60 秒":
+    "RPC plugin/install 시간 초과: 플러그인 설치가 60초를 초과했습니다",
+  "RPC plugin/tasks/run 超时：插件任务运行超过 60 秒":
+    "RPC plugin/tasks/run 시간 초과: 플러그인 작업 실행이 60초를 초과했습니다",
+  "RPC plugin/uninstall 超时：插件卸载超过 60 秒":
+    "RPC plugin/uninstall 시간 초과: 플러그인 제거가 60초를 초과했습니다",
+  "RPC plugin/update 超时：插件更新超过 60 秒":
+    "RPC plugin/update 시간 초과: 플러그인 업데이트가 60초를 초과했습니다",
+  "RPC quota/refreshSources 超时：配额来源刷新超过 120 秒":
+    "RPC quota/refreshSources 시간 초과: 할당량 소스 새로고침이 120초를 초과했습니다",
+  "RPC requestlog/clear 超时：请求日志清理超过 60 秒":
+    "RPC requestlog/clear 시간 초과: 요청 로그 정리가 60초를 초과했습니다",
   "RPC quota/modelPools 超时：模型池查询超过 30 秒":
     "RPC quota/modelPools 시간 초과: 모델 풀 조회가 30초를 초과했습니다",
   "RPC quota/modelPoolSummary 超时：模型池容量汇总超过 30 秒":

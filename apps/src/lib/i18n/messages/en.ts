@@ -1583,6 +1583,43 @@ export const EN_MESSAGES: MessageCatalog = {
     "Schedules run in the server time zone {timeZone}. Separate multiple schedules with |.",
   "设为“跟随请求”时，不会额外改写 free / 7天单窗口账号的模型；只有你选了具体模型后，命中这些账号时才会统一改写为该模型。":
     "When set to Follow request, models for free or 7-day single-window accounts are not rewritten. They are rewritten only when you choose a specific model and those accounts are selected.",
+  未知错误: "Unknown error",
+  已恢复手动顺序: "Manual order restored",
+  已按大号优先显示: "Showing large accounts first",
+  已按小号优先显示: "Showing small accounts first",
+  自动拉取远端模型目录: "Auto-fetch remote model catalog",
+  "开启后本地模型目录为空时会自动从远端拉取；关闭后只在点击远端并入时拉取。":
+    "When enabled, an empty local model catalog is fetched from the remote source automatically. When disabled, it is fetched only when you click remote merge.",
+  "RPC account/chatgptAuthTokens/refreshAll 超时：全量 Refresh Token 刷新超过 120 秒":
+    "RPC account/chatgptAuthTokens/refreshAll timed out: full refresh-token refresh exceeded 120 seconds",
+  "RPC account/deleteByStatuses 超时：按状态清理账号超过 120 秒":
+    "RPC account/deleteByStatuses timed out: cleaning accounts by status exceeded 120 seconds",
+  "RPC account/deleteMany 超时：批量删除账号超过 120 秒":
+    "RPC account/deleteMany timed out: batch account deletion exceeded 120 seconds",
+  "RPC account/deleteUnavailableFree 超时：清理不可用免费账号超过 120 秒":
+    "RPC account/deleteUnavailableFree timed out: cleaning unavailable free accounts exceeded 120 seconds",
+  "RPC account/import 超时：账号批量导入超过 120 秒":
+    "RPC account/import timed out: batch account import exceeded 120 seconds",
+  "RPC account/usage/refresh 超时：账号用量刷新超过 120 秒":
+    "RPC account/usage/refresh timed out: account usage refresh exceeded 120 seconds",
+  "RPC account/warmup 超时：账号预热超过 120 秒":
+    "RPC account/warmup timed out: account warmup exceeded 120 seconds",
+  "RPC aggregateApi/sourceModels/importSupplier 超时：供应商模型导入超过 120 秒":
+    "RPC aggregateApi/sourceModels/importSupplier timed out: supplier model import exceeded 120 seconds",
+  "RPC plugin/catalog/refresh 超时：插件目录刷新超过 60 秒":
+    "RPC plugin/catalog/refresh timed out: plugin catalog refresh exceeded 60 seconds",
+  "RPC plugin/install 超时：插件安装超过 60 秒":
+    "RPC plugin/install timed out: plugin installation exceeded 60 seconds",
+  "RPC plugin/tasks/run 超时：插件任务运行超过 60 秒":
+    "RPC plugin/tasks/run timed out: plugin task execution exceeded 60 seconds",
+  "RPC plugin/uninstall 超时：插件卸载超过 60 秒":
+    "RPC plugin/uninstall timed out: plugin uninstallation exceeded 60 seconds",
+  "RPC plugin/update 超时：插件更新超过 60 秒":
+    "RPC plugin/update timed out: plugin update exceeded 60 seconds",
+  "RPC quota/refreshSources 超时：配额来源刷新超过 120 秒":
+    "RPC quota/refreshSources timed out: quota source refresh exceeded 120 seconds",
+  "RPC requestlog/clear 超时：请求日志清理超过 60 秒":
+    "RPC requestlog/clear timed out: request log cleanup exceeded 60 seconds",
   "RPC quota/modelPools 超时：模型池查询超过 30 秒":
     "RPC quota/modelPools timed out: model pool query exceeded 30 seconds",
   "RPC quota/modelPoolSummary 超时：模型池容量汇总超过 30 秒":

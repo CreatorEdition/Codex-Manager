@@ -4,10 +4,11 @@
 
 ## 当前待处理（2026-07-07）
 
-1. P2 上游 UI 小项语义评估
-   - 当前上游基准：`upstream/main = 6ac01a2a fix: correct dialog layout positioning`。
+1. P2 上游差异巡检
+   - 当前上游基准：`upstream/main = 0f1b03db style: improve switch contrast`。
    - 已确认：`09223f6f` / `f3efb3a2` 不能整包移植，只能拆成页面或组件级小项。
-   - 候选小项：开发态 Web runtime rewrites。
+   - 已完成拆分小项：模型页搜索框 focus 反馈、Codex CLI 引导弹窗密度压缩、开发态 Web runtime rewrites、Switch 对比度。
+   - 当前无明确可直接移植的小项；后续新增上游提交继续先拆分评估。
    - 禁止项：作者页、赞助、远程 author content、AtomGit 推广、上游整包 README/docs 推广内容。
 
 2. P2 分支 / PR 治理

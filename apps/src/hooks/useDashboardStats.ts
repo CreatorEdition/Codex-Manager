@@ -45,6 +45,11 @@ export function useDashboardStats(options: UseDashboardStatsOptions = {}) {
   const requestLogLimit =
     options.requestLogLimit ?? STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT;
   const includeApiModels = options.includeApiModels ?? true;
+  const apiModelSnapshotOptions = includeApiModels
+    ? { includeApiModels: true }
+    : {
+        includeApiModels,
+      };
   const isSnapshotQueryEnabled = useDeferredDesktopActivation(
     isServiceReady && isPageActive,
   );
@@ -72,7 +77,7 @@ export function useDashboardStats(options: UseDashboardStatsOptions = {}) {
         includeUsageAggregate: true,
         includeTodaySummary: true,
         includeRecentLogs: true,
-        includeApiModels,
+        ...apiModelSnapshotOptions,
       }),
     enabled: isSnapshotQueryEnabled,
     retry: 1,
