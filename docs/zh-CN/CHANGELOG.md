@@ -17,6 +17,7 @@
 
 ### Fixed
 - 请求日志和失败 trace 会统一移除上游 URL 的 query 与 fragment，避免聚合 API `query-secret` 或 `username/password query pair` 密钥进入 DB、UI 或磁盘日志。
+- 流式用量采集器遇到 `Mutex` 锁中毒时会记录告警并恢复已有 collector 状态，避免上游 SSE/Responses 转换路径静默丢失 usage、终止事件或错误信息。
 
 ## [0.3.11] - 2026-07-07
 

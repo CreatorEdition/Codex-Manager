@@ -11,7 +11,8 @@ use super::{
     build_images_api_response, collect_image_generation_chat_images,
     collect_non_stream_json_from_sse_bytes, collect_response_reasoning_summary_text,
     extract_error_hint_from_body, extract_error_message_from_json, looks_like_sse_payload,
-    merge_usage, parse_usage_from_json, push_trace_id_header, usage_has_signal, AnthropicSseReader,
+    merge_usage, parse_usage_from_json, push_trace_id_header, snapshot_passthrough_collector,
+    snapshot_usage_collector, usage_has_signal, AnthropicSseReader,
     ChatCompletionsFromResponsesSseReader, GeminiSseReader, ImagesFromResponsesSseReader,
     ImagesResponseFormat, OpenAIResponsesPassthroughSseReader, PassthroughSseCollector,
     PassthroughSseProtocol, PassthroughSseUsageReader, SseKeepAliveFrame,
@@ -2223,10 +2224,7 @@ pub(crate) fn respond_with_upstream(
                     respond_streaming_chunked(request, status, headers, response_body)
                         .err()
                         .map(|err| err.to_string());
-                let usage = usage_collector
-                    .lock()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
+                let usage = snapshot_usage_collector(&usage_collector);
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
@@ -2289,10 +2287,7 @@ pub(crate) fn respond_with_upstream(
                     respond_streaming_chunked(request, status, headers, response_body)
                         .err()
                         .map(|err| err.to_string());
-                let collector = usage_collector
-                    .lock()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
+                let collector = snapshot_passthrough_collector(&usage_collector);
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
@@ -2337,10 +2332,7 @@ pub(crate) fn respond_with_upstream(
                     respond_streaming_chunked(request, status, headers, response_body)
                         .err()
                         .map(|err| err.to_string());
-                let collector = usage_collector
-                    .lock()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
+                let collector = snapshot_passthrough_collector(&usage_collector);
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
@@ -2379,10 +2371,7 @@ pub(crate) fn respond_with_upstream(
                     respond_streaming_chunked(request, status, headers, response_body)
                         .err()
                         .map(|err| err.to_string());
-                let collector = usage_collector
-                    .lock()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
+                let collector = snapshot_passthrough_collector(&usage_collector);
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
@@ -2863,10 +2852,7 @@ pub(crate) fn respond_with_upstream(
                     respond_streaming_chunked(request, status, headers, response_body)
                         .err()
                         .map(|err| err.to_string());
-                let collector = usage_collector
-                    .lock()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
+                let collector = snapshot_passthrough_collector(&usage_collector);
                 let last_sse_event_type = collector.last_event_type.clone();
                 let result = with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
@@ -3235,10 +3221,7 @@ pub(crate) fn respond_with_stream_upstream(
                     respond_streaming_chunked(request, status, headers, response_body)
                         .err()
                         .map(|err| err.to_string());
-                let usage = usage_collector
-                    .lock()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
+                let usage = snapshot_usage_collector(&usage_collector);
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage,
@@ -3377,10 +3360,7 @@ pub(crate) fn respond_with_stream_upstream(
                     respond_streaming_chunked(request, status, headers, response_body)
                         .err()
                         .map(|err| err.to_string());
-                let collector = usage_collector
-                    .lock()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
+                let collector = snapshot_passthrough_collector(&usage_collector);
                 return Ok(with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
@@ -3811,10 +3791,7 @@ pub(crate) fn respond_with_stream_upstream(
                     respond_streaming_chunked(request, status, headers, response_body)
                         .err()
                         .map(|err| err.to_string());
-                let collector = usage_collector
-                    .lock()
-                    .map(|guard| guard.clone())
-                    .unwrap_or_default();
+                let collector = snapshot_passthrough_collector(&usage_collector);
                 let last_sse_event_type = collector.last_event_type.clone();
                 let result = with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {

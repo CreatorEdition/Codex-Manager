@@ -3,8 +3,8 @@ use super::{
     extract_error_hint_from_body, extract_error_message_from_json, json,
     mark_collector_terminal_success, mark_first_response_ms, stream_idle_timed_out,
     stream_idle_timeout_message, stream_reader_disconnected_message, stream_wait_timeout,
-    upstream_hint_or_stream_incomplete_message, Arc, Cursor, Map, Mutex, PassthroughSseCollector,
-    Read, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
+    upstream_hint_or_stream_incomplete_message, with_passthrough_collector, Arc, Cursor, Map,
+    Mutex, PassthroughSseCollector, Read, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
 };
 use crate::gateway::{build_gemini_error_body, GeminiStreamOutputMode, ToolNameRestoreMap};
 use std::collections::BTreeMap;
@@ -177,10 +177,10 @@ impl GeminiSseReader {
         let Some(message) = raw_non_sse_error_hint(raw.as_str()) else {
             return;
         };
-        if let Ok(mut collector) = self.usage_collector.lock() {
+        with_passthrough_collector(&self.usage_collector, |collector| {
             collector.upstream_error_hint.get_or_insert(message.clone());
             collector.terminal_error.get_or_insert(message);
-        }
+        });
     }
 
     fn consume_openai_event(&mut self, value: &Value) -> Vec<u8> {
@@ -594,7 +594,7 @@ impl GeminiSseReader {
         self.state.finished = true;
         let should_synthesize_stop =
             !self.state.completed_seen && self.has_recoverable_partial_output();
-        if let Ok(mut collector) = self.usage_collector.lock() {
+        with_passthrough_collector(&self.usage_collector, |collector| {
             collector.usage.input_tokens = Some(self.state.input_tokens.max(0));
             collector.usage.cached_input_tokens = Some(self.state.cached_input_tokens.max(0));
             collector.usage.output_tokens = Some(self.state.output_tokens.max(0));
@@ -604,22 +604,23 @@ impl GeminiSseReader {
             if !self.state.output_text.trim().is_empty() {
                 collector.usage.output_text = Some(self.state.output_text.clone());
             }
-        }
+        });
         if should_synthesize_stop {
             mark_collector_terminal_success(&self.usage_collector);
             let mut out = String::new();
             self.emit_synthetic_stop_response(&mut out);
             return out.into_bytes();
         }
-        if let Ok(collector) = self.usage_collector.lock() {
-            if !collector.saw_terminal {
-                if let Some(message) = collector.terminal_error.clone() {
-                    return build_terminal_error_event(
-                        self.output_mode,
-                        build_gemini_error_body(message.as_str()),
-                    );
-                }
-            }
+        let terminal_message = with_passthrough_collector(&self.usage_collector, |collector| {
+            (!collector.saw_terminal)
+                .then(|| collector.terminal_error.clone())
+                .flatten()
+        });
+        if let Some(message) = terminal_message {
+            return build_terminal_error_event(
+                self.output_mode,
+                build_gemini_error_body(message.as_str()),
+            );
         }
         Vec::new()
     }
@@ -648,27 +649,27 @@ impl GeminiSseReader {
         if self.state.completed_seen {
             return;
         }
-        if let Ok(mut collector) = self.usage_collector.lock() {
+        with_passthrough_collector(&self.usage_collector, |collector| {
             let hint = collector.upstream_error_hint.clone();
             collector
                 .terminal_error
                 .get_or_insert_with(|| upstream_hint_or_stream_incomplete_message(hint.as_deref()));
-        }
+        });
     }
 
     fn mark_stream_read_error(&self, message: String) {
         if self.state.completed_seen {
             return;
         }
-        if let Ok(mut collector) = self.usage_collector.lock() {
+        with_passthrough_collector(&self.usage_collector, |collector| {
             collector.terminal_error.get_or_insert(message);
-        }
+        });
     }
 
     fn record_last_event_type(&self, event_type: &str) {
-        if let Ok(mut collector) = self.usage_collector.lock() {
+        with_passthrough_collector(&self.usage_collector, |collector| {
             collector.last_event_type = Some(event_type.to_string());
-        }
+        });
     }
 
     fn pending_tool_call_part(&mut self, output_index: i64) -> Option<Value> {

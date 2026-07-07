@@ -18,7 +18,6 @@
 
 3. P2 低优先级性能观察
    - 候选缓存 single-flight / stale-while-revalidate。
-   - 流式 usage collector 锁中毒容错。
    - 冷启动首轮后台 loop 错峰。
    - 请求体多次 JSON parse 收敛。
 

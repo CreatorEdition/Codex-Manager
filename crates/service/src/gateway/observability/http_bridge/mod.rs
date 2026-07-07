@@ -415,6 +415,7 @@ pub(super) use stream_readers::{
     SseKeepAliveFrame,
 };
 
+use stream_readers::{snapshot_passthrough_collector, snapshot_usage_collector};
 pub(super) use stream_readers::{AnthropicSseReader, GeminiSseReader};
 
 #[cfg(test)]

@@ -35,7 +35,12 @@ use common::{
     stream_idle_timed_out, stream_idle_timeout_message, stream_reader_disconnected_message,
     stream_wait_timeout, upstream_hint_or_stream_incomplete_message,
 };
-use common::{mark_collector_terminal_success, mark_first_response_ms_on_usage};
+use common::{
+    mark_collector_terminal_success, mark_first_response_ms_on_usage,
+    snapshot_passthrough_collector as snapshot_passthrough_collector_impl,
+    snapshot_usage_collector as snapshot_usage_collector_impl, with_passthrough_collector,
+    with_usage_collector,
+};
 pub(crate) use common::{
     PassthroughSseCollector, SseKeepAliveFrame, UpstreamSseFramePump, UpstreamSseFramePumpItem,
 };
@@ -43,6 +48,18 @@ pub(crate) use gemini::GeminiSseReader;
 pub(crate) use images::ImagesFromResponsesSseReader;
 pub(crate) use openai_responses::OpenAIResponsesPassthroughSseReader;
 pub(crate) use passthrough::PassthroughSseUsageReader;
+
+pub(super) fn snapshot_passthrough_collector(
+    usage_collector: &Arc<Mutex<PassthroughSseCollector>>,
+) -> PassthroughSseCollector {
+    snapshot_passthrough_collector_impl(usage_collector)
+}
+
+pub(super) fn snapshot_usage_collector(
+    usage_collector: &Arc<Mutex<UpstreamResponseUsage>>,
+) -> UpstreamResponseUsage {
+    snapshot_usage_collector_impl(usage_collector)
+}
 
 /// 函数 `reload_from_env`
 ///

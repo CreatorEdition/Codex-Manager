@@ -3,9 +3,9 @@ use super::{
     collect_image_generation_results, image_generation_result_payload, images_usage_value,
     mark_first_response_ms, merge_usage, should_emit_keepalive, stream_idle_timed_out,
     stream_idle_timeout_message, stream_reader_disconnected_message, stream_wait_timeout,
-    upstream_hint_or_stream_incomplete_message, Arc, Cursor, ImagesResponseFormat, Mutex,
-    PassthroughSseCollector, Read, SseKeepAliveFrame, UpstreamSseFramePump,
-    UpstreamSseFramePumpItem,
+    upstream_hint_or_stream_incomplete_message, with_passthrough_collector, Arc, Cursor,
+    ImagesResponseFormat, Mutex, PassthroughSseCollector, Read, SseKeepAliveFrame,
+    UpstreamSseFramePump, UpstreamSseFramePumpItem,
 };
 use serde_json::Value;
 use std::time::Instant;
@@ -111,12 +111,12 @@ impl ImagesFromResponsesSseReader {
 
     fn completed_chunks(&mut self, response: &Value) -> Vec<u8> {
         if let Some(usage) = images_usage_value(response) {
-            if let Ok(mut collector) = self.usage_collector.lock() {
+            with_passthrough_collector(&self.usage_collector, |collector| {
                 merge_usage(
                     &mut collector.usage,
                     super::super::parse_usage_from_json(&serde_json::json!({ "usage": usage })),
                 );
-            }
+            });
         }
 
         let results = collect_image_generation_results(response);
@@ -136,12 +136,12 @@ impl ImagesFromResponsesSseReader {
     }
 
     fn update_terminal_success(&self, event_type: Option<&str>) {
-        if let Ok(mut collector) = self.usage_collector.lock() {
+        with_passthrough_collector(&self.usage_collector, |collector| {
             if let Some(event_type) = event_type {
                 collector.last_event_type = Some(event_type.to_string());
             }
             collector.saw_terminal = true;
-        }
+        });
     }
 
     fn handle_frame(&mut self, lines: &[String]) -> Option<Vec<u8>> {
@@ -185,33 +185,33 @@ impl ImagesFromResponsesSseReader {
                     continue;
                 }
                 Ok(UpstreamSseFramePumpItem::Eof) => {
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         if !collector.saw_terminal {
                             let hint = collector.upstream_error_hint.clone();
                             collector.terminal_error.get_or_insert_with(|| {
                                 upstream_hint_or_stream_incomplete_message(hint.as_deref())
                             });
                         }
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }
                 Ok(UpstreamSseFramePumpItem::Error(err)) => {
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         collector
                             .terminal_error
                             .get_or_insert_with(|| classify_upstream_stream_read_error(&err));
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if stream_idle_timed_out(self.last_upstream_activity) {
-                        if let Ok(mut collector) = self.usage_collector.lock() {
+                        with_passthrough_collector(&self.usage_collector, |collector| {
                             collector
                                 .terminal_error
                                 .get_or_insert_with(stream_idle_timeout_message);
-                        }
+                        });
                         self.finished = true;
                         return Ok(Vec::new());
                     }
@@ -221,12 +221,12 @@ impl ImagesFromResponsesSseReader {
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         let hint = collector.upstream_error_hint.clone();
                         collector.terminal_error.get_or_insert_with(|| {
                             hint.unwrap_or_else(stream_reader_disconnected_message)
                         });
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }

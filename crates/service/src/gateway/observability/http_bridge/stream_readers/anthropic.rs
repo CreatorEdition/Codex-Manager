@@ -1,8 +1,8 @@
 use super::{
     append_output_text, collect_output_text_from_event_fields, collect_response_output_text, json,
     mark_first_response_ms_on_usage, should_emit_keepalive, stream_idle_timed_out,
-    stream_wait_timeout, Arc, Cursor, Map, Mutex, Read, SseKeepAliveFrame, UpstreamResponseUsage,
-    UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
+    stream_wait_timeout, with_usage_collector, Arc, Cursor, Map, Mutex, Read, SseKeepAliveFrame,
+    UpstreamResponseUsage, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
 };
 use std::time::Instant;
 
@@ -565,7 +565,7 @@ impl AnthropicSseReader {
             return Vec::new();
         }
         self.state.finished = true;
-        if let Ok(mut usage) = self.usage_collector.lock() {
+        with_usage_collector(&self.usage_collector, |usage| {
             usage.input_tokens = Some(self.state.input_tokens.max(0));
             usage.cached_input_tokens = Some(self.state.cached_input_tokens.max(0));
             usage.output_tokens = Some(self.state.output_tokens.max(0));
@@ -574,7 +574,7 @@ impl AnthropicSseReader {
             if !self.state.output_text.trim().is_empty() {
                 usage.output_text = Some(self.state.output_text.clone());
             }
-        }
+        });
         let mut out = String::new();
         self.ensure_message_start(&mut out);
         self.close_text_block(&mut out);

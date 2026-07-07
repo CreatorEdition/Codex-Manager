@@ -1,8 +1,9 @@
 use super::{
     classify_upstream_stream_read_error, mark_first_response_ms, stream_idle_timed_out,
     stream_idle_timeout_message, stream_reader_disconnected_message, stream_wait_timeout,
-    upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, OpenAIResponsesEvent,
-    OpenAIResponsesOutputTextState, PassthroughSseCollector, Read, SseKeepAliveFrame, SseTerminal,
+    upstream_hint_or_stream_incomplete_message, with_passthrough_collector, Arc, Cursor, Mutex,
+    OpenAIResponsesEvent, OpenAIResponsesOutputTextState, PassthroughSseCollector, Read,
+    SseKeepAliveFrame, SseTerminal,
 };
 use crate::gateway::upstream::{GatewayByteStream, GatewayByteStreamItem, GatewayStreamResponse};
 use eventsource_stream::{Event, Eventsource};
@@ -152,7 +153,7 @@ impl OpenAIResponsesPassthroughSseReader {
     }
 
     fn update_usage_from_event(&mut self, event: OpenAIResponsesEvent) {
-        if let Ok(mut collector) = self.usage_collector.lock() {
+        with_passthrough_collector(&self.usage_collector, |collector| {
             if let Some(event_type) = event.event_type.as_ref() {
                 collector.last_event_type = Some(event_type.clone());
             }
@@ -166,7 +167,7 @@ impl OpenAIResponsesPassthroughSseReader {
                     collector.terminal_error = Some(message.clone());
                 }
             }
-        }
+        });
     }
 
     fn drain_sidecar_events(&mut self) {
@@ -177,11 +178,11 @@ impl OpenAIResponsesPassthroughSseReader {
                 }
                 Ok(OpenAIResponsesSidecarItem::Eof) => return,
                 Ok(OpenAIResponsesSidecarItem::Error(err)) => {
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         collector
                             .terminal_error
                             .get_or_insert_with(|| classify_upstream_stream_read_error(&err));
-                    }
+                    });
                     return;
                 }
                 Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => return,
@@ -206,11 +207,11 @@ impl OpenAIResponsesPassthroughSseReader {
                 }
                 Ok(OpenAIResponsesSidecarItem::Eof) => return,
                 Ok(OpenAIResponsesSidecarItem::Error(err)) => {
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         collector
                             .terminal_error
                             .get_or_insert_with(|| classify_upstream_stream_read_error(&err));
-                    }
+                    });
                     return;
                 }
                 Err(RecvTimeoutError::Timeout) | Err(RecvTimeoutError::Disconnected) => return,
@@ -233,36 +234,36 @@ impl OpenAIResponsesPassthroughSseReader {
                 }
                 Ok(GatewayByteStreamItem::Eof) => {
                     self.drain_sidecar_with_deadline(OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT);
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         if !collector.saw_terminal {
                             let hint = collector.upstream_error_hint.clone();
                             collector.terminal_error.get_or_insert_with(|| {
                                 upstream_hint_or_stream_incomplete_message(hint.as_deref())
                             });
                         }
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }
                 Ok(GatewayByteStreamItem::Error(err)) => {
                     self.last_upstream_activity = Instant::now();
                     self.drain_sidecar_with_deadline(OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT);
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         collector
                             .terminal_error
                             .get_or_insert_with(|| classify_upstream_stream_read_error(&err));
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     self.drain_sidecar_events();
                     if stream_idle_timed_out(self.last_upstream_activity) {
-                        if let Ok(mut collector) = self.usage_collector.lock() {
+                        with_passthrough_collector(&self.usage_collector, |collector| {
                             collector
                                 .terminal_error
                                 .get_or_insert_with(stream_idle_timeout_message);
-                        }
+                        });
                         self.finished = true;
                         return Ok(Vec::new());
                     }
@@ -270,12 +271,12 @@ impl OpenAIResponsesPassthroughSseReader {
                 }
                 Err(RecvTimeoutError::Disconnected) => {
                     self.drain_sidecar_with_deadline(OPENAI_RESPONSES_SIDECAR_DRAIN_TIMEOUT);
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         let hint = collector.upstream_error_hint.clone();
                         collector.terminal_error.get_or_insert_with(|| {
                             hint.unwrap_or_else(stream_reader_disconnected_message)
                         });
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }

@@ -13,6 +13,8 @@ static SSE_KEEPALIVE_INTERVAL_MS: AtomicU64 = AtomicU64::new(DEFAULT_SSE_KEEPALI
 const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "连接中断（可能是网络波动或客户端主动取消）";
 const STREAM_READ_FAILED_FALLBACK_MESSAGE: &str = "上游中途断开，未返回具体错误信息";
 const STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE: &str = "上游流式空闲超时";
+const PASSTHROUGH_SSE_COLLECTOR_LOCK: &str = "http_bridge_passthrough_sse_collector";
+const UPSTREAM_RESPONSE_USAGE_LOCK: &str = "http_bridge_upstream_response_usage";
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PassthroughSseCollector {
@@ -27,26 +29,56 @@ fn elapsed_ms_since(started_at: Instant) -> i64 {
     started_at.elapsed().as_millis().min(i64::MAX as u128) as i64
 }
 
+pub(super) fn with_passthrough_collector<R>(
+    usage_collector: &Arc<Mutex<PassthroughSseCollector>>,
+    update: impl FnOnce(&mut PassthroughSseCollector) -> R,
+) -> R {
+    let mut collector =
+        crate::lock_utils::lock_recover(usage_collector.as_ref(), PASSTHROUGH_SSE_COLLECTOR_LOCK);
+    update(&mut collector)
+}
+
+pub(super) fn with_usage_collector<R>(
+    usage_collector: &Arc<Mutex<UpstreamResponseUsage>>,
+    update: impl FnOnce(&mut UpstreamResponseUsage) -> R,
+) -> R {
+    let mut usage =
+        crate::lock_utils::lock_recover(usage_collector.as_ref(), UPSTREAM_RESPONSE_USAGE_LOCK);
+    update(&mut usage)
+}
+
+pub(super) fn snapshot_passthrough_collector(
+    usage_collector: &Arc<Mutex<PassthroughSseCollector>>,
+) -> PassthroughSseCollector {
+    with_passthrough_collector(usage_collector, |collector| collector.clone())
+}
+
+pub(super) fn snapshot_usage_collector(
+    usage_collector: &Arc<Mutex<UpstreamResponseUsage>>,
+) -> UpstreamResponseUsage {
+    with_usage_collector(usage_collector, |usage| usage.clone())
+}
+
 pub(super) fn mark_first_response_ms(
     usage_collector: &Arc<Mutex<PassthroughSseCollector>>,
     started_at: Instant,
 ) {
-    if let Ok(mut collector) = usage_collector.lock() {
+    with_passthrough_collector(usage_collector, |collector| {
         if collector.usage.first_response_ms.is_none() {
             collector.usage.first_response_ms = Some(elapsed_ms_since(started_at));
         }
-    }
+    });
 }
 
 pub(super) fn mark_first_response_ms_on_usage(
     usage_collector: &Arc<Mutex<UpstreamResponseUsage>>,
     started_at: Instant,
 ) {
-    if let Ok(mut usage) = usage_collector.lock() {
+    with_usage_collector(usage_collector, |usage| {
         if usage.first_response_ms.is_none() {
             usage.first_response_ms = Some(elapsed_ms_since(started_at));
         }
-    }
+    });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,10 +313,10 @@ pub(super) fn set_sse_keepalive_interval_ms(interval_ms: u64) -> Result<u64, Str
 pub(super) fn mark_collector_terminal_success(
     usage_collector: &Arc<Mutex<PassthroughSseCollector>>,
 ) {
-    if let Ok(mut collector) = usage_collector.lock() {
+    with_passthrough_collector(usage_collector, |collector| {
         collector.saw_terminal = true;
         collector.terminal_error = None;
-    }
+    });
 }
 
 /// 函数 `stream_incomplete_message`
@@ -365,9 +397,37 @@ pub(super) fn classify_upstream_stream_read_error(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_upstream_stream_read_error, stream_incomplete_message,
-        stream_reader_disconnected_message,
+        classify_upstream_stream_read_error, mark_collector_terminal_success,
+        mark_first_response_ms, mark_first_response_ms_on_usage, snapshot_passthrough_collector,
+        snapshot_usage_collector, stream_incomplete_message, stream_reader_disconnected_message,
+        with_passthrough_collector, UpstreamResponseUsage,
     };
+    use std::sync::{Arc, Mutex};
+    use std::time::Instant;
+
+    fn poison_passthrough_collector() -> Arc<Mutex<super::PassthroughSseCollector>> {
+        let collector = Arc::new(Mutex::new(super::PassthroughSseCollector::default()));
+        let cloned = Arc::clone(&collector);
+        let _ = std::thread::spawn(move || {
+            let _guard = cloned.lock().expect("collector lock");
+            panic!("poison passthrough collector for test");
+        })
+        .join();
+        assert!(collector.is_poisoned());
+        collector
+    }
+
+    fn poison_usage_collector() -> Arc<Mutex<UpstreamResponseUsage>> {
+        let usage = Arc::new(Mutex::new(UpstreamResponseUsage::default()));
+        let cloned = Arc::clone(&usage);
+        let _ = std::thread::spawn(move || {
+            let _guard = cloned.lock().expect("usage lock");
+            panic!("poison usage collector for test");
+        })
+        .join();
+        assert!(usage.is_poisoned());
+        usage
+    }
 
     /// 函数 `classify_upstream_stream_read_error_maps_body_error`
     ///
@@ -448,5 +508,53 @@ mod tests {
             "连接中断（可能是网络波动或客户端主动取消）"
         );
         assert_eq!(super::stream_idle_timeout_message(), "上游流式空闲超时");
+    }
+
+    /// 函数 `passthrough_collector_recovers_from_poisoned_lock`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-02
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn passthrough_collector_recovers_from_poisoned_lock() {
+        let collector = poison_passthrough_collector();
+
+        mark_first_response_ms(&collector, Instant::now());
+        with_passthrough_collector(&collector, |collector| {
+            collector.terminal_error = Some("upstream failed".to_string());
+        });
+        mark_collector_terminal_success(&collector);
+
+        let snapshot = snapshot_passthrough_collector(&collector);
+        assert!(snapshot.usage.first_response_ms.is_some());
+        assert!(snapshot.saw_terminal);
+        assert_eq!(snapshot.terminal_error, None);
+    }
+
+    /// 函数 `usage_collector_recovers_from_poisoned_lock`
+    ///
+    /// 作者: gaohongshun
+    ///
+    /// 时间: 2026-04-02
+    ///
+    /// # 参数
+    /// 无
+    ///
+    /// # 返回
+    /// 无
+    #[test]
+    fn usage_collector_recovers_from_poisoned_lock() {
+        let usage = poison_usage_collector();
+
+        mark_first_response_ms_on_usage(&usage, Instant::now());
+        let snapshot = snapshot_usage_collector(&usage);
+
+        assert!(snapshot.first_response_ms.is_some());
     }
 }

@@ -2,9 +2,9 @@ use super::{
     classify_upstream_stream_read_error, inspect_sse_frame_for_protocol, mark_first_response_ms,
     merge_usage, should_emit_keepalive, stream_idle_timed_out, stream_idle_timeout_message,
     stream_reader_disconnected_message, stream_wait_timeout,
-    upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, PassthroughSseCollector,
-    PassthroughSseProtocol, Read, SseKeepAliveFrame, SseTerminal, UpstreamSseFramePump,
-    UpstreamSseFramePumpItem,
+    upstream_hint_or_stream_incomplete_message, with_passthrough_collector, Arc, Cursor, Mutex,
+    PassthroughSseCollector, PassthroughSseProtocol, Read, SseKeepAliveFrame, SseTerminal,
+    UpstreamSseFramePump, UpstreamSseFramePumpItem,
 };
 use crate::gateway::http_bridge::extract_error_hint_from_body;
 use std::time::Instant;
@@ -67,7 +67,7 @@ impl PassthroughSseUsageReader {
     /// 无
     fn update_usage_from_frame(&self, lines: &[String]) {
         let inspection = inspect_sse_frame_for_protocol(lines, self.protocol);
-        if let Ok(mut collector) = self.usage_collector.lock() {
+        with_passthrough_collector(&self.usage_collector, |collector| {
             if let Some(event_type) = inspection.last_event_type {
                 collector.last_event_type = Some(event_type);
             }
@@ -111,7 +111,7 @@ impl PassthroughSseUsageReader {
                     collector.terminal_error = Some(message);
                 }
             }
-        }
+        });
     }
 
     /// 函数 `next_chunk`
@@ -139,34 +139,34 @@ impl PassthroughSseUsageReader {
                     return Ok(frame.concat().into_bytes());
                 }
                 Ok(UpstreamSseFramePumpItem::Eof) => {
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         if !collector.saw_terminal {
                             let hint = collector.upstream_error_hint.clone();
                             collector.terminal_error.get_or_insert_with(|| {
                                 upstream_hint_or_stream_incomplete_message(hint.as_deref())
                             });
                         }
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }
                 Ok(UpstreamSseFramePumpItem::Error(err)) => {
                     self.last_upstream_activity = Instant::now();
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         collector
                             .terminal_error
                             .get_or_insert_with(|| classify_upstream_stream_read_error(&err));
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if stream_idle_timed_out(self.last_upstream_activity) {
-                        if let Ok(mut collector) = self.usage_collector.lock() {
+                        with_passthrough_collector(&self.usage_collector, |collector| {
                             collector
                                 .terminal_error
                                 .get_or_insert_with(stream_idle_timeout_message);
-                        }
+                        });
                         self.finished = true;
                         return Ok(Vec::new());
                     }
@@ -176,12 +176,12 @@ impl PassthroughSseUsageReader {
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    if let Ok(mut collector) = self.usage_collector.lock() {
+                    with_passthrough_collector(&self.usage_collector, |collector| {
                         let hint = collector.upstream_error_hint.clone();
                         collector.terminal_error.get_or_insert_with(|| {
                             hint.unwrap_or_else(stream_reader_disconnected_message)
                         });
-                    }
+                    });
                     self.finished = true;
                     return Ok(Vec::new());
                 }
