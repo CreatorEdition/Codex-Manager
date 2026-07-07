@@ -40,6 +40,8 @@ test("0.3.11 release notes include CE upstream divergence and update summary", a
   const section = extractChangelogSection(changelog, "0.3.11");
 
   assert.match(section, /### Fork \/ Upstream/);
+  assert.match(section, /v0\.3\.11` 是 CE 公开发布中明确与上游/);
+  assert.match(section, /断开点：CE 发布 tag 为 `v0\.3\.11`/);
   assert.match(section, /CE 不再直接 merge upstream/);
   assert.match(section, /upstream\/main = 6ac01a2a/);
   assert.match(section, /已语义移植网关模型转发规则/);

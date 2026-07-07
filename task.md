@@ -27,4 +27,4 @@
 1. 前端：相关 `node --test tests\*.mjs`、`apps` 下 `tsc --noEmit`，必要时补浏览器截图验收。
 2. 后端：`cargo fmt --all --check`、相关 `cargo test` 定向用例；发布前按资源情况跑完整 workspace 门禁。
 3. Git：禁止 `git add .`，按主题精确暂存；提交信息使用中文。
-4. Release：发布 tag 必须在 `docs/zh-CN/CHANGELOG.md` 存在对应 `## [<version>]` 小节；GitHub Release 正文由该小节同步，缺失时不得发布。
+4. Release：发布 tag 必须在 `docs/zh-CN/CHANGELOG.md` 存在对应 `## [<version>]` 小节；GitHub Release 正文由该小节同步，缺失时不得发布；发布后必须用 `gh release view <tag>` 验证正文包含 Fork / Upstream 与 CE 断开点说明，不能只剩 GitHub 自动生成的 Full Changelog。
