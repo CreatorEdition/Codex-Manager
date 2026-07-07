@@ -1685,7 +1685,11 @@ pub(super) fn build_local_validation_result(
             crate::gateway::bilingual_error("不支持的请求方法", "unsupported method"),
         )
     })?;
-    let initial_service_tier_diagnostic = super::super::inspect_service_tier_for_log(&body);
+    let initial_request_value = super::super::parse_request_json_value(&body);
+    let initial_service_tier_diagnostic = initial_request_value
+        .as_ref()
+        .map(super::super::inspect_service_tier_for_log_from_value)
+        .unwrap_or_default();
     super::super::log_client_service_tier(
         trace_id.as_str(),
         "http",
@@ -1694,7 +1698,10 @@ pub(super) fn build_local_validation_result(
         initial_service_tier_diagnostic.raw_value.as_deref(),
         initial_service_tier_diagnostic.normalized_value.as_deref(),
     );
-    let initial_request_meta = super::super::parse_request_metadata(&body);
+    let initial_request_meta = initial_request_value
+        .as_ref()
+        .map(super::super::parse_request_metadata_from_value)
+        .unwrap_or_default();
     let native_codex_client = is_native_codex_client_request(&incoming_headers);
     let compact_gateway_mode =
         is_compact_subagent_request(normalized_path.as_str(), &incoming_headers)
@@ -2076,10 +2083,16 @@ pub(super) fn build_local_validation_result(
     response_adapter = maybe_wrap_compact_response_adapter(path.as_str(), response_adapter);
     let normalized_transport_path = transport_request_path(path.as_str());
     body = super::super::normalize_official_responses_http_body(&normalized_transport_path, body);
-    super::super::validate_text_input_limit_for_path(&normalized_transport_path, &body)
-        .map_err(|err| LocalValidationError::new(400, err.message()))?;
+    let normalized_body_value = super::super::parse_request_json_value(&body);
+    if let Some(value) = normalized_body_value.as_ref() {
+        super::super::validate_text_input_limit_for_value(&normalized_transport_path, value)
+            .map_err(|err| LocalValidationError::new(400, err.message()))?;
+    }
 
-    let request_meta = super::super::parse_request_metadata(&body);
+    let request_meta = normalized_body_value
+        .as_ref()
+        .map(super::super::parse_request_metadata_from_value)
+        .unwrap_or_default();
     let client_model_for_log = client_request_meta.model.clone();
     let model_for_log = request_meta.model.or(api_key.model_slug.clone());
     let model_source_for_log = resolve_override_source_for_log(

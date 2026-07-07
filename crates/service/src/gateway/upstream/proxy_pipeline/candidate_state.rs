@@ -10,11 +10,12 @@ pub(in super::super) struct CandidateExecutionState {
     stripped_body: Option<Bytes>,
     rewritten_bodies: HashMap<String, Bytes>,
     stripped_rewritten_bodies: HashMap<String, Bytes>,
+    existing_prompt_cache_key_cache: Option<(Bytes, Option<String>)>,
     first_candidate_account_scope: Option<String>,
 }
 
 impl CandidateExecutionState {
-    fn existing_prompt_cache_key(body: &Bytes) -> Option<String> {
+    fn extract_existing_prompt_cache_key(body: &Bytes) -> Option<String> {
         serde_json::from_slice::<serde_json::Value>(body.as_ref())
             .ok()
             .and_then(|value| {
@@ -25,6 +26,18 @@ impl CandidateExecutionState {
                     .filter(|value| !value.is_empty())
                     .map(|value| value.to_string())
             })
+    }
+
+    fn existing_prompt_cache_key(&mut self, body: &Bytes) -> Option<String> {
+        if let Some((cached_body, value)) = &self.existing_prompt_cache_key_cache {
+            if cached_body == body {
+                return value.clone();
+            }
+        }
+
+        let value = Self::extract_existing_prompt_cache_key(body);
+        self.existing_prompt_cache_key_cache = Some((body.clone(), value.clone()));
+        value
     }
 
     /// 函数 `rewrite_cache_key`
@@ -125,7 +138,7 @@ impl CandidateExecutionState {
         model_override: Option<&str>,
         prompt_cache_key: Option<&str>,
     ) -> Bytes {
-        let existing_prompt_cache_key = Self::existing_prompt_cache_key(body);
+        let existing_prompt_cache_key = self.existing_prompt_cache_key(body);
         let effective_prompt_cache_key = existing_prompt_cache_key.as_deref().or(prompt_cache_key);
         let Some(cache_key) = Self::rewrite_cache_key(model_override, effective_prompt_cache_key)
         else {
@@ -438,6 +451,52 @@ mod tests {
                 .get("prompt_cache_key")
                 .and_then(serde_json::Value::as_str),
             Some("client-thread")
+        );
+    }
+
+    #[test]
+    fn body_for_attempt_prompt_cache_key_cache_tracks_body_identity() {
+        let mut state = CandidateExecutionState::default();
+        let first_body = Bytes::from_static(
+            br#"{"model":"gpt-5.4","input":"hello","prompt_cache_key":"first-thread"}"#,
+        );
+        let second_body = Bytes::from_static(
+            br#"{"model":"gpt-5.4","input":"hello","prompt_cache_key":"second-thread"}"#,
+        );
+        let setup = sample_setup();
+
+        let first = state.body_for_attempt(
+            "/v1/responses",
+            &first_body,
+            false,
+            &setup,
+            None,
+            Some("thread-from-conversation"),
+        );
+        let second = state.body_for_attempt(
+            "/v1/responses",
+            &second_body,
+            false,
+            &setup,
+            None,
+            Some("thread-from-conversation"),
+        );
+        let first_value: serde_json::Value =
+            serde_json::from_slice(first.as_ref()).expect("parse first body");
+        let second_value: serde_json::Value =
+            serde_json::from_slice(second.as_ref()).expect("parse second body");
+
+        assert_eq!(
+            first_value
+                .get("prompt_cache_key")
+                .and_then(serde_json::Value::as_str),
+            Some("first-thread")
+        );
+        assert_eq!(
+            second_value
+                .get("prompt_cache_key")
+                .and_then(serde_json::Value::as_str),
+            Some("second-thread")
         );
     }
 

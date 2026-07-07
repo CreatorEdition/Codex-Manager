@@ -1,4 +1,43 @@
-use super::{validate_text_input_limit_for_path, MAX_TEXT_INPUT_CHARS};
+use super::{
+    inspect_service_tier_for_log, inspect_service_tier_for_log_from_value,
+    parse_request_json_value, parse_request_metadata, parse_request_metadata_from_value,
+    validate_text_input_limit_for_path, validate_text_input_limit_for_value, MAX_TEXT_INPUT_CHARS,
+};
+
+#[test]
+fn parsed_value_helpers_match_body_parsing_helpers() {
+    let body = serde_json::json!({
+        "model": "gpt-5.4",
+        "reasoning": { "effort": "high" },
+        "service_tier": "flex",
+        "stream": true,
+        "prompt_cache_key": "thread-1",
+        "input": "hello"
+    });
+    let body = serde_json::to_vec(&body).expect("serialize body");
+    let value = parse_request_json_value(&body).expect("parse body once");
+
+    let from_body = parse_request_metadata(&body);
+    let from_value = parse_request_metadata_from_value(&value);
+    assert_eq!(from_body.model, from_value.model);
+    assert_eq!(from_body.reasoning_effort, from_value.reasoning_effort);
+    assert_eq!(from_body.service_tier, from_value.service_tier);
+    assert_eq!(from_body.is_stream, from_value.is_stream);
+    assert_eq!(
+        from_body.has_prompt_cache_key,
+        from_value.has_prompt_cache_key
+    );
+    assert_eq!(from_body.prompt_cache_key, from_value.prompt_cache_key);
+
+    let tier_from_body = inspect_service_tier_for_log(&body);
+    let tier_from_value = inspect_service_tier_for_log_from_value(&value);
+    assert_eq!(tier_from_body.has_field, tier_from_value.has_field);
+    assert_eq!(tier_from_body.raw_value, tier_from_value.raw_value);
+    assert_eq!(
+        tier_from_body.normalized_value,
+        tier_from_value.normalized_value
+    );
+}
 
 #[test]
 fn responses_text_limit_allows_small_payloads() {
@@ -15,10 +54,13 @@ fn responses_text_limit_allows_small_payloads() {
         ]
     });
     let body = serde_json::to_vec(&body).expect("serialize body");
+    let value = parse_request_json_value(&body).expect("parse body once");
 
     let result = validate_text_input_limit_for_path("/v1/responses", &body);
+    let result_from_value = validate_text_input_limit_for_value("/v1/responses", &value);
 
     assert!(result.is_ok());
+    assert!(result_from_value.is_ok());
 }
 
 #[test]

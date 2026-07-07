@@ -136,9 +136,10 @@ use protocol_adapter::{
     adapt_request_for_protocol, GeminiStreamOutputMode, ResponseAdapter, ToolNameRestoreMap,
 };
 pub(super) use request_helpers::{
-    inspect_service_tier_for_log, inspect_service_tier_value, is_html_content_type,
-    is_upstream_challenge_response, normalize_models_path, parse_request_metadata,
-    validate_text_input_limit_for_path,
+    inspect_service_tier_for_log_from_value, inspect_service_tier_value, is_html_content_type,
+    is_upstream_challenge_response, normalize_models_path, parse_request_json_value,
+    parse_request_metadata, parse_request_metadata_from_value, validate_text_input_limit_for_path,
+    validate_text_input_limit_for_value,
 };
 #[cfg(test)]
 use request_helpers::{should_drop_incoming_header, should_drop_incoming_header_for_failover};
