@@ -1633,11 +1633,15 @@ fn apply_passthrough_request_overrides(
             None,
             true,
         );
-    let rewritten_body = super::super::normalize_official_responses_http_body(
-        transport_request_path(path).as_str(),
-        rewritten_body,
-    );
-    let request_meta = super::super::parse_request_metadata(&rewritten_body);
+    let (rewritten_body, rewritten_body_value) =
+        super::super::normalize_official_responses_http_body_with_value(
+            transport_request_path(path).as_str(),
+            rewritten_body,
+        );
+    let request_meta = rewritten_body_value
+        .as_ref()
+        .map(super::super::parse_request_metadata_from_value)
+        .unwrap_or_else(|| super::super::parse_request_metadata(&rewritten_body));
     (
         rewritten_body,
         request_meta.model.or(api_key.model_slug.clone()),
@@ -2115,8 +2119,14 @@ pub(super) fn build_local_validation_result(
     }
     response_adapter = maybe_wrap_compact_response_adapter(path.as_str(), response_adapter);
     let normalized_transport_path = transport_request_path(path.as_str());
-    body = super::super::normalize_official_responses_http_body(&normalized_transport_path, body);
-    let normalized_body_value = super::super::parse_request_json_value(&body);
+    let normalized = super::super::normalize_official_responses_http_body_with_value(
+        &normalized_transport_path,
+        body,
+    );
+    body = normalized.0;
+    let normalized_body_value = normalized
+        .1
+        .or_else(|| super::super::parse_request_json_value(&body));
     if let Some(value) = normalized_body_value.as_ref() {
         super::super::validate_text_input_limit_for_value(&normalized_transport_path, value)
             .map_err(|err| LocalValidationError::new(400, err.message()))?;

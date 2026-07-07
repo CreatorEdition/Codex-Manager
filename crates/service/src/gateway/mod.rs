@@ -130,7 +130,7 @@ pub(crate) use metrics::{
     begin_rpc_request, duration_to_millis, gateway_metrics_prometheus,
     record_usage_refresh_outcome, GatewayCandidateSkipReason,
 };
-pub(super) use official_responses_http::normalize_official_responses_http_body;
+pub(super) use official_responses_http::normalize_official_responses_http_body_with_value;
 use protocol_adapter::build_gemini_error_body;
 use protocol_adapter::{
     adapt_request_for_protocol, GeminiStreamOutputMode, ResponseAdapter, ToolNameRestoreMap,

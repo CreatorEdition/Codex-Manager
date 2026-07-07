@@ -738,24 +738,41 @@ pub(crate) fn apply_codex_http_request_rules(
     result
 }
 
+#[allow(dead_code)]
 pub(crate) fn normalize_official_responses_http_body(path: &str, body: Vec<u8>) -> Vec<u8> {
+    normalize_official_responses_http_body_with_value(path, body).0
+}
+
+pub(crate) fn normalize_official_responses_http_body_with_value(
+    path: &str,
+    body: Vec<u8>,
+) -> (Vec<u8>, Option<Value>) {
     if !(path == "/v1/responses"
         || path.starts_with("/v1/responses?")
         || path == "/v1/responses/compact"
         || path.starts_with("/v1/responses/compact?"))
     {
-        return body;
+        return (body, None);
     }
 
     let Ok(request) = serde_json::from_slice::<OfficialResponsesHttpRequest>(&body) else {
-        return body;
+        return (body, None);
     };
-    serde_json::to_vec(&request).unwrap_or(body)
+    let Ok(value) = serde_json::to_value(&request) else {
+        return (body, None);
+    };
+    match serde_json::to_vec(&value) {
+        Ok(normalized) => (normalized, Some(value)),
+        Err(_) => (body, None),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_codex_http_request_rules, normalize_official_responses_http_body};
+    use super::{
+        apply_codex_http_request_rules, normalize_official_responses_http_body,
+        normalize_official_responses_http_body_with_value,
+    };
     use serde_json::{json, Value};
 
     #[test]
@@ -784,6 +801,26 @@ mod tests {
         assert_eq!(value["tool_choice"], "auto");
         assert_eq!(value["stream"], true);
         assert_eq!(value["custom_passthrough"], true);
+    }
+
+    #[test]
+    fn responses_http_normalizer_returns_matching_value_snapshot() {
+        let body = serde_json::to_vec(&json!({
+            "model": "gpt-5.4",
+            "input": [{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],
+            "stream": true,
+            "custom_passthrough": true
+        }))
+        .expect("serialize body");
+
+        let (normalized, value) =
+            normalize_official_responses_http_body_with_value("/v1/responses", body);
+        let parsed: Value = serde_json::from_slice(&normalized).expect("parse normalized body");
+
+        assert_eq!(value.as_ref(), Some(&parsed));
+        assert_eq!(parsed["model"], "gpt-5.4");
+        assert_eq!(parsed["stream"], true);
+        assert_eq!(parsed["custom_passthrough"], true);
     }
 
     #[test]

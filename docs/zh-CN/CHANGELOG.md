@@ -11,6 +11,7 @@
 - 网关候选账号快照缓存新增 single-flight 重建协调，同一缓存窗口 miss 时只允许一个线程重建候选池，其余请求等待后复用新快照，降低并发 miss 下的 DB 与 usage snapshot 查询放大。
 - Compact transport 路径剥离 `service_tier` 与提取 `prompt_cache_key` 复用同一次 JSON 解析，保持大请求体不参与 prompt key 提取的旧限制。
 - 非原生 OpenAI `/v1/responses` 请求默认补齐 `stream=true` 后，本地校验会复用同一次 JSON 解析结果执行文本长度校验，减少 aggregate / hybrid 前置校验中的重复 parse。
+- Official Responses HTTP body 标准化会同步返回标准化后的 JSON 值，本地校验后续 metadata 提取与文本长度校验复用该值，减少标准化后再次 parse。
 - 服务启动时 usage polling、gateway keepalive、token refresh 与 warmup cron 后台 loop 会错峰执行首轮任务，降低冷启动瞬时 DB / 网络压力；后续轮询周期保持原配置不变。
 - 模型页搜索框补齐 focus 边框与 ring 反馈，输入框自身保持无边框，避免和外层搜索容器出现双边框。
 - Codex CLI 首次接入引导弹窗收紧最大宽高、间距和代码块高度，在保留完整引导内容的前提下降低小窗口溢出风险。
