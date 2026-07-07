@@ -6,7 +6,9 @@ use super::{
 };
 use crate::account_status::mark_account_unavailable_for_gateway_error;
 use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotRecord};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
+use std::thread;
+use std::time::Duration;
 
 /// 默认候选缓存 TTL 不能是亚秒级，否则几千账号场景下会频繁重建候选池。
 #[test]
@@ -102,6 +104,54 @@ fn candidate_snapshot_cache_reuses_recent_snapshot() {
         Arc::ptr_eq(&first, &second),
         "缓存命中应只克隆 Arc 快照，不能深拷贝整个候选列表"
     );
+
+    clear_candidate_cache_for_tests();
+    if let Some(value) = previous_ttl {
+        std::env::set_var(CANDIDATE_CACHE_TTL_ENV, value);
+    } else {
+        std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
+    }
+    if let Some(value) = previous_db_path {
+        std::env::set_var("CODEXMANAGER_DB_PATH", value);
+    } else {
+        std::env::remove_var("CODEXMANAGER_DB_PATH");
+    }
+    super::reload_from_env();
+}
+
+#[test]
+fn candidate_cache_refresh_is_single_flight_per_cache_window() {
+    let _guard = crate::test_env_guard();
+    let previous_ttl = std::env::var(CANDIDATE_CACHE_TTL_ENV).ok();
+    let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+    std::env::set_var(CANDIDATE_CACHE_TTL_ENV, "2000");
+    std::env::set_var("CODEXMANAGER_DB_PATH", "selection-cache-single-flight");
+    super::reload_from_env();
+    clear_candidate_cache_for_tests();
+
+    let first_guard = super::acquire_candidate_cache_refresh(LowQuotaCandidateMode::NormalOnly)
+        .expect("first refresh guard");
+    let (started_tx, started_rx) = mpsc::channel();
+    let (tx, rx) = mpsc::channel();
+    let waiter = thread::spawn(move || {
+        started_tx.send(()).expect("send started");
+        let _second_guard =
+            super::acquire_candidate_cache_refresh(LowQuotaCandidateMode::NormalOnly)
+                .expect("second refresh guard");
+        tx.send(()).expect("send completion");
+    });
+
+    started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("waiter should start");
+    assert!(
+        rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "second refresh should wait while first refresh is active"
+    );
+    drop(first_guard);
+    rx.recv_timeout(Duration::from_secs(2))
+        .expect("second refresh should continue after first guard drops");
+    waiter.join().expect("waiter thread");
 
     clear_candidate_cache_for_tests();
     if let Some(value) = previous_ttl {

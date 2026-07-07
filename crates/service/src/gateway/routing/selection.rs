@@ -2,12 +2,14 @@ use codexmanager_core::storage::{now_ts, Account, Storage, Token, UsageSnapshotR
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::usage_account_meta::{derive_account_meta, patch_account_meta_in_place};
 
 static CANDIDATE_SNAPSHOT_CACHE: OnceLock<Mutex<Option<CandidateSnapshotCache>>> = OnceLock::new();
+static CANDIDATE_CACHE_REFRESH: OnceLock<(Mutex<Option<CandidateRefreshKey>>, Condvar)> =
+    OnceLock::new();
 static SELECTION_CONFIG_LOADED: OnceLock<()> = OnceLock::new();
 static CANDIDATE_CACHE_TTL_MS: AtomicU64 = AtomicU64::new(DEFAULT_CANDIDATE_CACHE_TTL_MS);
 static QUOTA_GUARD_PRIMARY_MIN_REMAINING_BITS: AtomicU64 =
@@ -83,6 +85,22 @@ struct CandidateSnapshotCache {
     candidates: GatewayCandidateSnapshot,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CandidateRefreshKey {
+    db_path: String,
+    low_quota_mode: LowQuotaCandidateMode,
+}
+
+struct CandidateRefreshGuard {
+    key: CandidateRefreshKey,
+}
+
+impl Drop for CandidateRefreshGuard {
+    fn drop(&mut self) {
+        finish_candidate_cache_refresh(&self.key);
+    }
+}
+
 pub(crate) type GatewayCandidateSnapshot = Arc<Vec<(Account, Token)>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,6 +132,13 @@ pub(crate) fn collect_gateway_candidates_with_low_quota_mode(
 ) -> Result<GatewayCandidateSnapshot, String> {
     if let Some(cached) = read_candidate_cache(low_quota_mode) {
         return Ok(cached);
+    }
+
+    let refresh_guard = acquire_candidate_cache_refresh(low_quota_mode);
+    if refresh_guard.is_some() {
+        if let Some(cached) = read_candidate_cache(low_quota_mode) {
+            return Ok(cached);
+        }
     }
 
     let candidates = collect_gateway_candidates_uncached(storage, low_quota_mode)?;
@@ -388,6 +413,55 @@ fn write_candidate_cache(
         expires_at,
         candidates,
     });
+}
+
+fn acquire_candidate_cache_refresh(
+    low_quota_mode: LowQuotaCandidateMode,
+) -> Option<CandidateRefreshGuard> {
+    if candidate_cache_ttl().is_zero() {
+        return None;
+    }
+    let key = CandidateRefreshKey {
+        db_path: cache_identity()?,
+        low_quota_mode,
+    };
+    let (mutex, condvar) =
+        CANDIDATE_CACHE_REFRESH.get_or_init(|| (Mutex::new(None), Condvar::new()));
+    let mut guard = match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::warn!("candidate cache refresh lock poisoned; recovering");
+            poisoned.into_inner()
+        }
+    };
+    while guard.is_some() {
+        guard = match condvar.wait(guard) {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                log::warn!("candidate cache refresh wait lock poisoned; recovering");
+                poisoned.into_inner()
+            }
+        };
+    }
+    *guard = Some(key.clone());
+    Some(CandidateRefreshGuard { key })
+}
+
+fn finish_candidate_cache_refresh(key: &CandidateRefreshKey) {
+    let Some((mutex, condvar)) = CANDIDATE_CACHE_REFRESH.get() else {
+        return;
+    };
+    let mut guard = match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::warn!("candidate cache refresh lock poisoned while finishing; recovering");
+            poisoned.into_inner()
+        }
+    };
+    if guard.as_ref() == Some(key) {
+        *guard = None;
+    }
+    condvar.notify_all();
 }
 
 /// 函数 `cache_identity`

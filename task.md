@@ -17,7 +17,7 @@
    - 不建议整包提交当前 CE 主线到 upstream；先按主题拆分，确保每个 PR 都能独立审计。
 
 3. P2 低优先级性能观察
-   - 候选缓存 single-flight / stale-while-revalidate。
+   - 候选缓存 stale-while-revalidate 可选评估：single-flight 已完成，SWR 还需确认是否会延长低额度 / 封禁账号的旧快照使用窗口。
    - 请求体 JSON parse 深水区继续观察：request rewrite / transport 层仍有独立解析路径；已先收敛本地校验阶段和多候选 `prompt_cache_key` 提取。
 
 ## 固定发布门禁
