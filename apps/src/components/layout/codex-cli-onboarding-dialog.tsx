@@ -323,26 +323,26 @@ export function CodexCliOnboardingDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         initialFocus={introFocusRef}
-        className="glass-card max-h-[92vh] overflow-hidden p-0 sm:!max-w-[94vw] xl:!max-w-[86rem] 2xl:!max-w-[92rem]"
+        className="glass-card max-h-[86dvh] overflow-hidden p-0 sm:!max-w-[94vw] xl:!max-w-[78rem] 2xl:!max-w-[82rem]"
       >
-        <div className="flex min-h-0 max-h-[92vh] flex-col">
-          <DialogHeader className="shrink-0 border-b border-border/60 px-6 pb-4 pt-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-h-0 max-h-[86dvh] flex-col">
+          <DialogHeader className="shrink-0 border-b border-border/60 px-5 py-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div
                 ref={introFocusRef}
                 tabIndex={-1}
-                className="max-w-3xl space-y-2 outline-none"
+                className="max-w-3xl space-y-1.5 outline-none"
               >
-                <DialogTitle className="text-2xl">
+                <DialogTitle className="text-xl">
                   {t("Codex CLI 首次接入引导")}
                 </DialogTitle>
-                <DialogDescription className="text-sm leading-7">
+                <DialogDescription className="text-sm leading-6">
                   {t(
                     "先看左侧步骤，再按顺序准备 `auth.json` 和 `config.toml`。只要没有勾选“不再显示”，你下次进入软件时仍会看到它。",
                   )}
                 </DialogDescription>
               </div>
-              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm leading-6 text-muted-foreground lg:max-w-sm">
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-5 text-muted-foreground lg:max-w-xs">
                 {t(
                   "推荐先完整读一遍，再复制模板；这比自己手写平台 Key、provider 名称和地址更不容易出错。",
                 )}
@@ -352,11 +352,11 @@ export function CodexCliOnboardingDialog({
 
           <div
             ref={scrollContainerRef}
-            className="grid min-h-0 gap-5 overflow-y-auto px-6 py-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(460px,0.85fr)]"
+            className="grid min-h-0 gap-4 overflow-y-auto px-5 py-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(420px,0.85fr)]"
           >
-            <div className="space-y-5">
-              <section className="rounded-xl border border-border/60 bg-background/45 p-5 shadow-sm">
-                <div className="flex flex-col gap-4 border-b border-border/50 pb-4">
+            <div className="space-y-4">
+              <section className="rounded-lg border border-border/60 bg-background/45 p-4 shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-border/50 pb-3">
                   <div className="space-y-1">
                     <h3 className="text-base font-semibold leading-7 text-foreground">
                       {t("分步导引")}
@@ -379,7 +379,7 @@ export function CodexCliOnboardingDialog({
                         variant="outline"
                         onClick={() => setCurrentStep(index)}
                         className={cn(
-                          "h-auto justify-start rounded-xl px-3 py-3 text-left transition-colors",
+                          "h-auto min-w-0 justify-start rounded-lg px-3 py-2.5 text-left transition-colors",
                           index === currentStep
                             ? "border-primary/40 bg-primary/10 text-foreground shadow-sm"
                             : "border-border/60 bg-background/70 text-muted-foreground hover:bg-accent/50",
@@ -396,10 +396,10 @@ export function CodexCliOnboardingDialog({
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <section className="rounded-xl border border-border/60 bg-background/70 p-4">
+                <div className="mt-3">
+                  <section className="rounded-lg border border-border/60 bg-background/70 p-4">
                     <div className="flex items-start gap-4">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                         <activeStep.icon className="h-5 w-5" />
                       </div>
                       <div className="min-w-0 space-y-2">
@@ -411,10 +411,10 @@ export function CodexCliOnboardingDialog({
                             {t(activeStep.title)}
                           </h4>
                         </div>
-                        <p className="text-sm leading-7 text-muted-foreground">
+                        <p className="text-sm leading-6 text-muted-foreground">
                           {t(activeStep.description)}
                         </p>
-                        <ul className="list-disc space-y-1.5 pl-5 text-sm leading-6 text-muted-foreground">
+                        <ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-muted-foreground">
                           {activeStep.details.map((detail) => (
                             <li key={detail}>{t(detail)}</li>
                           ))}
@@ -425,11 +425,11 @@ export function CodexCliOnboardingDialog({
                 </div>
               </section>
 
-              <section className="rounded-xl border border-dashed border-border/70 bg-muted/25 p-5">
+              <section className="rounded-lg border border-dashed border-border/70 bg-muted/25 p-4">
                 <h3 className="mb-2 text-base font-semibold leading-7 text-foreground">
                   {t("使用时最容易忽略的几个点")}
                 </h3>
-                <ul className="list-disc space-y-2 pl-5 text-sm leading-7 text-muted-foreground">
+                <ul className="list-disc space-y-1.5 pl-5 text-sm leading-6 text-muted-foreground">
                   {GUIDE_REMINDERS.map((item) => (
                     <li key={item}>{t(item)}</li>
                   ))}
@@ -437,8 +437,8 @@ export function CodexCliOnboardingDialog({
               </section>
             </div>
 
-            <section className="rounded-xl border border-border/60 bg-background/55 shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+            <section className="rounded-lg border border-border/60 bg-background/55 shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <h3 className="text-base font-semibold leading-7 text-foreground">
                     {t("推荐配置示例")}
@@ -460,7 +460,7 @@ export function CodexCliOnboardingDialog({
                   {t("复制配置")}
                 </Button>
               </div>
-              <div className="space-y-4 p-5">
+              <div className="space-y-3 p-4">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-3 text-sm font-semibold text-foreground">
                     <div className="space-y-1">
@@ -480,7 +480,7 @@ export function CodexCliOnboardingDialog({
                       {t("复制 auth.json")}
                     </Button>
                   </div>
-                  <pre className="overflow-auto rounded-xl border border-border/60 bg-black/90 p-4 font-mono text-xs leading-6 text-slate-100">
+                  <pre className="max-h-[14dvh] overflow-auto rounded-lg border border-border/60 bg-black/90 p-3 font-mono text-xs leading-6 text-slate-100">
                     <code>{guideAuthJson}</code>
                   </pre>
                 </div>
@@ -500,7 +500,7 @@ export function CodexCliOnboardingDialog({
                   </div>
                   <pre
                     ref={codeBlockRef}
-                    className="max-h-[34vh] overflow-auto rounded-xl border border-border/60 bg-black/90 p-4 font-mono text-xs leading-6 text-slate-100"
+                    className="max-h-[24dvh] overflow-auto rounded-lg border border-border/60 bg-black/90 p-3 font-mono text-xs leading-6 text-slate-100"
                   >
                     <code>{guideConfig}</code>
                   </pre>
@@ -509,7 +509,7 @@ export function CodexCliOnboardingDialog({
             </section>
           </div>
 
-          <DialogFooter className="mx-0 mb-0 mt-auto rounded-b-xl border-t border-border/60 bg-background px-6 py-4 sm:flex-nowrap sm:items-center sm:justify-between">
+          <DialogFooter className="mx-0 mb-0 mt-auto rounded-b-lg border-t border-border/60 bg-background px-5 py-3 sm:flex-nowrap sm:items-center sm:justify-between">
             <label className="flex items-center gap-3 pr-4 text-sm text-muted-foreground">
               <Checkbox
                 checked={dismissPermanently}
