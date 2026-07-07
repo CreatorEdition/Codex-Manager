@@ -5,6 +5,39 @@
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-07-07
+
+### Fork / Upstream
+- 从 `v0.3.11` 起，CE 版发布日志明确记录与上游 `qxcnm/Codex-Manager` 的分叉策略：CE 不再直接 merge upstream，而是按功能语义逐项移植。
+- 本轮上游复核基准为 `upstream/main = 6ac01a2a fix: correct dialog layout positioning`；已语义移植网关模型转发规则、模型目录自动远端拉取开关、模型删除防自动拉回、平台密钥今日用量、托盘恢复导航、Web 启动设置读取、Dialog 布局定位和桌面启动渲染性能等低风险功能项。
+- 明确不移植作者页、赞助导流、远程 author content、AtomGit 推广和上游整包 README/docs 推广内容；`09223f6f` / `f3efb3a2` 这类产品设计和 UI 密度改造只能拆成页面或组件级小项继续评估。
+
+### Added
+- 设置页主题选择改为结构化预览色卡，深色/浅色主题会展示对应界面缩略预览，减少只看单个圆点时的辨识成本。
+- 账号页补齐后端分页等价能力，计划类型、状态、搜索和大号/小号优先排序均按全量数据生效。
+- 新增模型目录自动远端拉取开关，可关闭“本地目录为空时自动从远端拉取”的行为，仍保留显式远端并入能力。
+- 平台密钥用量统计新增今日 token 与费用估算字段，并沿用当前页 Key 限载和成员权限过滤。
+- 新增默认关闭的数据库空闲物理压缩保护，可在网关空闲、满足间隔和空闲页阈值时执行 `VACUUM`，压缩期间新网关聊天请求返回 `429`。
+
+### Changed
+- Web 运行壳为批量导入、维护、刷新、插件安装等长耗时 RPC 配置独立超时并默认不重试，避免默认 10 秒超时或自动重试放大重操作。
+- 观测维护从请求写日志热路径移回后台调度，降低 retention 清理和 WAL checkpoint 对网关请求的同步影响。
+- Dashboard 管理员概览与排行/趋势加载拆分，首页模型池容量改走轻量汇总接口，减少首屏和区间刷新时的全量聚合成本。
+- Token 日级 rollup 接入后台维护，Dashboard 趋势和排行使用日级汇总 + live mixed 查询，降低长期明细扫描成本。
+- 桌面启动与运行渲染路径优化：减少 Next dev 重目录监听、拆分 Zustand store 订阅、跳过无变化状态写入，并使用轻量托盘预览快照。
+- `task.md` 收敛为仅记录仍在进行和待处理事项，版本更新所需摘要改由本文件维护。
+
+### Fixed
+- 修复 `v0.3.10` 发布产物仍可能使用旧 `0.3.8` 文件名的问题，Release workflow 会从 GitHub tag 注入构建版本，并在上传前清理同 tag 旧资产。
+- 修复账号计划类型被写死为 `unknown` 的问题；`K12` 等未来未知但非空的计划会保留原值并可参与筛选。
+- 修复请求未经过 CodexManager 本地网关时的统计提示歧义，明确只有经过本地网关的请求才能统计日志、Token 和费用，网关内部混合轮转仍可统计。
+- 修复大批量账号导入单个 RPC 过大导致卡死或超时的问题，Web、桌面端直接导入、文件导入和目录导入都会按最多 10 条或 4MB 分批调用。
+- 账号导入兼容更多 Token 中转工具常见 JSON 输出，包括 `{accounts:[...]}`、`cpa_batch.tokens[]`、Sub2API `credentials`、9Router `providerSpecificData`、OpenAI session `user/account` 嵌套字段。
+- 修复账号页及平台密钥、聚合 API、请求日志、插件自定义源、环境变量设置页等工具栏在中等宽度下被挤出视口的问题。
+- 清理作者页、赞助、远程 author content、残留推广静态资源和 `author.qxnm.top` CSP 白名单，避免 CE 版重新引入上游个人推广内容。
+- 修复 Dialog 在部分窗口尺寸下的定位和滚动问题，内容区改为可滚动，按钮 class 合并顺序允许调用方覆写布局。
+- 修复轻量关闭后从托盘、单实例唤起或系统命令恢复时 debug 主窗口不导航到桌面开发服务根页的问题。
+
 ## [0.3.10] - 2026-07-04
 
 ### Fixed
@@ -314,7 +347,8 @@
 ### Changed
 - 账号管理页操作区整合为单一“账号操作”下拉菜单，替代右侧多按钮堆叠，界面更简洁。
 
-[Unreleased]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.10...HEAD
+[Unreleased]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.11...HEAD
+[0.3.11]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.10...v0.3.11
 [0.3.10]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.8...v0.3.10
 [0.3.8]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/CreatorEdition/Codex-Manager/compare/v0.3.6...v0.3.7
