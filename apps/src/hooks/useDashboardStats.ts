@@ -20,6 +20,7 @@ import { pickBestRecommendations, pickCurrentAccount } from "@/lib/utils/usage";
 interface UseDashboardStatsOptions {
   forceActive?: boolean;
   requestLogLimit?: number;
+  includeApiModels?: boolean;
 }
 
 /**
@@ -43,6 +44,7 @@ export function useDashboardStats(options: UseDashboardStatsOptions = {}) {
   const isPageActive = options.forceActive ?? defaultPageActive;
   const requestLogLimit =
     options.requestLogLimit ?? STARTUP_SNAPSHOT_REQUEST_LOG_LIMIT;
+  const includeApiModels = options.includeApiModels ?? true;
   const isSnapshotQueryEnabled = useDeferredDesktopActivation(
     isServiceReady && isPageActive,
   );
@@ -70,7 +72,7 @@ export function useDashboardStats(options: UseDashboardStatsOptions = {}) {
         includeUsageAggregate: true,
         includeTodaySummary: true,
         includeRecentLogs: true,
-        includeApiModels: true,
+        includeApiModels,
       }),
     enabled: isSnapshotQueryEnabled,
     retry: 1,

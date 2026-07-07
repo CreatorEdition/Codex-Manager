@@ -15,6 +15,7 @@
 # Node/Vite
 /node_modules/
 /apps/node_modules/
+/.pnpm-store/
 /apps/dist/
 /apps/.vite/
 /apps/.turbo/
