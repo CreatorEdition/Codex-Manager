@@ -1,6 +1,7 @@
 use codexmanager_core::storage::{
     now_ts, ApiKey, ApiKeyOwner, AppWalletLedgerEntry, Storage, UserModelGroup,
 };
+use rusqlite::Connection;
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1955,6 +1956,39 @@ fn app_settings_set_persists_env_overrides_and_exposes_catalog() {
         );
         assert!(!stored.contains_key("CODEXMANAGER_UPSTREAM_STREAM_TIMEOUT_MS"));
         assert!(!stored.contains_key("CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS"));
+    });
+}
+
+#[test]
+fn app_settings_get_does_not_rewrite_unchanged_snapshot() {
+    with_temp_db(|db_path| {
+        let first = codexmanager_service::app_settings_get().expect("seed app settings");
+        let expected_service_addr = first
+            .get("serviceAddr")
+            .and_then(|value| value.as_str())
+            .expect("service addr")
+            .to_string();
+
+        let conn = Connection::open(db_path).expect("open raw sqlite");
+        conn.execute("UPDATE app_settings SET updated_at = ?1", [12345_i64])
+            .expect("mark app settings timestamps");
+        drop(conn);
+
+        let second = codexmanager_service::app_settings_get().expect("get app settings again");
+        assert_eq!(
+            second.get("serviceAddr").and_then(|value| value.as_str()),
+            Some(expected_service_addr.as_str())
+        );
+
+        let conn = Connection::open(db_path).expect("reopen raw sqlite");
+        let rewritten_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM app_settings WHERE updated_at <> ?1",
+                [12345_i64],
+                |row| row.get(0),
+            )
+            .expect("count rewritten app settings");
+        assert_eq!(rewritten_count, 0);
     });
 }
 

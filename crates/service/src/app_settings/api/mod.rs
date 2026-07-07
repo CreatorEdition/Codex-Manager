@@ -108,5 +108,5 @@ pub fn app_settings_set(params: Option<&Value>) -> Result<Value, String> {
     let patch = patch::parse_app_settings_patch(params)?;
     let service_listen_mode = patch.service_listen_mode.clone();
     patch::apply_app_settings_patch(patch)?;
-    current::current_app_settings_value(None, None, service_listen_mode.as_deref())
+    current::current_app_settings_value_persisted(None, None, service_listen_mode.as_deref())
 }
