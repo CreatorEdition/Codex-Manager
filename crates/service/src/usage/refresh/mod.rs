@@ -113,6 +113,10 @@ const DEFAULT_TOKEN_REFRESH_TRANSIENT_BACKOFF_MAX_SECS: u64 = 1_800;
 const TOKEN_REFRESH_LOOKAHEAD_BUFFER_SECS: u64 = 60;
 const TOKEN_REFRESH_FALLBACK_AGE_SECS: i64 = 2700;
 const DEFAULT_TOKEN_REFRESH_BATCH_LIMIT: usize = 2048;
+const USAGE_POLLING_STARTUP_STAGGER_SECS: u64 = 5;
+const GATEWAY_KEEPALIVE_STARTUP_STAGGER_SECS: u64 = 15;
+const TOKEN_REFRESH_STARTUP_STAGGER_SECS: u64 = 25;
+const WARMUP_CRON_STARTUP_STAGGER_SECS: u64 = 35;
 const BACKGROUND_TASK_RESTART_REQUIRED_KEYS: [&str; 5] = [
     "usageRefreshWorkers",
     "httpWorkerFactor",
@@ -251,7 +255,11 @@ pub(crate) fn notify_usage_refresh_completed(source: &'static str, processed: us
 pub(crate) fn ensure_usage_polling() {
     ensure_background_tasks_config_loaded();
     USAGE_POLLING_STARTED.get_or_init(|| {
-        spawn_background_loop("usage-polling", usage_polling_loop);
+        spawn_background_loop(
+            "usage-polling",
+            Duration::from_secs(USAGE_POLLING_STARTUP_STAGGER_SECS),
+            usage_polling_loop,
+        );
     });
 }
 
@@ -269,7 +277,11 @@ pub(crate) fn ensure_usage_polling() {
 pub(crate) fn ensure_gateway_keepalive() {
     ensure_background_tasks_config_loaded();
     GATEWAY_KEEPALIVE_STARTED.get_or_init(|| {
-        spawn_background_loop("gateway-keepalive", gateway_keepalive_loop);
+        spawn_background_loop(
+            "gateway-keepalive",
+            Duration::from_secs(GATEWAY_KEEPALIVE_STARTUP_STAGGER_SECS),
+            gateway_keepalive_loop,
+        );
     });
 }
 
@@ -287,14 +299,22 @@ pub(crate) fn ensure_gateway_keepalive() {
 pub(crate) fn ensure_token_refresh_polling() {
     ensure_background_tasks_config_loaded();
     TOKEN_REFRESH_POLLING_STARTED.get_or_init(|| {
-        spawn_background_loop("token-refresh-polling", token_refresh_polling_loop);
+        spawn_background_loop(
+            "token-refresh-polling",
+            Duration::from_secs(TOKEN_REFRESH_STARTUP_STAGGER_SECS),
+            token_refresh_polling_loop,
+        );
     });
 }
 
 pub(crate) fn ensure_warmup_cron() {
     ensure_background_tasks_config_loaded();
     WARMUP_CRON_STARTED.get_or_init(|| {
-        spawn_background_loop("account-warmup-cron", warmup_cron_loop);
+        spawn_background_loop(
+            "account-warmup-cron",
+            Duration::from_secs(WARMUP_CRON_STARTUP_STAGGER_SECS),
+            warmup_cron_loop,
+        );
     });
 }
 
@@ -310,21 +330,48 @@ pub(crate) fn ensure_warmup_cron() {
 ///
 /// # 返回
 /// 无
-fn spawn_background_loop(name: &str, worker: fn()) {
+fn spawn_background_loop(name: &str, startup_delay: Duration, worker: fn()) {
     let thread_name = name.to_string();
     let _ = thread::Builder::new()
         .name(thread_name.clone())
-        .spawn(move || loop {
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(worker));
-            if result.is_ok() {
-                break;
+        .spawn(move || {
+            if !sleep_startup_stagger(startup_delay) {
+                return;
             }
-            log::error!(
-                "background task panicked and will restart: task={}",
-                thread_name
-            );
-            thread::sleep(Duration::from_secs(1));
+            loop {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(worker));
+                if result.is_ok() {
+                    break;
+                }
+                log::error!(
+                    "background task panicked and will restart: task={}",
+                    thread_name
+                );
+                thread::sleep(Duration::from_secs(1));
+            }
         });
+}
+
+fn sleep_startup_stagger(delay: Duration) -> bool {
+    sleep_startup_stagger_with(delay, crate::shutdown_requested, thread::sleep)
+}
+
+fn sleep_startup_stagger_with<S, Q>(
+    delay: Duration,
+    mut shutdown_requested: Q,
+    mut sleep: S,
+) -> bool
+where
+    S: FnMut(Duration),
+    Q: FnMut() -> bool,
+{
+    let mut remaining = delay;
+    while !remaining.is_zero() && !shutdown_requested() {
+        let chunk = remaining.min(Duration::from_secs(1));
+        sleep(chunk);
+        remaining = remaining.saturating_sub(chunk);
+    }
+    remaining.is_zero()
 }
 
 /// 函数 `enqueue_usage_refresh_for_account`

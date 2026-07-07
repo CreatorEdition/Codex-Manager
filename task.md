@@ -18,7 +18,6 @@
 
 3. P2 低优先级性能观察
    - 候选缓存 single-flight / stale-while-revalidate。
-   - 冷启动首轮后台 loop 错峰。
    - 请求体多次 JSON parse 收敛。
 
 ## 固定发布门禁

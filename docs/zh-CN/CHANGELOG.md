@@ -7,6 +7,7 @@
 
 ### Changed
 - README 恢复保留 Linux.do 认可社区入口，清理策略只排除作者赞助、远程 author content 与发行推广内容，不再误删社区来源说明。
+- 服务启动时 usage polling、gateway keepalive、token refresh 与 warmup cron 后台 loop 会错峰执行首轮任务，降低冷启动瞬时 DB / 网络压力；后续轮询周期保持原配置不变。
 - 模型页搜索框补齐 focus 边框与 ring 反馈，输入框自身保持无边框，避免和外层搜索容器出现双边框。
 - Codex CLI 首次接入引导弹窗收紧最大宽高、间距和代码块高度，在保留完整引导内容的前提下降低小窗口溢出风险。
 - GitHub Release 发布动作改为读取 `docs/zh-CN/CHANGELOG.md` 中对应 `## [版本号]` 小节作为 Release 正文；创建和重跑同一 tag 都会同步正文，缺少版本小节时直接失败，避免正式发布页缺失 CE 与上游分叉说明。

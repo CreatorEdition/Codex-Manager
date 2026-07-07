@@ -3,15 +3,64 @@ use super::{
     next_usage_poll_cursor, notify_usage_refresh_completed, reset_usage_poll_cursor_for_tests,
     resolve_token_refresh_issuer, run_token_refresh_task, schedule_token_refresh_failure_retry,
     set_usage_refresh_completed_handler, should_retry_usage_refresh_with_token,
-    subscribe_usage_refresh_completed, token_refresh_access_exp_cutoff, token_refresh_due_cutoff,
-    token_refresh_failure_cooldown_secs, token_refresh_schedule,
+    sleep_startup_stagger_with, subscribe_usage_refresh_completed, token_refresh_access_exp_cutoff,
+    token_refresh_due_cutoff, token_refresh_failure_cooldown_secs, token_refresh_schedule,
     token_refresh_transient_backoff_secs, usage_poll_batch_indices,
+    GATEWAY_KEEPALIVE_STARTUP_STAGGER_SECS, TOKEN_REFRESH_STARTUP_STAGGER_SECS,
+    USAGE_POLLING_STARTUP_STAGGER_SECS, WARMUP_CRON_STARTUP_STAGGER_SECS,
 };
 use crate::usage_scheduler::DEFAULT_USAGE_POLL_INTERVAL_SECS;
 use codexmanager_core::storage::{now_ts, Account, Storage, Token};
 use std::collections::HashSet;
 use std::sync::mpsc;
 use std::time::Duration;
+
+#[test]
+fn background_loops_use_staggered_startup_delays() {
+    assert_eq!(USAGE_POLLING_STARTUP_STAGGER_SECS, 5);
+    assert_eq!(GATEWAY_KEEPALIVE_STARTUP_STAGGER_SECS, 15);
+    assert_eq!(TOKEN_REFRESH_STARTUP_STAGGER_SECS, 25);
+    assert_eq!(WARMUP_CRON_STARTUP_STAGGER_SECS, 35);
+}
+
+#[test]
+fn startup_stagger_sleeps_in_interruptible_chunks() {
+    let mut slept = Vec::new();
+
+    let completed = sleep_startup_stagger_with(
+        Duration::from_millis(2_500),
+        || false,
+        |duration| slept.push(duration),
+    );
+
+    assert!(completed);
+    assert_eq!(
+        slept,
+        vec![
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            Duration::from_millis(500)
+        ]
+    );
+}
+
+#[test]
+fn startup_stagger_stops_when_shutdown_is_requested() {
+    let mut slept = Vec::new();
+    let mut checks = 0usize;
+
+    let completed = sleep_startup_stagger_with(
+        Duration::from_secs(3),
+        || {
+            checks = checks.saturating_add(1);
+            checks > 1
+        },
+        |duration| slept.push(duration),
+    );
+
+    assert!(!completed);
+    assert_eq!(slept, vec![Duration::from_secs(1)]);
+}
 
 #[test]
 fn usage_refresh_completed_handler_receives_notification() {
