@@ -1,4 +1,4 @@
-use chrono::{Local, LocalResult, TimeZone, Timelike};
+use chrono::{Duration as ChronoDuration, Local, LocalResult, NaiveDate, TimeZone, Timelike};
 use codexmanager_core::storage::{DatabasePageStats, Storage};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::thread;
@@ -17,7 +17,6 @@ const DB_AUTO_VACUUM_MIN_FREE_MB_ENV: &str = "CODEXMANAGER_DB_AUTO_VACUUM_MIN_FR
 const DB_AUTO_VACUUM_MIN_FREE_PERCENT_ENV: &str = "CODEXMANAGER_DB_AUTO_VACUUM_MIN_FREE_PERCENT";
 const DB_AUTO_VACUUM_WINDOW_START_HOUR_ENV: &str = "CODEXMANAGER_DB_AUTO_VACUUM_WINDOW_START_HOUR";
 const DB_AUTO_VACUUM_WINDOW_END_HOUR_ENV: &str = "CODEXMANAGER_DB_AUTO_VACUUM_WINDOW_END_HOUR";
-const DAY_SECONDS: i64 = 86_400;
 const OBSERVABILITY_MAINTENANCE_INTERVAL_SECS_ENV: &str =
     "CODEXMANAGER_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS";
 
@@ -288,18 +287,54 @@ fn should_run_db_auto_vacuum(
 ///
 /// # 返回
 /// 返回当前本地日期的起始 Unix 时间戳，供日级 rollup 与 dashboard 日边界保持一致。
-fn local_today_start_ts() -> i64 {
-    let now = Local::now();
-    let Some(start_naive) = now.date_naive().and_hms_opt(0, 0, 0) else {
-        return now.timestamp();
-    };
-    match Local.from_local_datetime(&start_naive) {
-        LocalResult::Single(value) => value.timestamp(),
-        LocalResult::Ambiguous(a, b) => a.timestamp().min(b.timestamp()),
-        LocalResult::None => now
-            .timestamp()
-            .saturating_sub(now.timestamp().rem_euclid(DAY_SECONDS)),
+fn local_midnight_ts(date: NaiveDate, prefer_latest: bool) -> Result<i64, String> {
+    let naive = date
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| "build local midnight failed".to_string())?;
+    match Local.from_local_datetime(&naive) {
+        LocalResult::Single(value) => Ok(value.timestamp()),
+        LocalResult::Ambiguous(a, b) if prefer_latest => Ok(a.timestamp().max(b.timestamp())),
+        LocalResult::Ambiguous(a, b) => Ok(a.timestamp().min(b.timestamp())),
+        LocalResult::None => Err(format!("resolve local midnight failed: {date}")),
     }
+}
+
+fn local_today_start_ts() -> Result<i64, String> {
+    let now = Local::now();
+    local_midnight_ts(now.date_naive(), false)
+}
+
+fn local_closed_day_ranges(
+    storage: &Storage,
+    today_start_ts: i64,
+) -> Result<Vec<(i64, i64)>, String> {
+    let Some(oldest_ts) = storage
+        .oldest_pending_daily_rollup_ts_before(today_start_ts)
+        .map_err(|err| format!("load oldest pending daily rollup failed: {err}"))?
+    else {
+        return Ok(Vec::new());
+    };
+    let oldest_local = Local
+        .timestamp_opt(oldest_ts, 0)
+        .single()
+        .ok_or_else(|| "resolve oldest pending local day failed".to_string())?;
+    let today_local = Local
+        .timestamp_opt(today_start_ts, 0)
+        .single()
+        .ok_or_else(|| "resolve current local day failed".to_string())?;
+    let mut date = oldest_local.date_naive();
+    let today = today_local.date_naive();
+    let mut ranges = Vec::new();
+    while date < today {
+        let day_start = local_midnight_ts(date, false)?;
+        let day_end = local_midnight_ts(date + ChronoDuration::days(1), true)?;
+        if day_end <= day_start {
+            return Err(format!("invalid local day range: {day_start}..{day_end}"));
+        }
+        ranges.push((day_start, day_end));
+        date += ChronoDuration::days(1);
+    }
+    Ok(ranges)
 }
 /// 函数 `schedule_observability_maintenance`
 ///
@@ -382,9 +417,13 @@ fn run_idle_db_maintenance_loop() {
 fn run_observability_maintenance(now: i64, previous_last: i64) {
     let succeeded = match crate::storage_helpers::open_storage() {
         Some(storage) => {
-            match storage
-                .prune_observability_history_with_daily_rollup_anchor(now, local_today_start_ts())
-            {
+            let maintenance_result = local_today_start_ts().and_then(|today_start| {
+                let day_ranges = local_closed_day_ranges(&storage, today_start)?;
+                storage
+                    .prune_observability_history_with_daily_rollup_ranges(now, &day_ranges)
+                    .map_err(|err| err.to_string())
+            });
+            match maintenance_result {
                 Ok(()) => {
                     log::debug!("event=gateway_observability_maintenance_completed");
                     maybe_run_idle_db_auto_vacuum(&storage, now);

@@ -1179,3 +1179,84 @@ fn daily_rollup_mixed_queries_use_unrolled_live_stats_when_rollup_is_not_ready()
     assert_eq!(source_usage[0].source_id, account_id);
     assert_eq!(source_usage[0].usage.total_tokens, 30);
 }
+
+#[test]
+fn america_new_york_dst_days_keep_daily_rollups_before_and_after_detail_prune() {
+    // America/New_York：2024-03-10 为 23 小时，2024-11-03 为 25 小时。
+    for (case_name, day_start, day_end) in [
+        ("spring-forward", 1_710_046_800_i64, 1_710_129_600_i64),
+        ("fall-back", 1_730_606_400_i64, 1_730_696_400_i64),
+    ] {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let key_id = format!("gk-dst-{case_name}");
+        let account_id = format!("acc-dst-{case_name}");
+
+        for (offset, total_tokens) in [(60_i64, 10_i64), (day_end - day_start - 60, 20)] {
+            let created_at = day_start + offset;
+            let log_id = storage
+                .insert_request_log(&RequestLog {
+                    trace_id: Some(format!("trace-{case_name}-{offset}")),
+                    key_id: Some(key_id.clone()),
+                    account_id: Some(account_id.clone()),
+                    request_path: "/v1/responses".to_string(),
+                    method: "POST".to_string(),
+                    model: Some("gpt-5".to_string()),
+                    actual_source_kind: Some("openai_account".to_string()),
+                    actual_source_id: Some(account_id.clone()),
+                    status_code: Some(200),
+                    created_at,
+                    ..Default::default()
+                })
+                .expect("insert request log");
+            storage
+                .insert_request_token_stat(&RequestTokenStat {
+                    request_log_id: log_id,
+                    key_id: Some(key_id.clone()),
+                    account_id: Some(account_id.clone()),
+                    model: Some("gpt-5".to_string()),
+                    total_tokens: Some(total_tokens),
+                    created_at,
+                    ..Default::default()
+                })
+                .expect("insert token stat");
+        }
+
+        assert_eq!(
+            storage
+                .rollup_request_token_stats_daily_before_limited(
+                    day_end,
+                    day_end,
+                    day_end - day_start,
+                    100,
+                )
+                .expect("roll up DST day"),
+            2
+        );
+        let ranges = [(day_start, day_end)];
+        let before_prune = storage
+            .summarize_request_token_stats_daily_mixed_ranges(&ranges, &ranges)
+            .expect("mixed summary before detail prune");
+        assert_eq!(before_prune.len(), 1, "{case_name}");
+        assert_eq!(before_prune[0].day_start_ts, day_start, "{case_name}");
+        assert_eq!(before_prune[0].day_end_ts, day_end, "{case_name}");
+        assert_eq!(before_prune[0].usage.total_tokens, 30, "{case_name}");
+
+        storage
+            .rollup_request_token_stats_before(day_end)
+            .expect("prune rolled detail");
+        let remaining_stats: i64 = storage
+            .conn
+            .query_row("SELECT COUNT(1) FROM request_token_stats", [], |row| {
+                row.get(0)
+            })
+            .expect("count remaining stats");
+        assert_eq!(remaining_stats, 0, "{case_name}");
+
+        let after_prune = storage
+            .summarize_request_token_stats_daily_mixed_ranges(&ranges, &ranges)
+            .expect("mixed summary after detail prune");
+        assert_eq!(after_prune.len(), 1, "{case_name}");
+        assert_eq!(after_prune[0].usage.total_tokens, 30, "{case_name}");
+    }
+}

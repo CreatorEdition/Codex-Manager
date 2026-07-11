@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use chrono::{Duration, Local, LocalResult, TimeZone};
+use chrono::{Duration, Local, LocalResult, NaiveDate, TimeZone};
 use codexmanager_core::rpc::types::{
     ApiKeySummary, DashboardAdminUsageSummaryResult, DashboardDailyUsagePoint,
     DashboardSourceUsageSummary, DashboardTokenUsageResult, DashboardUserUsageSummary,
@@ -8,10 +8,7 @@ use codexmanager_core::rpc::types::{
     MemberDashboardModelUsage, MemberDashboardSummaryResult, MemberDashboardUsagePoint,
     MemberDashboardUsageToday, MemberDashboardWalletResult, ModelInfo,
 };
-use codexmanager_core::storage::{
-    DailyTokenUsageRollup, SourceTokenUsageRanking, SourceTokenUsageRollup, TokenUsageRollup,
-    UserTokenUsageRanking, UserTokenUsageRollup,
-};
+use codexmanager_core::storage::{SourceTokenUsageRollup, TokenUsageRollup, UserTokenUsageRollup};
 use serde_json::json;
 
 use crate::{
@@ -44,38 +41,42 @@ pub(crate) fn read_admin_usage_summary(
     let (today_start, today_end) = local_day_bounds_ts()?;
     let range_start = start_ts
         .filter(|value| *value > 0)
-        .unwrap_or_else(|| today_start.saturating_sub((ADMIN_USAGE_RANGE_DAYS - 1) * DAY_SECONDS));
+        .unwrap_or(local_day_start_offset(
+            today_start,
+            -(ADMIN_USAGE_RANGE_DAYS - 1),
+        )?);
     let range_end = end_ts
         .filter(|value| *value > range_start)
         .unwrap_or(today_end);
     let ranking_limit = normalize_admin_usage_ranking_limit(ranking_limit);
 
+    let today_ranges = local_calendar_ranges(today_start, today_end)?;
+    let range_day_ranges = local_calendar_ranges(range_start, range_end)?;
+    let closed_day_ranges = closed_local_day_ranges(&range_day_ranges, today_start)?;
     let today_usage = storage
-        .summarize_request_token_stats_daily_mixed(today_start, today_end, DAY_SECONDS, today_start)
+        .summarize_request_token_stats_daily_mixed_ranges(&today_ranges, &[])
         .map_err(|err| format!("summarize today usage failed: {err}"))?
         .into_iter()
         .next()
         .map(|item| item.usage)
         .unwrap_or_default();
-    let daily_usage = fill_daily_usage(
-        range_start,
-        range_end,
-        DAY_SECONDS,
-        storage
-            .summarize_request_token_stats_daily_mixed(
-                range_start,
-                range_end,
-                DAY_SECONDS,
-                today_start,
-            )
-            .map_err(|err| format!("summarize daily usage failed: {err}"))?,
-    );
+    let daily_usage = storage
+        .summarize_request_token_stats_daily_mixed_ranges(&range_day_ranges, &closed_day_ranges)
+        .map_err(|err| format!("summarize daily usage failed: {err}"))?
+        .into_iter()
+        .map(|item| DashboardDailyUsagePoint {
+            day_start_ts: item.day_start_ts,
+            day_end_ts: item.day_end_ts,
+            usage: dashboard_usage(&item.usage),
+        })
+        .collect();
     let users = read_dashboard_user_summaries(
         &storage,
         today_start,
         today_end,
         range_start,
         range_end,
+        &closed_day_ranges,
         ranking_limit,
     )?;
     let openai_accounts = read_dashboard_source_summaries(
@@ -85,6 +86,7 @@ pub(crate) fn read_admin_usage_summary(
         today_end,
         range_start,
         range_end,
+        &closed_day_ranges,
         ranking_limit,
     )?;
     let aggregate_apis = read_dashboard_source_summaries(
@@ -94,6 +96,7 @@ pub(crate) fn read_admin_usage_summary(
         today_end,
         range_start,
         range_end,
+        &closed_day_ranges,
         ranking_limit,
     )?;
 
@@ -137,6 +140,75 @@ fn local_day_bounds_ts() -> Result<(i64, i64), String> {
         LocalResult::None => start + DAY_SECONDS,
     };
     Ok((start, end.max(start)))
+}
+
+fn local_midnight_ts(date: NaiveDate, prefer_latest: bool) -> Result<i64, String> {
+    let naive = date
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| "build local midnight failed".to_string())?;
+    match Local.from_local_datetime(&naive) {
+        LocalResult::Single(value) => Ok(value.timestamp()),
+        LocalResult::Ambiguous(a, b) if prefer_latest => Ok(a.timestamp().max(b.timestamp())),
+        LocalResult::Ambiguous(a, b) => Ok(a.timestamp().min(b.timestamp())),
+        LocalResult::None => Err(format!("resolve local midnight failed: {date}")),
+    }
+}
+
+fn local_day_start_offset(reference_start_ts: i64, days: i64) -> Result<i64, String> {
+    let reference = Local
+        .timestamp_opt(reference_start_ts, 0)
+        .single()
+        .ok_or_else(|| "resolve local reference day failed".to_string())?;
+    local_midnight_ts(reference.date_naive() + Duration::days(days), false)
+}
+
+fn local_calendar_ranges(start_ts: i64, end_ts: i64) -> Result<Vec<(i64, i64)>, String> {
+    if end_ts <= start_ts {
+        return Ok(Vec::new());
+    }
+    let start_local = Local
+        .timestamp_opt(start_ts, 0)
+        .single()
+        .ok_or_else(|| "resolve local range start failed".to_string())?;
+    let mut date = start_local.date_naive();
+    let mut ranges = Vec::new();
+    loop {
+        let day_start = local_midnight_ts(date, false)?;
+        let day_end = local_midnight_ts(date + Duration::days(1), true)?;
+        let range_start = day_start.max(start_ts);
+        let range_end = day_end.min(end_ts);
+        if range_end > range_start {
+            ranges.push((range_start, range_end));
+        }
+        if day_end >= end_ts {
+            break;
+        }
+        date += Duration::days(1);
+    }
+    Ok(ranges)
+}
+
+fn closed_local_day_ranges(
+    day_ranges: &[(i64, i64)],
+    closed_before_ts: i64,
+) -> Result<Vec<(i64, i64)>, String> {
+    let mut closed = Vec::new();
+    for &(range_start, range_end) in day_ranges {
+        if range_end > closed_before_ts {
+            continue;
+        }
+        let local = Local
+            .timestamp_opt(range_start, 0)
+            .single()
+            .ok_or_else(|| "resolve local day range failed".to_string())?;
+        let date = local.date_naive();
+        let day_start = local_midnight_ts(date, false)?;
+        let day_end = local_midnight_ts(date + Duration::days(1), true)?;
+        if range_start == day_start && range_end == day_end {
+            closed.push((day_start, day_end));
+        }
+    }
+    Ok(closed)
 }
 
 fn dashboard_usage(usage: &TokenUsageRollup) -> DashboardTokenUsageResult {
@@ -187,79 +259,28 @@ fn ranked_usage_ids(
     ids
 }
 
-fn fill_daily_usage(
-    start_ts: i64,
-    end_ts: i64,
-    bucket_seconds: i64,
-    items: Vec<DailyTokenUsageRollup>,
-) -> Vec<DashboardDailyUsagePoint> {
-    let bucket_seconds = bucket_seconds.max(1);
-    let mut by_start = items
-        .into_iter()
-        .map(|item| (item.day_start_ts, item))
-        .collect::<BTreeMap<_, _>>();
-    let mut cursor = start_ts;
-    let mut result = Vec::new();
-    while cursor < end_ts {
-        let next = cursor.saturating_add(bucket_seconds).min(end_ts);
-        if let Some(item) = by_start.remove(&cursor) {
-            result.push(DashboardDailyUsagePoint {
-                day_start_ts: item.day_start_ts,
-                day_end_ts: item.day_end_ts,
-                usage: dashboard_usage(&item.usage),
-            });
-        } else {
-            result.push(DashboardDailyUsagePoint {
-                day_start_ts: cursor,
-                day_end_ts: next,
-                usage: DashboardTokenUsageResult::default(),
-            });
-        }
-        cursor = next;
-    }
-    result
-}
-
 fn read_dashboard_user_summaries(
     storage: &codexmanager_core::storage::Storage,
     today_start: i64,
     today_end: i64,
     range_start: i64,
     range_end: i64,
+    closed_day_ranges: &[(i64, i64)],
     ranking_limit: Option<usize>,
 ) -> Result<Vec<DashboardUserUsageSummary>, String> {
-    if let Some(limit) = ranking_limit {
-        return build_dashboard_user_summaries_from_rankings(
-            storage,
-            storage
-                .summarize_request_token_stats_user_ranking_between_mixed(
-                    today_start,
-                    today_end,
-                    range_start,
-                    range_end,
-                    today_start,
-                    limit,
-                )
-                .map_err(|err| format!("summarize ranked user usage failed: {err}"))?,
-        );
-    }
     build_dashboard_user_summaries(
         storage,
         storage
-            .summarize_request_token_stats_by_user_between_mixed(
-                today_start,
-                today_end,
-                today_start,
-            )
+            .summarize_request_token_stats_by_user_between_mixed_ranges(today_start, today_end, &[])
             .map_err(|err| format!("summarize today user usage failed: {err}"))?,
         storage
-            .summarize_request_token_stats_by_user_between_mixed(
+            .summarize_request_token_stats_by_user_between_mixed_ranges(
                 range_start,
                 range_end,
-                today_start,
+                closed_day_ranges,
             )
             .map_err(|err| format!("summarize range user usage failed: {err}"))?,
-        None,
+        ranking_limit,
     )
 }
 
@@ -270,45 +291,29 @@ fn read_dashboard_source_summaries(
     today_end: i64,
     range_start: i64,
     range_end: i64,
+    closed_day_ranges: &[(i64, i64)],
     ranking_limit: Option<usize>,
 ) -> Result<Vec<DashboardSourceUsageSummary>, String> {
-    if let Some(limit) = ranking_limit {
-        return build_dashboard_source_summaries_from_rankings(
-            storage,
-            source_kind,
-            storage
-                .summarize_request_token_stats_source_ranking_between_mixed(
-                    source_kind,
-                    today_start,
-                    today_end,
-                    range_start,
-                    range_end,
-                    today_start,
-                    limit,
-                )
-                .map_err(|err| format!("summarize ranked {source_kind} usage failed: {err}"))?,
-        );
-    }
     build_dashboard_source_summaries(
         storage,
         source_kind,
         storage
-            .summarize_request_token_stats_by_source_between_mixed(
+            .summarize_request_token_stats_by_source_between_mixed_ranges(
                 source_kind,
                 today_start,
                 today_end,
-                today_start,
+                &[],
             )
             .map_err(|err| format!("summarize today {source_kind} usage failed: {err}"))?,
         storage
-            .summarize_request_token_stats_by_source_between_mixed(
+            .summarize_request_token_stats_by_source_between_mixed_ranges(
                 source_kind,
                 range_start,
                 range_end,
-                today_start,
+                closed_day_ranges,
             )
             .map_err(|err| format!("summarize range {source_kind} usage failed: {err}"))?,
-        None,
+        ranking_limit,
     )
 }
 
@@ -398,44 +403,6 @@ fn build_dashboard_user_summaries(
         results.truncate(limit);
     }
     Ok(results)
-}
-
-fn build_dashboard_user_summaries_from_rankings(
-    storage: &codexmanager_core::storage::Storage,
-    ranking_items: Vec<UserTokenUsageRanking>,
-) -> Result<Vec<DashboardUserUsageSummary>, String> {
-    let user_ids = ranking_items
-        .iter()
-        .map(|item| item.user_id.clone())
-        .collect::<Vec<_>>();
-    let users = storage
-        .list_app_users_by_ids(&user_ids)
-        .map_err(|err| format!("list app users failed: {err}"))?;
-    let wallets = wallets_for_user_ids(storage, &user_ids)?;
-    let user_map = users
-        .into_iter()
-        .map(|user| (user.id.clone(), user))
-        .collect::<HashMap<_, _>>();
-
-    Ok(ranking_items
-        .into_iter()
-        .map(|item| {
-            let user = user_map.get(item.user_id.as_str());
-            let wallet_available = wallets
-                .get(item.user_id.as_str())
-                .map(|wallet| wallet.balance_credit_micros - wallet.frozen_credit_micros);
-            DashboardUserUsageSummary {
-                user_id: item.user_id,
-                username: user.map(|value| value.username.clone()),
-                display_name: user.and_then(|value| value.display_name.clone()),
-                role: user.map(|value| value.role.clone()),
-                status: user.map(|value| value.status.clone()),
-                wallet_available_credit_micros: wallet_available,
-                today_usage: dashboard_usage(&item.today_usage),
-                range_usage: dashboard_usage(&item.range_usage),
-            }
-        })
-        .collect())
 }
 
 fn wallets_for_user_ids(
@@ -577,40 +544,6 @@ fn build_dashboard_source_summaries(
         results.truncate(limit);
     }
     Ok(results)
-}
-
-fn build_dashboard_source_summaries_from_rankings(
-    storage: &codexmanager_core::storage::Storage,
-    source_kind: &str,
-    ranking_items: Vec<SourceTokenUsageRanking>,
-) -> Result<Vec<DashboardSourceUsageSummary>, String> {
-    let source_ids = ranking_items
-        .iter()
-        .map(|item| item.source_id.clone())
-        .collect::<Vec<_>>();
-    let metadata = match source_kind {
-        "openai_account" => account_source_metadata(storage, Some(source_ids.as_slice()))?,
-        "aggregate_api" => aggregate_source_metadata(storage, Some(source_ids.as_slice()))?,
-        _ => HashMap::new(),
-    };
-    Ok(ranking_items
-        .into_iter()
-        .map(|item| {
-            let meta = metadata
-                .get(item.source_id.as_str())
-                .cloned()
-                .unwrap_or_default();
-            DashboardSourceUsageSummary {
-                source_kind: item.source_kind,
-                source_id: item.source_id,
-                name: meta.name,
-                status: meta.status,
-                provider: meta.provider,
-                today_usage: dashboard_usage(&item.today_usage),
-                range_usage: dashboard_usage(&item.range_usage),
-            }
-        })
-        .collect())
 }
 
 pub(crate) fn read_member_dashboard_summary(
