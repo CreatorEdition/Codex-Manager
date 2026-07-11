@@ -146,7 +146,10 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "modelPriceRules/list" => super::value_or_error(read::read_model_price_rules()),
         "modelPriceRule/read" => {
             let model_pattern = super::str_param(req, "modelPattern").unwrap_or("");
-            super::value_or_error(read::read_model_price_rule(model_pattern))
+            super::value_or_error(read::read_model_price_rule(
+                model_pattern,
+                super::str_param(req, "billingMode"),
+            ))
         }
         "modelPriceRule/upsert" => {
             super::value_or_error(read::upsert_model_price_rule(ModelPriceRuleUpsertInput {
@@ -154,6 +157,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 provider: nested_string_param(req, "provider"),
                 model_pattern: nested_string_param(req, "modelPattern").unwrap_or_default(),
                 match_type: nested_string_param(req, "matchType"),
+                billing_mode: nested_string_param(req, "billingMode"),
                 input_price_per_1m: nested_f64_param(req, "inputPricePer1m"),
                 cached_input_price_per_1m: nested_f64_param(req, "cachedInputPricePer1m"),
                 output_price_per_1m: nested_f64_param(req, "outputPricePer1m"),

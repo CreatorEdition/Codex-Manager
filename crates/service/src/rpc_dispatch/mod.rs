@@ -18,6 +18,7 @@ mod codex_profile;
 mod dashboard;
 mod gateway;
 mod model_groups;
+mod network_diagnostics;
 mod quota;
 mod requestlog;
 mod service_config;
@@ -182,16 +183,6 @@ fn permission_denied(method: &str) -> String {
 }
 
 const MEMBER_METHOD_ALLOWLIST: &[&str] = &[
-    "account/chatgptAuthTokens/refresh",
-    "account/chatgptAuthTokens/refreshAll",
-    "account/list",
-    "account/read",
-    "account/update",
-    "account/usage/aggregate",
-    "account/usage/list",
-    "account/usage/read",
-    "account/usage/refresh",
-    "account/warmup",
     "accountManager/password/change",
     "accountManager/profile/update",
     "accountManager/session/current",
@@ -290,6 +281,9 @@ pub(crate) fn handle_request_with_actor(req: JsonRpcRequest, actor: RpcActor) ->
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = dashboard::try_handle(&req, &actor) {
+        return JsonRpcMessage::Response(resp);
+    }
+    if let Some(resp) = network_diagnostics::try_handle(&req) {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = usage::try_handle(&req) {

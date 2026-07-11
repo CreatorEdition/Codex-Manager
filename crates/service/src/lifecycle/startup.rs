@@ -78,6 +78,7 @@ pub fn start_server(addr: &str) -> std::io::Result<()> {
     // 版本信息已从持久化存储恢复（sync_runtime_settings_from_storage），
     // 网络拉取完全交给后台线程异步首刷，避免阻塞启动主路径。
     crate::app_settings::ensure_codex_latest_version_sync();
+    crate::network_diagnostics::ensure_network_diagnostics();
     crate::usage_refresh::ensure_usage_polling();
     crate::usage_refresh::ensure_gateway_keepalive();
     crate::usage_refresh::ensure_token_refresh_polling();

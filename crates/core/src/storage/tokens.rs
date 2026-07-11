@@ -76,7 +76,10 @@ impl Storage {
                         LIMIT 1
                     ) AS latest_status_message
                 FROM tokens
-                WHERE TRIM(COALESCE(refresh_token, '')) <> ''
+                JOIN accounts
+                  ON accounts.id = tokens.account_id
+                WHERE LOWER(TRIM(COALESCE(accounts.status, ''))) NOT IN ('disabled', 'banned')
+                  AND TRIM(COALESCE(tokens.refresh_token, '')) <> ''
                   AND (
                        next_refresh_at <= ?1
                        OR (
@@ -611,6 +614,67 @@ mod tests {
             !ids.contains(&"acc-permanent".to_string()),
             "永久无效账号应被过滤，实际: {ids:?}"
         );
+    }
+
+    /// 后台 Token 轮询跳过禁用/封禁账号，但过期错误在长退避后仍允许复检。
+    #[test]
+    fn list_tokens_due_for_refresh_skips_disabled_banned_but_rechecks_expired_accounts() {
+        let storage = Storage::open_in_memory().expect("open");
+        storage.init().expect("init");
+        let now = now_ts();
+
+        for (account_id, status) in [
+            ("acc-active", "active"),
+            ("acc-disabled", "disabled"),
+            ("acc-banned", "banned"),
+            ("acc-expired", "unavailable"),
+        ] {
+            let mut account = sample_account(account_id, now);
+            account.status = status.to_string();
+            storage.insert_account(&account).expect("insert account");
+            storage
+                .insert_token(&sample_token(account_id, now))
+                .expect("insert token");
+            storage
+                .update_token_refresh_schedule(
+                    account_id,
+                    None,
+                    Some(if account_id == "acc-expired" {
+                        now + 21_600
+                    } else {
+                        now - 1
+                    }),
+                )
+                .expect("schedule token");
+        }
+
+        storage
+            .insert_event(&Event {
+                account_id: Some("acc-expired".to_string()),
+                event_type: "account_status_update".to_string(),
+                message: "status=unavailable reason=refresh_token_invalid:refresh_token_expired"
+                    .to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert expired status");
+
+        let initial_ids = storage
+            .list_tokens_due_for_refresh(now, now, 10)
+            .expect("list due tokens")
+            .into_iter()
+            .map(|token| token.account_id)
+            .collect::<Vec<_>>();
+        assert_eq!(initial_ids, vec!["acc-active".to_string()]);
+
+        let recheck_ids = storage
+            .list_tokens_due_for_refresh(now + 21_600, now + 21_600, 10)
+            .expect("list due tokens after expired cooldown")
+            .into_iter()
+            .map(|token| token.account_id)
+            .collect::<Vec<_>>();
+        assert!(recheck_ids.contains(&"acc-expired".to_string()));
+        assert!(!recheck_ids.contains(&"acc-disabled".to_string()));
+        assert!(!recheck_ids.contains(&"acc-banned".to_string()));
     }
 
     #[test]

@@ -31,9 +31,14 @@ function readConstFunctionBody(source, functionName) {
   return source.slice(start, end);
 }
 
-test("账号实体列表不会被用量刷新路径自动打空", async () => {
+test("用量刷新完成后会同步账号实体状态且保留独立用量缓存", async () => {
   const source = await readSource("src/hooks/useAccounts.ts");
   const invalidateUsageBody = readConstFunctionBody(source, "invalidateUsageData");
+  const refreshAccountStart = source.indexOf("const refreshAccountMutation");
+  const refreshAllStart = source.indexOf("const refreshAllMutation");
+  const tokenRefreshStart = source.indexOf("const refreshTokensMutation");
+  const refreshAccountBody = source.slice(refreshAccountStart, refreshAllStart);
+  const refreshAllBody = source.slice(refreshAllStart, tokenRefreshStart);
 
   assert.match(
     source,
@@ -42,12 +47,10 @@ test("账号实体列表不会被用量刷新路径自动打空", async () => {
   assert.doesNotMatch(invalidateUsageBody, /queryKey:\s*\[\s*"accounts"/);
   assert.match(
     source,
-    /const refreshAccountMutation = useMutation\(\{[\s\S]*onSettled:\s*async \(\) => \{[\s\S]*await invalidateUsageData\(\);/,
+    /const refreshVisibleUsageData = \(\) => \{[\s\S]*refetchQueries\(\{ queryKey: \["accounts", "list"\], type: "active" \}\)/,
   );
-  assert.match(
-    source,
-    /const refreshAllMutation = useMutation\(\{[\s\S]*onSettled:\s*async \(\) => \{[\s\S]*await invalidateUsageData\(\);/,
-  );
+  assert.match(refreshAccountBody, /await invalidateAccountData\(\);/);
+  assert.match(refreshAllBody, /await invalidateAccountData\(\);/);
 });
 
 test("账号页用启动快照作为账号实体列表的非空初始来源", async () => {

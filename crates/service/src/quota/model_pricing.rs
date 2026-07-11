@@ -1,6 +1,9 @@
 use codexmanager_core::storage::{now_ts, ModelPriceRule, Storage};
 
-pub(crate) const PRICE_SEED_VERSION: &str = "2026-07-11";
+pub(crate) const PRICE_SEED_VERSION: &str = "2026-07-11-tiered-v2";
+
+const STANDARD_BILLING_MODE: &str = "standard";
+const PRIORITY_BILLING_MODE: &str = "priority";
 
 #[derive(Debug, Clone, Copy)]
 struct PriceSeed {
@@ -242,10 +245,58 @@ const PRICE_SEEDS: &[PriceSeed] = &[
     },
     PriceSeed {
         provider: "openai",
+        model_pattern: "gpt-4.1-mini",
+        input_price_per_1m: 0.4,
+        cached_input_price_per_1m: Some(0.1),
+        output_price_per_1m: 1.6,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4.1-nano",
+        input_price_per_1m: 0.1,
+        cached_input_price_per_1m: Some(0.025),
+        output_price_per_1m: 0.4,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
         model_pattern: "gpt-4.1",
         input_price_per_1m: 2.0,
         cached_input_price_per_1m: Some(0.5),
         output_price_per_1m: 8.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4o-2024-05-13",
+        input_price_per_1m: 5.0,
+        cached_input_price_per_1m: None,
+        output_price_per_1m: 15.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4o-mini",
+        input_price_per_1m: 0.15,
+        cached_input_price_per_1m: Some(0.075),
+        output_price_per_1m: 0.6,
         long_context_threshold_tokens: None,
         long_context_input_price_per_1m: None,
         long_context_cached_input_price_per_1m: None,
@@ -398,33 +449,275 @@ const PRICE_SEEDS: &[PriceSeed] = &[
     },
 ];
 
+// Priority 价格逐项来自官方表，不能按 Standard 统一乘倍率推导。
+const PRIORITY_PRICE_SEEDS: &[PriceSeed] = &[
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.6-sol",
+        input_price_per_1m: 10.0,
+        cached_input_price_per_1m: Some(1.0),
+        output_price_per_1m: 60.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.6-terra",
+        input_price_per_1m: 5.0,
+        cached_input_price_per_1m: Some(0.5),
+        output_price_per_1m: 30.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.6-luna",
+        input_price_per_1m: 2.0,
+        cached_input_price_per_1m: Some(0.2),
+        output_price_per_1m: 12.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.5",
+        input_price_per_1m: 12.5,
+        cached_input_price_per_1m: Some(1.25),
+        output_price_per_1m: 75.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.4-mini",
+        input_price_per_1m: 1.5,
+        cached_input_price_per_1m: Some(0.15),
+        output_price_per_1m: 9.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.4",
+        input_price_per_1m: 5.0,
+        cached_input_price_per_1m: Some(0.5),
+        output_price_per_1m: 30.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.2",
+        input_price_per_1m: 3.5,
+        cached_input_price_per_1m: Some(0.35),
+        output_price_per_1m: 28.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.1",
+        input_price_per_1m: 2.5,
+        cached_input_price_per_1m: Some(0.25),
+        output_price_per_1m: 20.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5-mini",
+        input_price_per_1m: 0.45,
+        cached_input_price_per_1m: Some(0.045),
+        output_price_per_1m: 3.6,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5",
+        input_price_per_1m: 2.5,
+        cached_input_price_per_1m: Some(0.25),
+        output_price_per_1m: 20.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4.1-mini",
+        input_price_per_1m: 0.7,
+        cached_input_price_per_1m: Some(0.175),
+        output_price_per_1m: 2.8,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4.1-nano",
+        input_price_per_1m: 0.2,
+        cached_input_price_per_1m: Some(0.05),
+        output_price_per_1m: 0.8,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4.1",
+        input_price_per_1m: 3.5,
+        cached_input_price_per_1m: Some(0.875),
+        output_price_per_1m: 14.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4o-2024-05-13",
+        input_price_per_1m: 8.75,
+        cached_input_price_per_1m: None,
+        output_price_per_1m: 26.25,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4o-mini",
+        input_price_per_1m: 0.25,
+        cached_input_price_per_1m: Some(0.125),
+        output_price_per_1m: 1.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-4o",
+        input_price_per_1m: 4.25,
+        cached_input_price_per_1m: Some(2.125),
+        output_price_per_1m: 17.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "o4-mini",
+        input_price_per_1m: 2.0,
+        cached_input_price_per_1m: Some(0.5),
+        output_price_per_1m: 8.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "o3",
+        input_price_per_1m: 3.5,
+        cached_input_price_per_1m: Some(0.875),
+        output_price_per_1m: 14.0,
+        long_context_threshold_tokens: None,
+        long_context_input_price_per_1m: None,
+        long_context_cached_input_price_per_1m: None,
+        long_context_output_price_per_1m: None,
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+];
+
 pub(crate) fn ensure_official_price_seed(storage: &Storage) -> Result<(), String> {
     let count = storage
         .count_model_price_rules_for_seed(PRICE_SEED_VERSION)
         .map_err(|err| format!("count model price seeds failed: {err}"))?;
-    if count as usize >= PRICE_SEEDS.len() {
+    let expected_count = PRICE_SEEDS.len() + PRIORITY_PRICE_SEEDS.len();
+    if count as usize >= expected_count {
         return Ok(());
     }
 
     let now = now_ts();
-    for (index, seed) in PRICE_SEEDS.iter().enumerate() {
+    for (index, (billing_mode, seed)) in PRICE_SEEDS
+        .iter()
+        .map(|seed| (STANDARD_BILLING_MODE, seed))
+        .chain(
+            PRIORITY_PRICE_SEEDS
+                .iter()
+                .map(|seed| (PRIORITY_BILLING_MODE, seed)),
+        )
+        .enumerate()
+    {
         storage
             .upsert_model_price_rule(&ModelPriceRule {
-                id: format!("official-{PRICE_SEED_VERSION}-{}", seed.model_pattern),
+                id: format!(
+                    "official-{PRICE_SEED_VERSION}-{billing_mode}-{}",
+                    seed.model_pattern
+                ),
                 provider: seed.provider.to_string(),
                 model_pattern: seed.model_pattern.to_string(),
-                match_type: "prefix".to_string(),
-                billing_mode: "standard".to_string(),
+                // Priority 官方表只覆盖列出的明确模型，不能让家族前缀误命中未报价的 Pro/Nano 变体。
+                match_type: if billing_mode == PRIORITY_BILLING_MODE {
+                    "exact"
+                } else {
+                    "prefix"
+                }
+                .to_string(),
+                billing_mode: billing_mode.to_string(),
                 currency: "USD".to_string(),
                 unit: "per_1m_tokens".to_string(),
                 input_price_per_1m: Some(seed.input_price_per_1m),
                 cached_input_price_per_1m: seed.cached_input_price_per_1m,
                 output_price_per_1m: Some(seed.output_price_per_1m),
                 reasoning_output_price_per_1m: None,
-                cache_write_5m_price_per_1m: match seed.model_pattern {
-                    "gpt-5.6-sol" => Some(6.25),
-                    "gpt-5.6-terra" => Some(3.125),
-                    "gpt-5.6-luna" => Some(1.25),
+                cache_write_5m_price_per_1m: match (billing_mode, seed.model_pattern) {
+                    (STANDARD_BILLING_MODE, "gpt-5.6-sol") => Some(6.25),
+                    (STANDARD_BILLING_MODE, "gpt-5.6-terra") => Some(3.125),
+                    (STANDARD_BILLING_MODE, "gpt-5.6-luna") => Some(1.25),
+                    (PRIORITY_BILLING_MODE, "gpt-5.6-sol") => Some(12.5),
+                    (PRIORITY_BILLING_MODE, "gpt-5.6-terra") => Some(6.25),
+                    (PRIORITY_BILLING_MODE, "gpt-5.6-luna") => Some(2.5),
                     _ => None,
                 },
                 cache_write_1h_price_per_1m: None,
@@ -437,7 +730,8 @@ pub(crate) fn ensure_official_price_seed(storage: &Storage) -> Result<(), String
                 source_url: Some(seed.source_url.to_string()),
                 seed_version: Some(PRICE_SEED_VERSION.to_string()),
                 enabled: true,
-                priority: 10_000 - index as i64,
+                // 新版官方种子必须高于旧版 10_000 档，确保已有数据库升级后立即采用新分层规则。
+                priority: 20_000 - index as i64,
                 created_at: now,
                 updated_at: now,
             })
@@ -495,6 +789,30 @@ fn rule_matches(rule: &ModelPriceRule, normalized_model: &str) -> bool {
     }
 }
 
+/// 将最终服务等级映射到价格规则的计费模式。
+///
+/// 未知值保守回退到 Standard，避免仅因客户端拼写错误就收取 Priority 溢价。
+pub(crate) fn normalize_service_tier_for_billing(service_tier: Option<&str>) -> &'static str {
+    match service_tier
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("priority" | "fast") => PRIORITY_BILLING_MODE,
+        Some("standard" | "default" | "auto") | None => STANDARD_BILLING_MODE,
+        Some(_) => STANDARD_BILLING_MODE,
+    }
+}
+
+fn normalize_rule_billing_mode(billing_mode: &str) -> Option<&'static str> {
+    match billing_mode.trim().to_ascii_lowercase().as_str() {
+        "standard" | "default" | "auto" | "tokens" | "" => Some(STANDARD_BILLING_MODE),
+        "priority" | "fast" => Some(PRIORITY_BILLING_MODE),
+        _ => None,
+    }
+}
+
 fn price_from_rule(rule: &ModelPriceRule, input_tokens: i64) -> Option<ModelPriceMatch> {
     if !rule.enabled
         || !rule.currency.eq_ignore_ascii_case("USD")
@@ -531,29 +849,54 @@ pub(crate) fn resolve_model_price_from_rules(
     rules: &[ModelPriceRule],
     model: &str,
     input_tokens: i64,
+    service_tier: Option<&str>,
 ) -> Option<ModelPriceMatch> {
     let normalized = model.trim().to_ascii_lowercase();
     if normalized.is_empty() || normalized == "unknown" {
         return None;
     }
 
+    let billing_mode = normalize_service_tier_for_billing(service_tier);
     let matched = rules
         .iter()
-        .filter(|rule| rule_matches(rule, &normalized))
+        .filter(|rule| {
+            normalize_rule_billing_mode(&rule.billing_mode) == Some(billing_mode)
+                && rule_matches(rule, &normalized)
+        })
         .max_by_key(|rule| (rule.priority, rule.model_pattern.len() as i64))?;
 
     price_from_rule(matched, input_tokens)
 }
 
 pub(crate) fn resolve_model_price(model: &str, input_tokens: i64) -> Option<ModelPriceMatch> {
+    resolve_model_price_for_service_tier(model, input_tokens, None)
+}
+
+pub(crate) fn resolve_model_price_for_service_tier(
+    model: &str,
+    input_tokens: i64,
+    service_tier: Option<&str>,
+) -> Option<ModelPriceMatch> {
     let normalized = model.trim().to_ascii_lowercase();
     if normalized.is_empty() || normalized == "unknown" {
         return None;
     }
 
-    let matched = PRICE_SEEDS
+    let priority_mode = normalize_service_tier_for_billing(service_tier) == PRIORITY_BILLING_MODE;
+    let seeds = if priority_mode {
+        PRIORITY_PRICE_SEEDS
+    } else {
+        PRICE_SEEDS
+    };
+    let matched = seeds
         .iter()
-        .filter(|seed| normalized.starts_with(seed.model_pattern))
+        .filter(|seed| {
+            if priority_mode {
+                normalized == seed.model_pattern
+            } else {
+                normalized.starts_with(seed.model_pattern)
+            }
+        })
         .max_by_key(|seed| seed.model_pattern.len())?;
 
     let mut input = matched.input_price_per_1m;
@@ -606,11 +949,28 @@ fn estimate_cost_from_price(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn estimate_cost(
     model: Option<&str>,
     input_tokens: i64,
     cached_input_tokens: i64,
     output_tokens: i64,
+) -> CostEstimate {
+    estimate_cost_for_service_tier(
+        model,
+        input_tokens,
+        cached_input_tokens,
+        output_tokens,
+        None,
+    )
+}
+
+pub(crate) fn estimate_cost_for_service_tier(
+    model: Option<&str>,
+    input_tokens: i64,
+    cached_input_tokens: i64,
+    output_tokens: i64,
+    service_tier: Option<&str>,
 ) -> CostEstimate {
     let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
         return CostEstimate {
@@ -619,7 +979,9 @@ pub(crate) fn estimate_cost(
             price_status: "missing",
         };
     };
-    let Some(price) = resolve_model_price(model, input_tokens.max(0)) else {
+    let Some(price) =
+        resolve_model_price_for_service_tier(model, input_tokens.max(0), service_tier)
+    else {
         return CostEstimate {
             provider: None,
             cost_usd: None,
@@ -636,6 +998,7 @@ pub(crate) fn estimate_cost_with_rules(
     input_tokens: i64,
     cached_input_tokens: i64,
     output_tokens: i64,
+    service_tier: Option<&str>,
 ) -> CostEstimate {
     let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
         return CostEstimate {
@@ -645,8 +1008,10 @@ pub(crate) fn estimate_cost_with_rules(
         };
     };
 
-    let Some(price) = resolve_model_price_from_rules(rules, model, input_tokens.max(0))
-        .or_else(|| resolve_model_price(model, input_tokens.max(0)))
+    let Some(price) =
+        resolve_model_price_from_rules(rules, model, input_tokens.max(0), service_tier).or_else(
+            || resolve_model_price_for_service_tier(model, input_tokens.max(0), service_tier),
+        )
     else {
         return CostEstimate {
             provider: None,
@@ -666,7 +1031,7 @@ pub(crate) fn estimate_remaining_tokens_from_usd_with_rules(
     if !balance_usd.is_finite() || balance_usd < 0.0 {
         return None;
     }
-    let price = resolve_model_price_from_rules(rules, model, 0)
+    let price = resolve_model_price_from_rules(rules, model, 0, None)
         .or_else(|| resolve_model_price(model, 0))?;
     if balance_usd == 0.0 {
         return Some(0);
@@ -684,16 +1049,20 @@ pub(crate) fn estimate_cost_usd_for_log(
     input_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
     output_tokens: Option<i64>,
+    service_tier: Option<&str>,
 ) -> f64 {
     let input = input_tokens.unwrap_or(0);
     let cached = cached_input_tokens.unwrap_or(0);
     let output = output_tokens.unwrap_or(0);
+    let _ = ensure_official_price_seed(storage);
     let cost = storage
         .list_enabled_model_price_rules()
         .ok()
         .filter(|rules| !rules.is_empty())
-        .map(|rules| estimate_cost_with_rules(&rules, model, input, cached, output))
-        .unwrap_or_else(|| estimate_cost(model, input, cached, output));
+        .map(|rules| estimate_cost_with_rules(&rules, model, input, cached, output, service_tier))
+        .unwrap_or_else(|| {
+            estimate_cost_for_service_tier(model, input, cached, output, service_tier)
+        });
 
     cost.cost_usd.unwrap_or(0.0)
 }
@@ -762,16 +1131,58 @@ mod tests {
                 4.0,
             ),
         ];
-        let exact =
-            resolve_model_price_from_rules(&rules, "vendor-model-mini", 0).expect("exact rule");
+        let exact = resolve_model_price_from_rules(&rules, "vendor-model-mini", 0, None)
+            .expect("exact rule");
         assert_close(exact.input_price_per_1m, 3.0);
         assert_close(exact.cached_input_price_per_1m, 0.3);
         assert_close(exact.output_price_per_1m, 4.0);
 
-        let wildcard =
-            resolve_model_price_from_rules(&rules, "vendor-other-mini", 0).expect("wildcard rule");
+        let wildcard = resolve_model_price_from_rules(&rules, "vendor-other-mini", 0, None)
+            .expect("wildcard rule");
         assert_close(wildcard.input_price_per_1m, 1.0);
         assert_close(wildcard.output_price_per_1m, 2.0);
+    }
+
+    #[test]
+    fn selects_database_rule_by_billing_mode_for_same_model() {
+        let standard = test_rule("standard", "gpt-tiered", "exact", 100, 1.0, Some(0.1), 2.0);
+        let mut priority = standard.clone();
+        priority.id = "priority".to_string();
+        priority.billing_mode = "priority".to_string();
+        priority.input_price_per_1m = Some(3.0);
+        priority.cached_input_price_per_1m = Some(0.3);
+        priority.output_price_per_1m = Some(4.0);
+        let rules = vec![standard, priority];
+
+        let standard_price =
+            resolve_model_price_from_rules(&rules, "gpt-tiered", 0, Some("standard"))
+                .expect("standard rule");
+        let priority_price = resolve_model_price_from_rules(&rules, "gpt-tiered", 0, Some("fast"))
+            .expect("priority rule");
+
+        assert_close(standard_price.input_price_per_1m, 1.0);
+        assert_close(priority_price.input_price_per_1m, 3.0);
+        assert_close(priority_price.output_price_per_1m, 4.0);
+    }
+
+    #[test]
+    fn normalizes_service_tier_with_safe_standard_fallback() {
+        assert_eq!(
+            normalize_service_tier_for_billing(Some("priority")),
+            "priority"
+        );
+        assert_eq!(normalize_service_tier_for_billing(Some("FAST")), "priority");
+        assert_eq!(normalize_service_tier_for_billing(None), "standard");
+        assert_eq!(normalize_service_tier_for_billing(Some("")), "standard");
+        assert_eq!(normalize_service_tier_for_billing(Some("auto")), "standard");
+        assert_eq!(
+            normalize_service_tier_for_billing(Some("default")),
+            "standard"
+        );
+        assert_eq!(
+            normalize_service_tier_for_billing(Some("future-premium-tier")),
+            "standard"
+        );
     }
 
     #[test]
@@ -785,6 +1196,121 @@ mod tests {
         let snapshot = resolve_model_price("gpt-5.4-mini-2026-03-17", 0).expect("snapshot price");
         assert_close(snapshot.input_price_per_1m, 0.75);
         assert_close(snapshot.output_price_per_1m, 4.5);
+    }
+
+    #[test]
+    fn resolves_specific_gpt_4_standard_prices_before_family_prefixes() {
+        let cases = [
+            ("gpt-4.1-mini", 0.4, 0.1, 1.6),
+            ("gpt-4.1-nano", 0.1, 0.025, 0.4),
+            ("gpt-4o-mini", 0.15, 0.075, 0.6),
+            ("gpt-4o-2024-05-13", 5.0, 5.0, 15.0),
+        ];
+        for (model, input, cached, output) in cases {
+            let price = resolve_model_price(model, 0).expect("standard price");
+            assert_close(price.input_price_per_1m, input);
+            assert_close(price.cached_input_price_per_1m, cached);
+            assert_close(price.output_price_per_1m, output);
+        }
+    }
+
+    #[test]
+    fn resolves_official_priority_prices_without_uniform_multiplier() {
+        let cases = [
+            ("gpt-5.6-sol", 10.0, 1.0, 60.0),
+            ("gpt-5.6-terra", 5.0, 0.5, 30.0),
+            ("gpt-5.6-luna", 2.0, 0.2, 12.0),
+            ("gpt-5.5", 12.5, 1.25, 75.0),
+            ("gpt-5.4", 5.0, 0.5, 30.0),
+            ("gpt-5.4-mini", 1.5, 0.15, 9.0),
+            ("gpt-5.2", 3.5, 0.35, 28.0),
+            ("gpt-5.1", 2.5, 0.25, 20.0),
+            ("gpt-5", 2.5, 0.25, 20.0),
+            ("gpt-5-mini", 0.45, 0.045, 3.6),
+            ("gpt-4.1", 3.5, 0.875, 14.0),
+            ("gpt-4.1-mini", 0.7, 0.175, 2.8),
+            ("gpt-4.1-nano", 0.2, 0.05, 0.8),
+            ("gpt-4o", 4.25, 2.125, 17.0),
+            ("gpt-4o-2024-05-13", 8.75, 8.75, 26.25),
+            ("gpt-4o-mini", 0.25, 0.125, 1.0),
+            ("o3", 3.5, 0.875, 14.0),
+            ("o4-mini", 2.0, 0.5, 8.0),
+        ];
+        for (model, input, cached, output) in cases {
+            let price = resolve_model_price_for_service_tier(model, 0, Some("priority"))
+                .expect("priority price");
+            assert_close(price.input_price_per_1m, input);
+            assert_close(price.cached_input_price_per_1m, cached);
+            assert_close(price.output_price_per_1m, output);
+        }
+
+        let mini_standard = resolve_model_price("gpt-5-mini", 0).expect("standard mini price");
+        let mini_priority = resolve_model_price_for_service_tier("gpt-5-mini", 0, Some("priority"))
+            .expect("priority mini price");
+        assert_close(
+            mini_priority.input_price_per_1m / mini_standard.input_price_per_1m,
+            1.8,
+        );
+        for unlisted_variant in [
+            "gpt-5.5-pro",
+            "gpt-5.4-pro",
+            "gpt-5.4-nano",
+            "gpt-5.2-pro",
+            "gpt-5-nano",
+            "gpt-5-pro",
+        ] {
+            assert!(
+                resolve_model_price_for_service_tier(unlisted_variant, 0, Some("priority"))
+                    .is_none(),
+                "unlisted Priority variant must not inherit a family price: {unlisted_variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn upgraded_seed_inserts_standard_and_priority_rules() {
+        let storage = Storage::open_in_memory().expect("open storage");
+        storage.init().expect("init storage");
+        let mut old_family_rule = test_rule(
+            "official-2026-07-11-gpt-4.1",
+            "gpt-4.1",
+            "prefix",
+            9_982,
+            2.0,
+            Some(0.5),
+            8.0,
+        );
+        old_family_rule.provider = "openai".to_string();
+        old_family_rule.source = "official_seed".to_string();
+        old_family_rule.seed_version = Some("2026-07-11".to_string());
+        storage
+            .upsert_model_price_rule(&old_family_rule)
+            .expect("insert old seed");
+
+        ensure_official_price_seed(&storage).expect("seed tiered prices");
+
+        assert_eq!(
+            storage
+                .count_model_price_rules_for_seed(PRICE_SEED_VERSION)
+                .expect("count seeds") as usize,
+            PRICE_SEEDS.len() + PRIORITY_PRICE_SEEDS.len()
+        );
+        let standard = storage
+            .find_model_price_rule_by_model_pattern_and_billing_mode("gpt-5-mini", "standard")
+            .expect("read standard seed")
+            .expect("standard seed");
+        let priority = storage
+            .find_model_price_rule_by_model_pattern_and_billing_mode("gpt-5-mini", "priority")
+            .expect("read priority seed")
+            .expect("priority seed");
+        assert_close(standard.input_price_per_1m.expect("standard input"), 0.25);
+        assert_close(priority.input_price_per_1m.expect("priority input"), 0.45);
+        let all_rules = storage
+            .list_enabled_model_price_rules()
+            .expect("list upgraded rules");
+        let nano = resolve_model_price_from_rules(&all_rules, "gpt-4.1-nano", 0, None)
+            .expect("new specific seed wins over old family seed");
+        assert_close(nano.input_price_per_1m, 0.1);
     }
 
     #[test]

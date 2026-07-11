@@ -42,6 +42,15 @@ async function loadTopLevelRoutesModule() {
 
 const routes = await loadTopLevelRoutesModule();
 
+test("根页面清单包含平台模式页面", async () => {
+  const source = await fs.readFile(
+    path.join(appsRoot, "src", "lib", "routes", "root-page-paths.ts"),
+    "utf8",
+  );
+
+  assert.match(source, /"\/platform-mode"/);
+});
+
 test("accounts 模式管理员菜单按任务域分组并保留账号体系入口", () => {
   const access = { role: "admin", mode: "accounts" };
   const sections = routes.getAllowedTopLevelRouteSections(access);

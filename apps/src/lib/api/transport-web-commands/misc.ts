@@ -31,6 +31,7 @@ export function createMiscWebCommands(): Record<string, WebCommandDescriptor> {
         timeoutMessage: "RPC requestlog/summary 超时：请求日志摘要查询超过 30 秒",
       },
     },
+    service_requestlog_error_summary: { rpcMethod: "requestlog/errorSummary" },
     service_requestlog_clear: {
       rpcMethod: "requestlog/clear",
       requestOptions: noRetryTimeoutOptions(

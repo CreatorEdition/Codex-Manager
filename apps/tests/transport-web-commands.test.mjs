@@ -20,6 +20,34 @@ const modulePaths = [
   path.join(appsRoot, "src", "lib", "api", "transport-web-commands", "quota.ts"),
   path.join(appsRoot, "src", "lib", "api", "transport-web-commands", "shared.ts"),
 ];
+const commandModulePaths = modulePaths.filter(
+  (modulePath) => !["browser-direct.ts", "shared.ts"].includes(path.basename(modulePath)),
+);
+// Web 运行壳不负责桌面生命周期、自更新和本地 Codex 缓存同步命令。
+const webCommandExemptions = new Set([
+  "app_close_to_tray_on_close_get",
+  "app_close_to_tray_on_close_set",
+  "app_update_apply_portable",
+  "app_update_check",
+  "app_update_launch_installer",
+  "app_update_prepare",
+  "app_update_status",
+  "service_start",
+  "service_stop",
+  "service_sync_codex_models_cache",
+]);
+
+function extractStaticInvokedCommands(source) {
+  return Array.from(
+    source.matchAll(/invoke(?:First)?(?:<[^>]+>)?\(\s*(?:\[\s*)?["']([^"']+)["']/g),
+  ).map((match) => match[1]);
+}
+
+function extractDeclaredWebCommandKeys(source) {
+  return Array.from(source.matchAll(/^ {4}([a-z][a-z0-9_]+):\s*\{/gm)).map(
+    (match) => match[1],
+  );
+}
 
 function rewriteImports(outputText) {
   return outputText
@@ -75,6 +103,53 @@ async function loadTransportWebCommandsModule() {
 
 const transportWebCommands = await loadTransportWebCommandsModule();
 const commandMap = transportWebCommands.createWebCommandMap(async () => ({}));
+
+test("createWebCommandMap 覆盖前端静态调用的全部 Web 命令", async () => {
+  const apiFiles = (await fs.readdir(path.join(appsRoot, "src", "lib", "api")))
+    .filter((file) => file.endsWith("-client.ts"))
+    .map((file) => path.join(appsRoot, "src", "lib", "api", file));
+  const invokedCommands = new Set(
+    (
+      await Promise.all(
+        apiFiles.map(async (file) => extractStaticInvokedCommands(await fs.readFile(file, "utf8"))),
+      )
+    ).flat(),
+  );
+  const missingCommands = [...invokedCommands]
+    .filter((command) => !webCommandExemptions.has(command) && !commandMap[command])
+    .sort();
+
+  assert.deepEqual(missingCommands, []);
+});
+
+test("Web command 模块不声明重复命令键", async () => {
+  const declarations = new Map();
+  for (const modulePath of commandModulePaths) {
+    const source = await fs.readFile(modulePath, "utf8");
+    for (const command of extractDeclaredWebCommandKeys(source)) {
+      const owners = declarations.get(command) ?? [];
+      owners.push(path.basename(modulePath));
+      declarations.set(command, owners);
+    }
+  }
+  const duplicates = [...declarations]
+    .filter(([, owners]) => owners.length > 1)
+    .map(([command, owners]) => ({ command, owners }))
+    .sort((left, right) => left.command.localeCompare(right.command));
+
+  assert.deepEqual(duplicates, []);
+});
+
+test("关键查询与模型价格命令使用服务端真实 RPC 名称", () => {
+  assert.equal(commandMap.service_account_lookup.rpcMethod, "account/lookup");
+  assert.equal(commandMap.service_apikey_lookup.rpcMethod, "apikey/lookup");
+  assert.equal(commandMap.service_aggregate_api_lookup.rpcMethod, "aggregateApi/lookup");
+  assert.equal(commandMap.service_quota_model_pool_sources.rpcMethod, "quota/modelPoolSources");
+  assert.equal(commandMap.service_requestlog_error_summary.rpcMethod, "requestlog/errorSummary");
+  assert.equal(commandMap.service_model_price_rules_list.rpcMethod, "modelPriceRules/list");
+  assert.equal(commandMap.service_model_price_rule_read.rpcMethod, "modelPriceRule/read");
+  assert.equal(commandMap.service_model_price_rule_upsert.rpcMethod, "modelPriceRule/upsert");
+});
 
 test("createWebCommandMap 复用 keyId 到 id 的参数映射", () => {
   const descriptor = commandMap.service_apikey_delete;
@@ -359,6 +434,17 @@ test("createWebCommandMap 为长耗时 Web RPC 配置独立超时且不重试", 
     timeoutMessage:
       "RPC aggregateApi/sourceModels/importSupplier 超时：供应商模型导入超过 120 秒",
   });
+});
+
+test("createWebCommandMap 映射出口网络诊断命令", () => {
+  assert.equal(
+    commandMap.service_network_diagnostics_get.rpcMethod,
+    "networkDiagnostics/get",
+  );
+  assert.equal(
+    commandMap.service_network_diagnostics_refresh.rpcMethod,
+    "networkDiagnostics/refresh",
+  );
 });
 
 test("createWebCommandMap 为维护类 Web RPC 配置独立超时且不重试", () => {

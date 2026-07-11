@@ -14,6 +14,8 @@ export const EN_ACCOUNTS_MESSAGES: MessageCatalog = {
     "AT/RT refresh completed: {success} succeeded, {skipped} skipped",
   "AT/RT 过期、用量接口 401/403 等不可用账号":
     "Unavailable accounts such as expired AT/RT or usage API 401/403",
+  "账号用量刷新完成：已处理{processed}/{total}":
+    "Account usage refresh completed: processed {processed}/{total}",
   "Refresh Token 失效，需要重新登录": "Refresh token is invalid. Log in again.",
   "Refresh Token 已被撤销，需要重新登录": "Refresh token was revoked. Log in again.",
   "Refresh Token 已被重复使用，需要重新登录":

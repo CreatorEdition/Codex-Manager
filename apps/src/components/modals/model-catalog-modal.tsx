@@ -405,6 +405,7 @@ export function ModelCatalogModal({
             id: priceRule?.id,
             provider: priceRule?.provider ?? undefined,
             modelPattern: slug,
+            billingMode: priceRule?.billingMode ?? "standard",
             inputPricePer1m: isClearingExistingOverride ? 0 : Number(ip),
             cachedInputPricePer1m: isClearingExistingOverride
               ? null

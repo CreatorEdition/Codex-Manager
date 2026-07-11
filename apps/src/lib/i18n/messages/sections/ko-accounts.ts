@@ -14,6 +14,8 @@ export const KO_ACCOUNTS_MESSAGES: MessageCatalog = {
     "AT/RT 새로고침 완료: 성공 {success}개, 건너뜀 {skipped}개",
   "AT/RT 过期、用量接口 401/403 等不可用账号":
     "AT/RT 만료, 사용량 API 401/403 등으로 사용할 수 없는 계정",
+  "账号用量刷新完成：已处理{processed}/{total}":
+    "계정 사용량 새로고침 완료: {processed}/{total}개 처리됨",
   "Refresh Token 失效，需要重新登录": "Refresh Token이 유효하지 않습니다. 다시 로그인하세요.",
   "Refresh Token 已被撤销，需要重新登录": "Refresh Token이 취소되었습니다. 다시 로그인하세요.",
   "Refresh Token 已被重复使用，需要重新登录":

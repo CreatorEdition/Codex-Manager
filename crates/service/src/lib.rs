@@ -15,6 +15,7 @@ mod lifecycle;
 mod log_redaction;
 mod logging;
 mod model_groups;
+mod network_diagnostics;
 mod plugin;
 mod quota;
 mod requestlog;
@@ -145,6 +146,7 @@ pub use lifecycle::bootstrap::{initialize_storage_if_needed, portable};
 pub use lifecycle::shutdown::{clear_shutdown_flag, request_shutdown, shutdown_requested};
 pub use lifecycle::startup::{start_one_shot_server, start_server, ServerHandle};
 pub use logging::init_logging;
+pub use network_diagnostics::{network_diagnostics_get, network_diagnostics_refresh};
 pub use rpc_actor::{RpcActor, ROLE_ADMIN, ROLE_MEMBER, ROLE_SYSTEM_ADMIN};
 pub use usage_refresh::{set_usage_refresh_completed_handler, UsageRefreshCompletedEvent};
 

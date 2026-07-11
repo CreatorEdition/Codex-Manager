@@ -6,6 +6,12 @@ members = [
   "crates/web",
   "crates/db-optimize"
 ]
+default-members = [
+  "crates/core",
+  "crates/service",
+  "crates/start",
+  "crates/web"
+]
 exclude = [
   "apps/src-tauri"
 ]

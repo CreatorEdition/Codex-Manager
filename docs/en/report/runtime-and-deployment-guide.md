@@ -92,7 +92,7 @@ You can still set `CODEXMANAGER_WEB_ROOT=/path/to/out` when you intentionally wa
 
 ### GitHub Packages / GHCR
 - After a Release is published, both `codexmanager-service` and `codexmanager-web` images are pushed to GitHub Packages (GHCR).
-- Pull the corresponding release tag, for example: `docker pull ghcr.io/qxcnm/codexmanager-service:v0.1.15`
+- Pull the corresponding release tag, for example: `docker pull ghcr.io/creatoredition/codexmanager-service:v0.1.15`
 - [`docker/docker-compose.release.yml`](../../../docker/docker-compose.release.yml) in the repository also points directly to GHCR. Set `CODEXMANAGER_RELEASE_TAG` before use.
 - Example: `CODEXMANAGER_RELEASE_TAG=v0.1.15 docker compose -f docker/docker-compose.release.yml up -d`
 

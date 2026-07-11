@@ -522,13 +522,6 @@ pub(crate) fn write_request_log_with_attempts(
     }
     let first_response_ms = usage.first_response_ms.map(|value| value.max(0));
     let created_at = now_ts();
-    let estimated_cost_usd = crate::quota::model_pricing::estimate_cost_usd_for_log(
-        storage,
-        model,
-        input_tokens,
-        cached_input_tokens,
-        output_tokens,
-    );
     let request_type = trace_context
         .request_type
         .map(str::trim)
@@ -542,6 +535,15 @@ pub(crate) fn write_request_log_with_attempts(
         .effective_service_tier
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    let billing_service_tier = effective_service_tier.or(service_tier);
+    let estimated_cost_usd = crate::quota::model_pricing::estimate_cost_usd_for_log(
+        storage,
+        model,
+        input_tokens,
+        cached_input_tokens,
+        output_tokens,
+        billing_service_tier,
+    );
     let service_tier_source = resolve_service_tier_source(
         service_tier,
         effective_service_tier,
@@ -706,6 +708,7 @@ pub(crate) fn write_request_log_with_attempts(
             "totalTokens": total_tokens,
             "reasoningOutputTokens": reasoning_output_tokens,
             "estimatedCostUsd": estimated_cost_usd,
+            "effectiveServiceTier": billing_service_tier,
         }))
         .ok();
         if let Err(err) = crate::wallet_charge_for_request(
@@ -714,7 +717,7 @@ pub(crate) fn write_request_log_with_attempts(
             request_log_id,
             estimated_cost_usd,
             model,
-            effective_service_tier.or(service_tier),
+            billing_service_tier,
             raw_usage_json,
         ) {
             log::warn!(

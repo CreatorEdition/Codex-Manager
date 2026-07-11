@@ -8,7 +8,9 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::account_status::mark_account_unavailable_for_auth_error;
+use crate::account_status::{
+    mark_account_unavailable_for_auth_error, REFRESH_TOKEN_REGION_BLOCKED_REASON,
+};
 use crate::storage_helpers::open_storage;
 use crate::usage_account_meta::{
     build_workspace_map_from_accounts, clean_header_value, derive_account_meta, patch_account_meta,
@@ -397,6 +399,60 @@ pub(crate) fn enqueue_usage_refresh_for_account(account_id: &str) -> bool {
             );
         }
     })
+}
+
+/// 判断 Token 刷新成功后是否需要立即验证单账号用量。
+///
+/// 这里只识别“认证或用量鉴权曾失败，但新 Token 可能已经解除”的状态原因。
+/// 手动禁用与确认封禁账号即使在刷新执行期间发生状态变化，也不会被后台任务恢复。
+fn should_validate_usage_after_token_refresh(storage: &Storage, account_id: &str) -> bool {
+    let account = match storage.find_account_by_id(account_id) {
+        Ok(Some(account)) => account,
+        _ => return false,
+    };
+    if matches!(
+        account.status.trim().to_ascii_lowercase().as_str(),
+        "disabled" | "banned"
+    ) {
+        return false;
+    }
+
+    storage
+        .latest_account_status_reasons(&[account_id.to_string()])
+        .ok()
+        .and_then(|reasons| reasons.get(account_id).cloned())
+        .map(|reason| {
+            let normalized = reason.trim().to_ascii_lowercase();
+            normalized.starts_with("refresh_token_invalid:")
+                || matches!(
+                    normalized.as_str(),
+                    REFRESH_TOKEN_REGION_BLOCKED_REASON | "usage_http_401" | "usage_http_403"
+                )
+        })
+        .unwrap_or(false)
+}
+
+/// Token 刷新成功后异步排队一次真实用量验证。
+///
+/// 该路径直接进入单账号刷新队列，不经过后台轮询候选 SQL，因此不会被陈旧的
+/// `usage_refresh_failed` 冷却事件继续阻塞；最终状态只由用量快照状态机更新。
+fn enqueue_usage_validation_after_token_refresh_with<F>(
+    storage: &Storage,
+    account_id: &str,
+    enqueue: F,
+) -> bool
+where
+    F: FnOnce(&str) -> bool,
+{
+    should_validate_usage_after_token_refresh(storage, account_id) && enqueue(account_id)
+}
+
+fn enqueue_usage_validation_after_token_refresh(storage: &Storage, account_id: &str) -> bool {
+    enqueue_usage_validation_after_token_refresh_with(
+        storage,
+        account_id,
+        enqueue_usage_refresh_for_account,
+    )
 }
 
 pub(crate) fn enqueue_usage_refresh_after_account_add(account_id: &str) -> bool {
@@ -891,9 +947,9 @@ fn token_refresh_transient_backoff_secs(failure_count: i64) -> u64 {
 /// 函数 `schedule_token_refresh_failure_retry`
 ///
 /// 中文注释：按失败性质分流计算 token 刷新的下次重试时间（per-account，写 tokens.next_refresh_at）。
-/// - 永久无效（reused/invalidated/expired/invalid_grant/app_session_terminated）：
+/// - 明确永久无效（reused/invalidated/invalid_grant/app_session_terminated）及疑似过期：
 ///   施加长冷却（`token_refresh_failure_cooldown_secs`，默认 6 小时），不依赖失败计数；
-///   这类账号已被 `mark_account_unavailable_for_auth_error` 置不可用，长冷却避免反复进轮询。
+///   expired 不永久过滤，冷却结束后仍会低频复检。
 /// - 临时失败（Unknown401，以及分类器返回 None 的网络/5xx/超时）：连续失败计数 +1，
 ///   按指数退避 `base * 2^(n-1)`（封顶 max）作为下次重试间隔，让服务端抖动快速恢复。
 ///
@@ -906,12 +962,12 @@ fn token_refresh_transient_backoff_secs(failure_count: i64) -> u64 {
 /// # 返回
 /// 无
 fn schedule_token_refresh_failure_retry(storage: &Storage, account_id: &str, now: i64, err: &str) {
-    let is_permanent = refresh_token_auth_error_reason_from_message(err)
-        .map(|reason| reason.is_permanent())
+    let uses_long_cooldown = refresh_token_auth_error_reason_from_message(err)
+        .map(|reason| reason.uses_long_retry_cooldown())
         .unwrap_or(false);
 
-    if is_permanent {
-        // 中文注释：永久无效走长冷却；同时清零失败计数，避免后续若被人工恢复时
+    if uses_long_cooldown {
+        // 中文注释：明确永久失效或疑似过期走长冷却；同时清零失败计数，避免恢复时
         // 仍残留历史临时计数导致退避错乱。
         let _ = storage.reset_token_consecutive_failure_count(account_id);
         let cooldown = i64::try_from(token_refresh_failure_cooldown_secs()).unwrap_or(i64::MAX);
@@ -1078,6 +1134,14 @@ fn run_token_refresh_task(
         Ok(_) => {
             // 中文注释：刷新成功，清零连续失败计数，使下次失败重新从最短退避起步。
             let _ = storage.reset_token_consecutive_failure_count(&token.account_id);
+            // 中文注释：成功换取 Token 仅证明认证可继续，不能直接把账号设为 active。
+            // 对认证/用量鉴权故障账号异步触发真实用量验证，由快照状态机恢复状态。
+            if enqueue_usage_validation_after_token_refresh(storage, &token.account_id) {
+                log::info!(
+                    "queued usage validation after token refresh: account_id={}",
+                    token.account_id
+                );
+            }
             true
         }
         Err(err) => {

@@ -9,6 +9,7 @@ import { exportAccountsViaBrowser, pickImportFilesFromBrowser } from "./browser-
 export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<string, WebCommandDescriptor> {
   return {
     service_account_list: { rpcMethod: "account/list" },
+    service_account_lookup: { rpcMethod: "account/lookup" },
     service_account_delete: { rpcMethod: "account/delete" },
     service_account_delete_many: {
       rpcMethod: "account/deleteMany",
@@ -114,6 +115,7 @@ export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<strin
         const source = asRecord(params) ?? {};
         return {
           modelPattern: source.model_pattern ?? source.modelPattern,
+          billingMode: source.billing_mode ?? source.billingMode,
         };
       },
     },
@@ -174,5 +176,9 @@ export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<strin
       ),
     },
     service_usage_aggregate: { rpcMethod: "account/usage/aggregate" },
+    service_network_diagnostics_get: { rpcMethod: "networkDiagnostics/get" },
+    service_network_diagnostics_refresh: {
+      rpcMethod: "networkDiagnostics/refresh",
+    },
   };
 }

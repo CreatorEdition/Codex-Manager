@@ -58,6 +58,9 @@ macro_rules! invoke_handler {
             crate::commands::usage::service_usage_list,
             crate::commands::usage::service_usage_aggregate,
             crate::commands::usage::service_usage_refresh,
+            // network diagnostics
+            crate::commands::network_diagnostics::service_network_diagnostics_get,
+            crate::commands::network_diagnostics::service_network_diagnostics_refresh,
             // quota
             crate::commands::quota::service_quota_overview,
             crate::commands::quota::service_quota_model_usage,

@@ -34,7 +34,7 @@ fn observability_maintenance_interval_secs() -> i64 {
         .unwrap_or(DEFAULT_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS)
 }
 
-pub(super) fn observability_maintenance_batch_limit() -> usize {
+pub fn observability_maintenance_batch_limit() -> usize {
     std::env::var(OBSERVABILITY_MAINTENANCE_BATCH_LIMIT_ENV)
         .ok()
         .and_then(|raw| raw.trim().parse::<usize>().ok())
@@ -235,6 +235,33 @@ fn split_mixed_token_stats_range(
     range
 }
 
+fn live_segments_excluding_closed_ranges(
+    start_ts: i64,
+    end_ts: i64,
+    closed_ranges: &[(i64, i64)],
+) -> Vec<(i64, i64)> {
+    let mut segments = Vec::new();
+    let mut cursor = start_ts;
+    for &(closed_start, closed_end) in closed_ranges {
+        let closed_start = closed_start.max(start_ts);
+        let closed_end = closed_end.min(end_ts);
+        if closed_end <= closed_start || closed_end <= cursor {
+            continue;
+        }
+        if closed_start > cursor {
+            segments.push((cursor, closed_start));
+        }
+        cursor = cursor.max(closed_end);
+        if cursor >= end_ts {
+            break;
+        }
+    }
+    if cursor < end_ts {
+        segments.push((cursor, end_ts));
+    }
+    segments
+}
+
 fn ranked_usage_ids_from_maps(
     today_map: &HashMap<String, TokenUsageRollup>,
     range_map: &HashMap<String, TokenUsageRollup>,
@@ -395,16 +422,43 @@ impl Storage {
         now: i64,
         daily_rollup_anchor_ts: i64,
     ) -> Result<()> {
+        self.prune_observability_history_with_daily_rollup_ranges(
+            now,
+            &[(
+                daily_rollup_anchor_ts.saturating_sub(86_400),
+                daily_rollup_anchor_ts,
+            )],
+        )
+    }
+
+    /// 使用显式本地自然日边界执行观测数据维护。
+    ///
+    /// 每个区间必须按时间升序排列且互不重叠。显式边界允许调用方保留
+    /// 夏令时切换日的 23/25 小时时长，而不把本地自然日强制压成 86400 秒。
+    pub fn prune_observability_history_with_daily_rollup_ranges(
+        &self,
+        now: i64,
+        daily_rollup_ranges: &[(i64, i64)],
+    ) -> Result<()> {
         let batch_limit = observability_maintenance_batch_limit();
         let mut touched = 0_usize;
-        let daily_rolled = self.rollup_request_token_stats_daily_before_limited(
-            daily_rollup_anchor_ts,
-            daily_rollup_anchor_ts,
-            86_400,
-            batch_limit,
-        )?;
+        let mut daily_rolled = 0_usize;
+        for &(day_start, day_end) in daily_rollup_ranges {
+            if day_end <= day_start || daily_rolled >= batch_limit {
+                continue;
+            }
+            daily_rolled =
+                daily_rolled.saturating_add(self.rollup_request_token_stats_daily_before_limited(
+                    day_end,
+                    day_end,
+                    day_end.saturating_sub(day_start),
+                    batch_limit.saturating_sub(daily_rolled),
+                )?);
+        }
         touched = touched.saturating_add(daily_rolled);
-        let mut defer_request_log_prune = daily_rolled >= batch_limit;
+        let closed_before_ts = daily_rollup_ranges.last().map(|(_, end)| *end).unwrap_or(0);
+        let mut defer_request_log_prune = daily_rolled >= batch_limit
+            || self.has_pending_daily_rollup_before(closed_before_ts)?;
         if let Some(cutoff) = retention_cutoff(now, request_token_stats_retain_days()) {
             let rolled =
                 self.rollup_daily_rolled_request_token_stats_before_limited(cutoff, batch_limit)?;
@@ -429,6 +483,52 @@ impl Storage {
             let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
         }
         Ok(())
+    }
+
+    /// 返回指定边界前最早尚未写入日级汇总的 token 明细时间。
+    pub fn oldest_pending_daily_rollup_ts_before(&self, cutoff_ts: i64) -> Result<Option<i64>> {
+        if cutoff_ts <= 0 {
+            return Ok(None);
+        }
+        self.conn.query_row(
+            "SELECT MIN(created_at)
+             FROM request_token_stats
+             WHERE created_at < ?1
+               AND daily_rolled_at IS NULL",
+            [cutoff_ts],
+            |row| row.get(0),
+        )
+    }
+
+    /// 按创建时间读取指定边界前尚未日级固化的明细时间戳。
+    ///
+    /// 返回行数受 limit 限制，供服务层只解析本批次真实存在数据的本地日期，
+    /// 避免稀疏历史数据按日历跨度枚举大量空日期。
+    pub fn pending_daily_rollup_timestamps_before_limited(
+        &self,
+        cutoff_ts: i64,
+        limit: usize,
+    ) -> Result<Vec<i64>> {
+        if cutoff_ts <= 0 || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        let mut stmt = self.conn.prepare(
+            "SELECT created_at
+             FROM request_token_stats
+             WHERE created_at < ?1
+               AND daily_rolled_at IS NULL
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map((cutoff_ts, limit_i64), |row| row.get(0))?;
+        rows.collect()
+    }
+
+    fn has_pending_daily_rollup_before(&self, cutoff_ts: i64) -> Result<bool> {
+        Ok(self
+            .oldest_pending_daily_rollup_ts_before(cutoff_ts)?
+            .is_some())
     }
     pub fn rollup_request_token_stats_daily_before_limited(
         &self,
@@ -1625,6 +1725,165 @@ impl Storage {
             });
             cursor = next;
         }
+        Ok(items)
+    }
+
+    /// 按显式本地日区间汇总 token 使用量，避免 DST 日被固定秒数切错。
+    pub fn summarize_request_token_stats_daily_mixed_ranges(
+        &self,
+        day_ranges: &[(i64, i64)],
+        closed_day_ranges: &[(i64, i64)],
+    ) -> Result<Vec<DailyTokenUsageRollup>> {
+        let closed_days = closed_day_ranges.iter().copied().collect::<HashSet<_>>();
+        let mut items = Vec::with_capacity(day_ranges.len());
+        for &(day_start, day_end) in day_ranges {
+            if day_end <= day_start {
+                continue;
+            }
+            let mut usage = TokenUsageRollup::default();
+            if closed_days.contains(&(day_start, day_end)) {
+                add_token_usage_rollup(
+                    &mut usage,
+                    &self
+                        .query_request_token_stat_daily_rollup_usage_between(day_start, day_end)?,
+                );
+                if let Some(unrolled_usage) = self
+                    .summarize_request_token_stats_daily_unrolled(
+                        day_start,
+                        day_end,
+                        day_end.saturating_sub(day_start),
+                    )?
+                    .into_iter()
+                    .next()
+                    .map(|item| item.usage)
+                {
+                    add_token_usage_rollup(&mut usage, &unrolled_usage);
+                }
+            } else if let Some(live_usage) = self
+                .summarize_request_token_stats_daily(
+                    day_start,
+                    day_end,
+                    day_end.saturating_sub(day_start),
+                )?
+                .into_iter()
+                .next()
+                .map(|item| item.usage)
+            {
+                add_token_usage_rollup(&mut usage, &live_usage);
+            }
+            items.push(DailyTokenUsageRollup {
+                day_start_ts: day_start,
+                day_end_ts: day_end,
+                usage,
+            });
+        }
+        Ok(items)
+    }
+
+    /// 使用显式已关闭本地日边界合并用户维度的日级汇总与存量明细。
+    pub fn summarize_request_token_stats_by_user_between_mixed_ranges(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        closed_day_ranges: &[(i64, i64)],
+    ) -> Result<Vec<UserTokenUsageRollup>> {
+        if end_ts <= start_ts {
+            return Ok(Vec::new());
+        }
+        let mut usage_by_user = HashMap::new();
+        for &(day_start, day_end) in closed_day_ranges {
+            if day_start < start_ts || day_end > end_ts || day_end <= day_start {
+                continue;
+            }
+            add_user_rollups_to_map(
+                &mut usage_by_user,
+                self.query_request_token_stat_daily_rollup_users_between(day_start, day_end)?,
+            );
+            add_user_rollups_to_map(
+                &mut usage_by_user,
+                self.summarize_request_token_stats_by_user_between_unrolled(day_start, day_end)?,
+            );
+        }
+        for (segment_start, segment_end) in
+            live_segments_excluding_closed_ranges(start_ts, end_ts, closed_day_ranges)
+        {
+            add_user_rollups_to_map(
+                &mut usage_by_user,
+                self.summarize_request_token_stats_by_user_between(segment_start, segment_end)?,
+            );
+        }
+        let mut items = usage_by_user
+            .into_iter()
+            .map(|(user_id, usage)| UserTokenUsageRollup { user_id, usage })
+            .collect::<Vec<_>>();
+        items.sort_by(|a, b| {
+            b.usage
+                .total_tokens
+                .cmp(&a.usage.total_tokens)
+                .then_with(|| a.user_id.cmp(&b.user_id))
+        });
+        Ok(items)
+    }
+
+    /// 使用显式已关闭本地日边界合并来源维度的日级汇总与存量明细。
+    pub fn summarize_request_token_stats_by_source_between_mixed_ranges(
+        &self,
+        source_kind: &str,
+        start_ts: i64,
+        end_ts: i64,
+        closed_day_ranges: &[(i64, i64)],
+    ) -> Result<Vec<SourceTokenUsageRollup>> {
+        if end_ts <= start_ts {
+            return Ok(Vec::new());
+        }
+        let mut usage_by_source = HashMap::new();
+        for &(day_start, day_end) in closed_day_ranges {
+            if day_start < start_ts || day_end > end_ts || day_end <= day_start {
+                continue;
+            }
+            add_source_rollups_to_map(
+                &mut usage_by_source,
+                self.query_request_token_stat_daily_rollup_sources_between(
+                    source_kind,
+                    day_start,
+                    day_end,
+                )?,
+            );
+            add_source_rollups_to_map(
+                &mut usage_by_source,
+                self.summarize_request_token_stats_by_source_between_unrolled(
+                    source_kind,
+                    day_start,
+                    day_end,
+                )?,
+            );
+        }
+        for (segment_start, segment_end) in
+            live_segments_excluding_closed_ranges(start_ts, end_ts, closed_day_ranges)
+        {
+            add_source_rollups_to_map(
+                &mut usage_by_source,
+                self.summarize_request_token_stats_by_source_between(
+                    source_kind,
+                    segment_start,
+                    segment_end,
+                )?,
+            );
+        }
+        let mut items = usage_by_source
+            .into_iter()
+            .map(|(source_id, usage)| SourceTokenUsageRollup {
+                source_kind: source_kind.to_string(),
+                source_id,
+                usage,
+            })
+            .collect::<Vec<_>>();
+        items.sort_by(|a, b| {
+            b.usage
+                .total_tokens
+                .cmp(&a.usage.total_tokens)
+                .then_with(|| a.source_id.cmp(&b.source_id))
+        });
         Ok(items)
     }
 

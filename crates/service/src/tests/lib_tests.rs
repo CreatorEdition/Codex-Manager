@@ -1,7 +1,8 @@
 use super::*;
+use chrono::{Duration, Local, LocalResult, TimeZone};
 use codexmanager_core::rpc::types::{JsonRpcMessage, JsonRpcResponse};
 use codexmanager_core::storage::{
-    ModelCatalogModelRecord, ModelGroupModel, RequestLog, RequestTokenStat,
+    Account, ModelCatalogModelRecord, ModelGroupModel, RequestLog, RequestTokenStat, Storage,
 };
 
 /// 函数 `response_result`
@@ -22,6 +23,24 @@ fn response_result(resp: JsonRpcMessage) -> JsonRpcResponse {
         JsonRpcMessage::Notification(_) => panic!("unexpected rpc notification"),
         JsonRpcMessage::Request(_) => panic!("unexpected rpc request"),
     }
+}
+
+fn test_local_day_boundaries(reference_ts: i64, day_count: i64) -> Vec<i64> {
+    let reference = Local
+        .timestamp_opt(reference_ts, 0)
+        .single()
+        .expect("resolve test local reference");
+    (0..=day_count)
+        .map(|offset| {
+            let date = reference.date_naive() + Duration::days(offset);
+            let naive = date.and_hms_opt(0, 0, 0).expect("build test midnight");
+            match Local.from_local_datetime(&naive) {
+                LocalResult::Single(value) => value.timestamp(),
+                LocalResult::Ambiguous(a, b) => a.timestamp().min(b.timestamp()),
+                LocalResult::None => panic!("resolve test local midnight: {date}"),
+            }
+        })
+        .collect()
 }
 
 /// 函数 `login_complete_requires_params`
@@ -116,6 +135,8 @@ fn member_actor_cannot_call_admin_only_rpc() {
         "accountManager/users/list",
         "codexProfile/repairHistory",
         "codexProfile/pruneHistoryBackups",
+        "networkDiagnostics/get",
+        "networkDiagnostics/refresh",
     ] {
         let req = JsonRpcRequest {
             id: 21.into(),
@@ -135,6 +156,87 @@ fn member_actor_cannot_call_admin_only_rpc() {
             .unwrap_or("");
         assert!(err.contains("permission_denied"), "{method}: {err}");
     }
+}
+
+/// 验证成员无法访问全局账号池，且被拒绝的更新不会改变账号数据。
+#[test]
+fn member_actor_cannot_access_global_account_pool_and_data_stays_unchanged() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-member-account-pool-denied");
+    set_web_auth_mode("accounts").expect("enable accounts mode");
+    let storage = Storage::open(&db_path).expect("open storage");
+    storage
+        .insert_account(&Account {
+            id: "acc-member-denied".to_string(),
+            label: "原始账号".to_string(),
+            issuer: "chatgpt".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: 1,
+            updated_at: 1,
+        })
+        .expect("insert account");
+    let actor = RpcActor::from_parts(Some(ROLE_MEMBER), Some("member-account-pool"));
+
+    for (method, params) in [
+        ("account/list", serde_json::json!({})),
+        (
+            "account/read",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/update",
+            serde_json::json!({
+                "accountId": "acc-member-denied",
+                "label": "越权修改",
+                "status": "disabled"
+            }),
+        ),
+        ("account/usage/aggregate", serde_json::json!({})),
+        ("account/usage/list", serde_json::json!({})),
+        (
+            "account/usage/read",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/usage/refresh",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/warmup",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/chatgptAuthTokens/refresh",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/chatgptAuthTokens/refreshAll",
+            serde_json::json!({}),
+        ),
+    ] {
+        let resp = response_result(handle_request_with_actor(
+            rpc_request(method, params),
+            actor.clone(),
+        ));
+        assert!(
+            rpc_error(&resp).contains("permission_denied"),
+            "{method} 应拒绝成员访问全局账号池: {:?}",
+            resp.result
+        );
+    }
+
+    let unchanged = storage
+        .find_account_by_id("acc-member-denied")
+        .expect("find account")
+        .expect("account exists");
+    assert_eq!(unchanged.label, "原始账号");
+    assert_eq!(unchanged.status, "active");
+    drop(storage);
+    let _ = std::fs::remove_file(db_path);
 }
 
 #[test]
@@ -513,8 +615,9 @@ fn wallet_charge_uses_model_group_billing_model_override() {
 fn member_dashboard_filters_to_current_user_keys() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-member-dashboard-filter");
-    let day_start = 1_700_000_000;
-    let day_end = day_start + 86_400;
+    let day_boundaries = test_local_day_boundaries(1_700_000_000, 1);
+    let day_start = day_boundaries[0];
+    let day_end = day_boundaries[1];
     let user_one = create_app_user(AppUserCreateInput {
         username: "member-one".to_string(),
         password: "password-one".to_string(),
@@ -797,8 +900,9 @@ fn admin_member_dashboard_can_query_requested_user() {
 fn admin_usage_summary_requires_admin_and_returns_range_rollups() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-admin-usage-summary");
-    let day_start = 1_700_000_000;
-    let day_end = day_start + 86_400;
+    let day_boundaries = test_local_day_boundaries(1_700_000_000, 1);
+    let day_start = day_boundaries[0];
+    let day_end = day_boundaries[1];
     let user = create_test_member("admin-usage-member", Some(2_000_000));
     let key_id = create_owned_test_api_key(&user.id, "admin usage key", "gpt-5-mini");
 
@@ -848,6 +952,8 @@ fn admin_usage_summary_requires_admin_and_returns_range_rollups() {
     assert_eq!(admin_resp.result["rangeStartTs"], day_start);
     assert_eq!(admin_resp.result["rangeEndTs"], day_end);
     assert_eq!(admin_resp.result["dailyUsage"].as_array().unwrap().len(), 1);
+    assert_eq!(admin_resp.result["dailyUsage"][0]["dayStartTs"], day_start);
+    assert_eq!(admin_resp.result["dailyUsage"][0]["dayEndTs"], day_end);
     assert_eq!(
         admin_resp.result["dailyUsage"][0]["usage"]["totalTokens"],
         30
@@ -880,8 +986,9 @@ fn admin_usage_summary_requires_admin_and_returns_range_rollups() {
 fn admin_usage_summary_daily_trend_includes_token_stats_without_request_logs() {
     let _guard = test_env_guard();
     let db_path = setup_dashboard_test_db("codexmanager-admin-usage-orphan-stats");
-    let day_start = 1_700_000_000;
-    let day_end = day_start + 3 * 86_400;
+    let day_boundaries = test_local_day_boundaries(1_700_000_000, 3);
+    let day_start = day_boundaries[0];
+    let day_end = day_boundaries[3];
     let user = create_test_member("admin-usage-orphan-member", Some(2_000_000));
     let key_id = create_owned_test_api_key(&user.id, "admin orphan key", "gpt-5-mini");
     let storage = storage_helpers::open_storage().expect("open storage");
@@ -912,7 +1019,7 @@ fn admin_usage_summary_daily_trend_includes_token_stats_without_request_logs() {
             output_tokens: Some(100),
             total_tokens: Some(400),
             estimated_cost_usd: Some(0.4),
-            created_at: day_start + 86_400 + 180,
+            created_at: day_boundaries[1] + 180,
             ..RequestTokenStat::default()
         })
         .expect("insert orphan day two stat");
@@ -926,7 +1033,7 @@ fn admin_usage_summary_daily_trend_includes_token_stats_without_request_logs() {
         5,
         10,
         0.03,
-        day_start + 2 * 86_400 + 240,
+        day_boundaries[2] + 240,
     );
 
     let admin_resp = response_result(handle_request_with_actor(
@@ -944,7 +1051,19 @@ fn admin_usage_summary_daily_trend_includes_token_stats_without_request_logs() {
         "{:?}",
         admin_resp.result
     );
+    assert_eq!(admin_resp.result["rangeStartTs"], day_start);
+    assert_eq!(admin_resp.result["rangeEndTs"], day_end);
     assert_eq!(admin_resp.result["dailyUsage"].as_array().unwrap().len(), 3);
+    for index in 0..3 {
+        assert_eq!(
+            admin_resp.result["dailyUsage"][index]["dayStartTs"],
+            day_boundaries[index]
+        );
+        assert_eq!(
+            admin_resp.result["dailyUsage"][index]["dayEndTs"],
+            day_boundaries[index + 1]
+        );
+    }
     assert_eq!(
         admin_resp.result["dailyUsage"][0]["usage"]["totalTokens"],
         500

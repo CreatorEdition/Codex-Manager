@@ -1,52 +1,53 @@
-# J 项 usage_snapshots 无变化写入去重结果
+# 审计问题修复子代理交付汇总
 
-执行身份：CodeX-GPT
-接手时间：2026-06-24T17:28:09+08:00
-任务：`usage-snapshot-dedup-j`
+执行身份：CodeX-GPT 子代理组
+交付时间：2026-07-11T16:51:35+08:00
+任务：`audit-fix-followups-20260711`
 
-## 接手原因
+## 子代理产出
 
-Claude/Opus 执行方完成了核心半成品，但未完成协议交付、未确认 service 测试、未运行 `cargo check`、未写协作结果、未更新状态、未提交，并带入了多处 unrelated rustfmt/行尾噪声。CodeX-GPT 已关闭执行方、清理无关 diff 并完成审计收口。
+- 发布与数据库工具：统一 CE GHCR 镜像归属；数据库优化工具改为显式路径、默认只读、仅 `--vacuum` 执行破坏性维护。
+- 前端与 Web RPC：补齐命令映射及完整性测试；修正生产构建跳过条件和 `/platform-mode` 页面验证。
+- 后端安全与缓存：账号删除后失效候选缓存；缓存及 single-flight 按数据库和候选模式隔离；收紧成员全局账号池权限；OAuth 成功日志脱敏。
+- DST 日级统计：按真实本地自然日边界执行 rollup 和 mixed 查询；覆盖 23/25 小时日；修复稀疏多年历史枚举空日的性能问题。
 
-## 修改摘要
+## 主代理初审
 
-- storage 层新增 `update_latest_usage_snapshot_captured_at_for_account(account_id, captured_at)`，用于在相同快照去重时维护最新刷新时间语义。
-- service 层 `store_usage_snapshot()` 先读取账号最新快照，比较关键字段：
-  - `used_percent`
-  - `window_minutes`
-  - `resets_at`
-  - `secondary_used_percent`
-  - `secondary_window_minutes`
-  - `secondary_resets_at`
-  - `credits_json`
-- 如果关键字段未变化：不再 `insert_usage_snapshot()`，只更新最新行 `captured_at`，并继续基于本次解析结果执行 `apply_status_from_snapshot()`。
-- 如果关键字段变化：保持原 insert + prune 行为。
-- `credits_json` 使用 `serde_json::Value` 语义比较，避免对象字段顺序不同导致误判为变化。
+- 四组提交均已检查完整 diff、提交范围和定向测试。
+- 主审退回 DST 首版的空日线性枚举问题，修订后仅处理受 batch limit 约束且真实存在 pending 数据的日期。
+- 历史首尾半日范围在原始明细清理后无法由日级 rollup 精确还原，已作为存储粒度限制记录；实现不会用整日数据伪造半日结果。
 
-## 产出文件
+## 最终验证
 
-- `crates/core/src/storage/usage.rs`
-- `crates/service/src/usage/usage_snapshot_store.rs`
-- `task.md`
-- `.teamwork/sync/opus-to-gpt.md`
-- `.teamwork/sync/status.json`
-
-## 验证结果
-
-- `cargo test -p codexmanager-core --lib usage_snapshot -- --nocapture` -> 6 passed。
-- `cargo test -p codexmanager-service --lib usage_snapshot -- --nocapture` -> 5 passed。
-- `cargo check -p codexmanager-service` -> Finished（仅既有 warning）。
-- `git diff --check` -> 通过。
-- `rustfmt --edition 2021 crates/core/src/storage/usage.rs crates/service/src/usage/usage_snapshot_store.rs` -> 通过。
+- `git diff ba56918d..HEAD --check`：通过。
+- `cargo fmt --all --check`：通过。
+- `cargo test --workspace`：core 95/95、service lib 1053/1053 已通过；Windows 测试进程在打印成功结果后未退出，后续包改为独立复跑。
+- `cargo test -p db-optimize`：8/8 通过。
+- `cargo test -p codexmanager-web`：18/18 通过。
+- `cargo test -p codexmanager-start`：2/2 通过。
+- `corepack pnpm -C apps run test:runtime`：113/113 通过。
+- `corepack pnpm -C apps run build`：通过，15 个静态页面生成。
+- CE GHCR 残留与 OAuth 敏感成功日志扫描：无命中。
 
 ## 审计结论
 
-- 相同关键字段连续写入不会增加 `usage_snapshots` 行数。
-- 相同关键字段第二次写入会更新 latest `captured_at`。
-- 任一关键字段变化仍新增快照。
-- `credits_json` 语义相同但字段顺序不同不会新增快照。
-- 执行方误带入的 unrelated rustfmt/行尾噪声已清理，未纳入提交。
+修复范围与审计问题一致，未发现需阻止提交 PR 的剩余代码问题。历史半日查询精度限制已记录为存储粒度约束。
 
-## 剩余风险
+## 定价、刷新与出口诊断补充交付
 
-- latest 快照的比较与更新时间是两步操作，极端同账号并发刷新下仍可能存在竞态窗口；当前 token/usage 刷新路径已有批次调度和账号级刷新语义，风险可接受。若后续观测到同账号并发写入，可进一步把 compare/update/insert 收口到 storage transaction。
+执行身份：【CodeX-GPT】子代理组；主审身份：【CodeX-GPT】主代理。
+
+- 定价：按最终 `effective_service_tier` 区分 Standard / Priority，逐模型录入 Priority 价格，HTTP 与 WebSocket 共用最终 tier 计费。
+- 刷新：`refresh_token_expired` 改为长冷却低频复检；Token 刷新成功后立即排队真实用量验证，验证成功后由快照状态机恢复账号状态。
+- 区域诊断：实现多来源出口 IP 查询、失败切换、启动首检、区域阻断事件触发与低频兜底；诊断结果不直接修改账号状态。
+- 前端：刷新事件及手动刷新完成后重新拉取账号列表，管理员设置页展示出口诊断，并补齐多语言文案。
+
+主代理独立验证：
+
+- `cargo fmt --all --check`：通过。
+- `cargo check -p codexmanager-service`：通过，无 dead_code 警告。
+- `git diff --check`：通过。
+- 定价、最终 tier、出口诊断、Token 恢复和 Refresh expired 定向测试均通过。
+- 前端 runtime 114/114，Next.js Turbopack 构建通过并生成 15 个静态页面。
+
+最终审计结论：PASS，可以提交并更新 PR。

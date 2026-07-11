@@ -95,12 +95,11 @@ impl RefreshTokenAuthErrorReason {
 
     /// 函数 `is_permanent`
     ///
-    /// 中文注释：判定该 refresh-token 鉴权失败原因是否为“永久无效”。
-    /// 永久无效（Reused/Invalidated/Expired/InvalidGrant/AppSessionTerminated）意味着
+    /// 中文注释：判定该 refresh-token 鉴权失败原因是否为“明确永久无效”。
+    /// 永久无效（Reused/Invalidated/InvalidGrant/AppSessionTerminated）意味着
     /// 当前 refresh token 已不可能再换出有效 access token，账号需重新登录；
-    /// 这类失败应施加长冷却并退出服务池，避免反复进入轮询。
-    /// 而 `Unknown401` 归为非永久（临时），因为它可能源于服务端抖动或身份服务
-    /// 临时异常，应走短退避 + 指数增长重试，多次确认后才升级。
+    /// 这类失败应退出后台候选。`Expired` 可能来自并发轮换或上游误判，因此不永久
+    /// 判死，但仍使用长冷却低频复检；`Unknown401` 使用短指数退避。
     ///
     /// # 参数
     /// - self: 失败原因枚举值
@@ -109,13 +108,16 @@ impl RefreshTokenAuthErrorReason {
     /// 永久无效返回 true，临时失败返回 false
     pub(crate) fn is_permanent(self) -> bool {
         match self {
-            Self::Expired
-            | Self::Reused
-            | Self::Invalidated
-            | Self::InvalidGrant
-            | Self::AppSessionTerminated => true,
-            Self::Unknown401 => false,
+            Self::Reused | Self::Invalidated | Self::InvalidGrant | Self::AppSessionTerminated => {
+                true
+            }
+            Self::Expired | Self::Unknown401 => false,
         }
+    }
+
+    /// 判断是否使用长冷却；疑似过期与明确永久失效都避免高频请求。
+    pub(crate) fn uses_long_retry_cooldown(self) -> bool {
+        self.is_permanent() || matches!(self, Self::Expired)
     }
 }
 #[derive(serde::Deserialize)]

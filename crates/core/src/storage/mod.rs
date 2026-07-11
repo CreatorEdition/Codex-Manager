@@ -22,6 +22,7 @@ mod quota_pools;
 mod request_log_query;
 mod request_logs;
 mod request_token_stats;
+pub use request_token_stats::observability_maintenance_batch_limit;
 mod settings;
 mod tokens;
 mod usage;

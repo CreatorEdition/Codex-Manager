@@ -23,6 +23,7 @@ export function createQuotaWebCommands(): Record<string, WebCommandDescriptor> {
         timeoutMessage: "RPC quota/modelPoolSummary 超时：模型池容量汇总超过 30 秒",
       },
     },
+    service_quota_model_pool_sources: { rpcMethod: "quota/modelPoolSources" },
     service_quota_system_pool: { rpcMethod: "quota/systemPool" },
     service_quota_capacity_config: { rpcMethod: "quota/capacityConfig" },
     service_quota_billing_rules: { rpcMethod: "quota/billingRules" },
