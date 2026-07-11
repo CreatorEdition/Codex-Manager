@@ -14,6 +14,8 @@ export const RU_ACCOUNTS_MESSAGES: MessageCatalog = {
     "Обновление AT/RT завершено: успешно {success}, пропущено {skipped}",
   "AT/RT 过期、用量接口 401/403 等不可用账号":
     "Недоступные аккаунты: истекшие AT/RT, usage API 401/403 и подобные случаи",
+  "账号用量刷新完成：已处理{processed}/{total}":
+    "Обновление usage аккаунтов завершено: обработано {processed}/{total}",
   "Refresh Token 失效，需要重新登录": "Refresh Token недействителен. Войдите снова.",
   "Refresh Token 已被撤销，需要重新登录": "Refresh Token отозван. Войдите снова.",
   "Refresh Token 已被重复使用，需要重新登录":
