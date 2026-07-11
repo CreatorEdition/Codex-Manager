@@ -949,6 +949,7 @@ fn estimate_cost_from_price(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn estimate_cost(
     model: Option<&str>,
     input_tokens: i64,
