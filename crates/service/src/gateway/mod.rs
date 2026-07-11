@@ -130,7 +130,7 @@ pub(crate) use metrics::{
     begin_rpc_request, duration_to_millis, gateway_metrics_prometheus,
     record_usage_refresh_outcome, GatewayCandidateSkipReason,
 };
-pub(super) use official_responses_http::normalize_official_responses_http_body_with_value;
+pub(super) use official_responses_http::normalize_official_responses_http_body_with_parsed_value;
 use protocol_adapter::build_gemini_error_body;
 use protocol_adapter::{
     adapt_request_for_protocol, GeminiStreamOutputMode, ResponseAdapter, ToolNameRestoreMap,
@@ -148,7 +148,10 @@ pub(crate) use request_log::{RequestLogTraceContext, RequestLogUsage};
 use request_rewrite::apply_request_overrides_with_service_tier_and_prompt_cache_key;
 use request_rewrite::{
     apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope,
-    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope, compute_upstream_url,
+    apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope_with_value,
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope,
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope_with_value,
+    compute_upstream_url,
 };
 pub(super) use thread_anchor::{
     resolve_fallback_thread_anchor, resolve_local_conversation_id_with_sticky_fallback,

@@ -18,7 +18,7 @@
 
 3. P2 低优先级性能观察
    - 候选缓存 stale-while-revalidate 可选评估：single-flight 已完成，SWR 还需确认是否会延长低额度 / 封禁账号的旧快照使用窗口。
-   - 请求体 JSON parse 深水区继续观察：本地校验、多候选 `prompt_cache_key` 提取、compact transport、非原生 Responses 默认 `stream=true` 后文本长度校验复用、Official Responses 标准化后 Value 复用已收敛；request rewrite、local count tokens、WebSocket 包装等路径仍需按风险继续拆小项评估。
+   - 请求体 JSON parse 深水区继续观察：本地校验、多候选 `prompt_cache_key` 提取、compact transport、非原生 Responses 默认 `stream=true` 后文本长度校验复用、Official Responses 标准化后 Value 复用、request rewrite 输出 Value 旁路已收敛；local count tokens、WebSocket 包装等路径仍需按风险继续拆小项评估。
 
 ## 固定发布门禁
 

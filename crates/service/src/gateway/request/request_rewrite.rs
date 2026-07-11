@@ -9,6 +9,11 @@ use request_rewrite_chat_completions as chat_completions;
 type RetainFn = fn(&str, &mut serde_json::Map<String, Value>) -> Vec<String>;
 const RETAIN_FN_PROBE_KEY: &str = "__codexmanager_allowlist_probe__";
 
+pub(super) struct RequestRewriteOutput {
+    pub(super) body: Vec<u8>,
+    pub(super) value: Option<Value>,
+}
+
 /// 函数 `compute_upstream_url`
 ///
 /// 作者: gaohongshun
@@ -552,6 +557,29 @@ pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key_sco
     prompt_cache_key: Option<&str>,
     allow_codex_compat_rewrite: bool,
 ) -> Vec<u8> {
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope_with_value(
+        path,
+        body,
+        model_slug,
+        reasoning_effort,
+        service_tier,
+        upstream_base_url,
+        prompt_cache_key,
+        allow_codex_compat_rewrite,
+    )
+    .body
+}
+
+pub(super) fn apply_request_overrides_with_service_tier_and_prompt_cache_key_scope_with_value(
+    path: &str,
+    body: Vec<u8>,
+    model_slug: Option<&str>,
+    reasoning_effort: Option<&str>,
+    service_tier: Option<&str>,
+    upstream_base_url: Option<&str>,
+    prompt_cache_key: Option<&str>,
+    allow_codex_compat_rewrite: bool,
+) -> RequestRewriteOutput {
     apply_request_overrides_with_prompt_cache_key_mode(
         path,
         body,
@@ -639,6 +667,29 @@ pub(super) fn apply_request_overrides_with_service_tier_and_forced_prompt_cache_
     prompt_cache_key: Option<&str>,
     allow_codex_compat_rewrite: bool,
 ) -> Vec<u8> {
+    apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope_with_value(
+        path,
+        body,
+        model_slug,
+        reasoning_effort,
+        service_tier,
+        upstream_base_url,
+        prompt_cache_key,
+        allow_codex_compat_rewrite,
+    )
+    .body
+}
+
+pub(super) fn apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope_with_value(
+    path: &str,
+    body: Vec<u8>,
+    model_slug: Option<&str>,
+    reasoning_effort: Option<&str>,
+    service_tier: Option<&str>,
+    upstream_base_url: Option<&str>,
+    prompt_cache_key: Option<&str>,
+    allow_codex_compat_rewrite: bool,
+) -> RequestRewriteOutput {
     apply_request_overrides_with_prompt_cache_key_mode(
         path,
         body,
@@ -680,7 +731,7 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
     force_prompt_cache_key: bool,
     service_tier: Option<&str>,
     allow_codex_compat_rewrite: bool,
-) -> Vec<u8> {
+) -> RequestRewriteOutput {
     let use_codex_responses_compat = should_apply_codex_responses_compat(path, upstream_base_url);
     let use_codex_compat_rewrite = allow_codex_compat_rewrite && use_codex_responses_compat;
     let chat_rules_path = chat_request_rules_path(path);
@@ -696,7 +747,7 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
         .and_then(crate::apikey::service_tier::normalize_service_tier)
         .map(str::to_string);
     if body.is_empty() {
-        return body;
+        return RequestRewriteOutput { body, value: None };
     }
     if let Ok(mut payload) = serde_json::from_slice::<Value>(&body) {
         if let Some(obj) = payload.as_object_mut() {
@@ -792,23 +843,36 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
             }
 
             if !changed {
-                return body;
+                return RequestRewriteOutput {
+                    body,
+                    value: Some(payload),
+                };
             }
-            return serde_json::to_vec(&payload).unwrap_or(body);
+            return match serde_json::to_vec(&payload) {
+                Ok(rewritten_body) => RequestRewriteOutput {
+                    body: rewritten_body,
+                    value: Some(payload),
+                },
+                Err(_) => RequestRewriteOutput { body, value: None },
+            };
         }
+        return RequestRewriteOutput {
+            body,
+            value: Some(payload),
+        };
     }
 
     if !super::strict_request_param_allowlist_enabled() {
-        return body;
+        return RequestRewriteOutput { body, value: None };
     }
     let Some(retain_fn) = resolve_retain_fn(path, use_codex_responses_compat) else {
-        return body;
+        return RequestRewriteOutput { body, value: None };
     };
 
     let filtered = filter_multipart_form_data_body(path, &body, retain_fn)
         .or_else(|| filter_form_urlencoded_body(path, &body, retain_fn));
     let Some((filtered_body, mut dropped_keys)) = filtered else {
-        return body;
+        return RequestRewriteOutput { body, value: None };
     };
 
     dropped_keys.sort_unstable();
@@ -818,7 +882,10 @@ fn apply_request_overrides_with_prompt_cache_key_mode(
         path,
         dropped_keys.join(",")
     );
-    filtered_body
+    RequestRewriteOutput {
+        body: filtered_body,
+        value: None,
+    }
 }
 
 #[cfg(test)]

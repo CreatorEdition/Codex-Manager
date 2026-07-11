@@ -740,23 +740,40 @@ pub(crate) fn apply_codex_http_request_rules(
 
 #[allow(dead_code)]
 pub(crate) fn normalize_official_responses_http_body(path: &str, body: Vec<u8>) -> Vec<u8> {
-    normalize_official_responses_http_body_with_value(path, body).0
+    normalize_official_responses_http_body_with_parsed_value(path, body, None).0
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn normalize_official_responses_http_body_with_value(
     path: &str,
     body: Vec<u8>,
+) -> (Vec<u8>, Option<Value>) {
+    normalize_official_responses_http_body_with_parsed_value(path, body, None)
+}
+
+pub(crate) fn normalize_official_responses_http_body_with_parsed_value(
+    path: &str,
+    body: Vec<u8>,
+    parsed_body: Option<Value>,
 ) -> (Vec<u8>, Option<Value>) {
     if !(path == "/v1/responses"
         || path.starts_with("/v1/responses?")
         || path == "/v1/responses/compact"
         || path.starts_with("/v1/responses/compact?"))
     {
-        return (body, None);
+        return (body, parsed_body);
     }
 
-    let Ok(request) = serde_json::from_slice::<OfficialResponsesHttpRequest>(&body) else {
-        return (body, None);
+    let request = if let Some(value) = parsed_body {
+        let Ok(request) = serde_json::from_value::<OfficialResponsesHttpRequest>(value) else {
+            return (body, None);
+        };
+        request
+    } else {
+        let Ok(request) = serde_json::from_slice::<OfficialResponsesHttpRequest>(&body) else {
+            return (body, None);
+        };
+        request
     };
     let Ok(value) = serde_json::to_value(&request) else {
         return (body, None);
@@ -771,6 +788,7 @@ pub(crate) fn normalize_official_responses_http_body_with_value(
 mod tests {
     use super::{
         apply_codex_http_request_rules, normalize_official_responses_http_body,
+        normalize_official_responses_http_body_with_parsed_value,
         normalize_official_responses_http_body_with_value,
     };
     use serde_json::{json, Value};
@@ -815,6 +833,28 @@ mod tests {
 
         let (normalized, value) =
             normalize_official_responses_http_body_with_value("/v1/responses", body);
+        let parsed: Value = serde_json::from_slice(&normalized).expect("parse normalized body");
+
+        assert_eq!(value.as_ref(), Some(&parsed));
+        assert_eq!(parsed["model"], "gpt-5.4");
+        assert_eq!(parsed["stream"], true);
+        assert_eq!(parsed["custom_passthrough"], true);
+    }
+
+    #[test]
+    fn responses_http_normalizer_reuses_supplied_value_snapshot() {
+        let supplied = json!({
+            "model": "gpt-5.4",
+            "input": [{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],
+            "stream": true,
+            "custom_passthrough": true
+        });
+
+        let (normalized, value) = normalize_official_responses_http_body_with_parsed_value(
+            "/v1/responses",
+            b"not-json".to_vec(),
+            Some(supplied),
+        );
         let parsed: Value = serde_json::from_slice(&normalized).expect("parse normalized body");
 
         assert_eq!(value.as_ref(), Some(&parsed));

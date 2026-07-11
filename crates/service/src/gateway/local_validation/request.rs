@@ -1622,21 +1622,21 @@ fn apply_passthrough_request_overrides(
     let effective_model = model_override
         .map(str::to_string)
         .or(default_effective_model);
-    let rewritten_body =
-        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
-            path,
-            body,
-            effective_model.as_deref(),
-            effective_reasoning.as_deref(),
-            effective_service_tier.as_deref(),
-            api_key.upstream_base_url.as_deref(),
-            None,
-            true,
-        );
+    let rewritten = super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope_with_value(
+        path,
+        body,
+        effective_model.as_deref(),
+        effective_reasoning.as_deref(),
+        effective_service_tier.as_deref(),
+        api_key.upstream_base_url.as_deref(),
+        None,
+        true,
+    );
     let (rewritten_body, rewritten_body_value) =
-        super::super::normalize_official_responses_http_body_with_value(
+        super::super::normalize_official_responses_http_body_with_parsed_value(
             transport_request_path(path).as_str(),
-            rewritten_body,
+            rewritten.body,
+            rewritten.value,
         );
     let request_meta = rewritten_body_value
         .as_ref()
@@ -2080,8 +2080,8 @@ pub(super) fn build_local_validation_result(
             logical_path.as_str(),
             path.as_str(),
         );
-    body = if preferred_prompt_cache_key.is_some() {
-        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+    let rewritten = if preferred_prompt_cache_key.is_some() {
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope_with_value(
             &path,
             body,
             effective_model.as_deref(),
@@ -2092,7 +2092,7 @@ pub(super) fn build_local_validation_result(
             allow_codex_compat_rewrite,
         )
     } else if effective_thread_anchor.is_some() {
-        super::super::apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope(
+        super::super::apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope_with_value(
             &path,
             body,
             effective_model.as_deref(),
@@ -2103,7 +2103,7 @@ pub(super) fn build_local_validation_result(
             allow_codex_compat_rewrite,
         )
     } else {
-        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope(
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key_scope_with_value(
             &path,
             body,
             effective_model.as_deref(),
@@ -2114,14 +2114,20 @@ pub(super) fn build_local_validation_result(
             allow_codex_compat_rewrite,
         )
     };
-    if should_normalize_compat_service_tier {
-        body = normalize_compat_service_tier_for_codex_backend(body);
-    }
+    let (rewritten_body, rewritten_body_value) = if should_normalize_compat_service_tier {
+        (
+            normalize_compat_service_tier_for_codex_backend(rewritten.body),
+            None,
+        )
+    } else {
+        (rewritten.body, rewritten.value)
+    };
     response_adapter = maybe_wrap_compact_response_adapter(path.as_str(), response_adapter);
     let normalized_transport_path = transport_request_path(path.as_str());
-    let normalized = super::super::normalize_official_responses_http_body_with_value(
+    let normalized = super::super::normalize_official_responses_http_body_with_parsed_value(
         &normalized_transport_path,
-        body,
+        rewritten_body,
+        rewritten_body_value,
     );
     body = normalized.0;
     let normalized_body_value = normalized

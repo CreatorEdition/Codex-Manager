@@ -2,7 +2,9 @@ use super::{
     apply_request_overrides, apply_request_overrides_with_forced_prompt_cache_key,
     apply_request_overrides_with_prompt_cache_key, apply_request_overrides_with_service_tier,
     apply_request_overrides_with_service_tier_and_forced_prompt_cache_key_scope,
-    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope, compute_upstream_url,
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope,
+    apply_request_overrides_with_service_tier_and_prompt_cache_key_scope_with_value,
+    compute_upstream_url,
 };
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -124,6 +126,46 @@ fn chat_completions_stream_enforces_include_usage() {
             .and_then(|v| v.get("include_usage"))
             .and_then(serde_json::Value::as_bool),
         Some(true)
+    );
+}
+
+#[test]
+fn request_rewrite_output_value_matches_rewritten_body() {
+    let body = json!({
+        "model": "gpt-4o",
+        "input": "hi"
+    });
+
+    let out = apply_request_overrides_with_service_tier_and_prompt_cache_key_scope_with_value(
+        "/v1/responses",
+        serde_json::to_vec(&body).expect("serialize request body"),
+        Some("gpt-5.4"),
+        Some("high"),
+        Some("fast"),
+        None,
+        None,
+        false,
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&out.body).expect("parse rewritten body");
+
+    assert_eq!(out.value.as_ref(), Some(&parsed));
+    assert_eq!(
+        parsed.get("model").and_then(serde_json::Value::as_str),
+        Some("gpt-5.4")
+    );
+    assert_eq!(
+        parsed
+            .get("reasoning")
+            .and_then(|value| value.get("effort"))
+            .and_then(serde_json::Value::as_str),
+        Some("high")
+    );
+    assert_eq!(
+        parsed
+            .get("service_tier")
+            .and_then(serde_json::Value::as_str),
+        Some("priority")
     );
 }
 
