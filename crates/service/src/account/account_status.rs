@@ -401,11 +401,13 @@ pub(crate) fn mark_account_unavailable_for_auth_error(
     };
     match signal {
         AccountAvailabilitySignal::RefreshTokenRegionBlocked => {
-            set_account_unavailable_with_reason(
+            let changed = set_account_unavailable_with_reason(
                 storage,
                 account_id,
                 REFRESH_TOKEN_REGION_BLOCKED_REASON,
-            )
+            );
+            crate::network_diagnostics::notify_region_blocked();
+            changed
         }
         AccountAvailabilitySignal::RefreshToken(reason) => {
             let status_reason = format!("refresh_token_invalid:{}", reason.as_code());
@@ -436,11 +438,13 @@ pub(crate) fn mark_account_unavailable_for_refresh_token_error(
 ) -> bool {
     match classify_account_availability_signal(err) {
         Some(AccountAvailabilitySignal::RefreshTokenRegionBlocked) => {
-            set_account_unavailable_with_reason(
+            let changed = set_account_unavailable_with_reason(
                 storage,
                 account_id,
                 REFRESH_TOKEN_REGION_BLOCKED_REASON,
-            )
+            );
+            crate::network_diagnostics::notify_region_blocked();
+            changed
         }
         Some(AccountAvailabilitySignal::RefreshToken(reason)) => {
             let status_reason = format!("refresh_token_invalid:{}", reason.as_code());

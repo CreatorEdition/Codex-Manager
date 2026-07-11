@@ -135,6 +135,8 @@ fn member_actor_cannot_call_admin_only_rpc() {
         "accountManager/users/list",
         "codexProfile/repairHistory",
         "codexProfile/pruneHistoryBackups",
+        "networkDiagnostics/get",
+        "networkDiagnostics/refresh",
     ] {
         let req = JsonRpcRequest {
             id: 21.into(),

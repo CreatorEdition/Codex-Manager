@@ -360,6 +360,7 @@ export function useAccounts(params?: AccountListParams) {
     let unlisten: (() => void) | null = null;
     const refreshVisibleUsageData = () => {
       void Promise.all([
+        queryClient.refetchQueries({ queryKey: ["accounts", "list"], type: "active" }),
         queryClient.refetchQueries({ queryKey: ["usage", "list"], type: "active" }),
         queryClient.invalidateQueries({ queryKey: ["usage-aggregate"] }),
         queryClient.invalidateQueries({ queryKey: ["today-summary"] }),
@@ -368,8 +369,20 @@ export function useAccounts(params?: AccountListParams) {
       ]);
     };
 
-    void listenUsageRefreshCompleted(() => {
+    void listenUsageRefreshCompleted((payload) => {
       refreshVisibleUsageData();
+      if (payload.source === "single" || payload.source === "manual_all") {
+        const processed = Number(payload.processed || 0);
+        const total = Number(payload.total || 0);
+        toast.success(
+          total > 0
+            ? t("账号用量刷新完成：已处理{processed}/{total}", {
+                processed,
+                total,
+              })
+            : t("账号用量已刷新"),
+        );
+      }
     }).then((cleanup) => {
       if (disposed) {
         cleanup();
@@ -519,27 +532,21 @@ export function useAccounts(params?: AccountListParams) {
 
   const refreshAccountMutation = useMutation({
     mutationFn: (accountId: string) => accountClient.refreshUsage(accountId),
-    onSuccess: () => {
-      toast.success(t("账号用量已刷新"));
-    },
     onError: (error: unknown) => {
       toast.error(`${t("刷新失败")}: ${formatUsageRefreshErrorMessage(error, t)}`);
     },
     onSettled: async () => {
-      await invalidateUsageData();
+      await invalidateAccountData();
     },
   });
 
   const refreshAllMutation = useMutation({
     mutationFn: () => accountClient.refreshUsage(),
-    onSuccess: () => {
-      toast.success(t("账号用量已刷新"));
-    },
     onError: (error: unknown) => {
       toast.error(`${t("刷新失败")}: ${formatUsageRefreshErrorMessage(error, t)}`);
     },
     onSettled: async () => {
-      await invalidateUsageData();
+      await invalidateAccountData();
     },
   });
 

@@ -176,5 +176,9 @@ export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<strin
       ),
     },
     service_usage_aggregate: { rpcMethod: "account/usage/aggregate" },
+    service_network_diagnostics_get: { rpcMethod: "networkDiagnostics/get" },
+    service_network_diagnostics_refresh: {
+      rpcMethod: "networkDiagnostics/refresh",
+    },
   };
 }

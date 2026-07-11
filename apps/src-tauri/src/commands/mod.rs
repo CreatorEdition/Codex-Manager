@@ -7,6 +7,7 @@ pub mod apikey;
 pub mod codex_profile;
 pub mod dashboard;
 pub mod login;
+pub mod network_diagnostics;
 pub mod plugin;
 pub mod quota;
 mod registry;

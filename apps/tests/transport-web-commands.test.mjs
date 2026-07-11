@@ -436,6 +436,17 @@ test("createWebCommandMap 为长耗时 Web RPC 配置独立超时且不重试", 
   });
 });
 
+test("createWebCommandMap 映射出口网络诊断命令", () => {
+  assert.equal(
+    commandMap.service_network_diagnostics_get.rpcMethod,
+    "networkDiagnostics/get",
+  );
+  assert.equal(
+    commandMap.service_network_diagnostics_refresh.rpcMethod,
+    "networkDiagnostics/refresh",
+  );
+});
+
 test("createWebCommandMap 为维护类 Web RPC 配置独立超时且不重试", () => {
   assert.deepEqual(commandMap.service_requestlog_clear.requestOptions, {
     timeoutMs: 60000,

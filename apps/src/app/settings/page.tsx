@@ -72,6 +72,7 @@ import {
   ServiceListenCard,
 } from "@/app/settings/components/general-tab-cards";
 import { GeneralBasicsCard } from "@/app/settings/components/general-basics-card";
+import { NetworkDiagnosticsCard } from "@/app/settings/components/network-diagnostics-card";
 import { TasksTabContent } from "@/app/settings/components/tasks-tab-content";
 import {
   CUSTOM_WORKER_MODE_VALUE,
@@ -1406,10 +1407,15 @@ function AdminSettingsPage() {
             canCloseToTray={canCloseToTray}
             updateSettings={updateSettings}
           />
-<ServiceListenCard
+          <ServiceListenCard
             t={t}
             snapshot={snapshot}
             updateSettings={updateSettings}
+          />
+
+          <NetworkDiagnosticsCard
+            t={t}
+            enabled={isSnapshotQueryEnabled && isPageActive}
           />
 
           <AccessControlCard

@@ -18,6 +18,7 @@ mod codex_profile;
 mod dashboard;
 mod gateway;
 mod model_groups;
+mod network_diagnostics;
 mod quota;
 mod requestlog;
 mod service_config;
@@ -280,6 +281,9 @@ pub(crate) fn handle_request_with_actor(req: JsonRpcRequest, actor: RpcActor) ->
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = dashboard::try_handle(&req, &actor) {
+        return JsonRpcMessage::Response(resp);
+    }
+    if let Some(resp) = network_diagnostics::try_handle(&req) {
         return JsonRpcMessage::Response(resp);
     }
     if let Some(resp) = usage::try_handle(&req) {

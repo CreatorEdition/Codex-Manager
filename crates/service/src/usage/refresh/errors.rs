@@ -69,6 +69,9 @@ pub(super) fn record_usage_refresh_failure(storage: &Storage, account_id: &str, 
 /// # 返回
 /// 无
 pub(super) fn mark_usage_unreachable_if_needed(storage: &Storage, account_id: &str, err: &str) {
+    if crate::usage_http::is_region_blocked_error_message(err) {
+        crate::network_diagnostics::notify_region_blocked();
+    }
     if mark_account_unavailable_for_refresh_token_error(storage, account_id, err) {
         return;
     }
