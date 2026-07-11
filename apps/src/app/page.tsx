@@ -4,7 +4,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -73,7 +72,6 @@ import { useLocalDayRange } from "@/hooks/useLocalDayRange";
 import { useMemberDashboardSummary } from "@/hooks/useMemberDashboardSummary";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
-import { useCodexProfileModeStatus } from "@/hooks/useCodexProfileModeStatus";
 import {
   estimateChartYAxisWidth,
   formatCompactTokenAmount,
@@ -441,45 +439,6 @@ function DashboardInitialSkeleton() {
       <div className="grid gap-6 md:grid-cols-2">
         <Skeleton className="h-72 w-full rounded-xl" />
         <Skeleton className="h-72 w-full rounded-xl" />
-      </div>
-    </div>
-  );
-}
-
-function DirectModeUnavailable({
-  active,
-  children,
-  className,
-}: {
-  active: boolean;
-  children: ReactNode;
-  className?: string;
-}) {
-  const { t } = useI18n();
-  if (!active) return <>{children}</>;
-
-  return (
-    <div className={cn("relative overflow-hidden rounded-xl", className)}>
-      <div className="pointer-events-none select-none opacity-60 blur-[1px] grayscale">
-        {children}
-      </div>
-      <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/45 p-4 backdrop-blur-sm">
-        <div className="grid max-w-md justify-items-center gap-3 rounded-2xl border border-amber-500/40 bg-background/80 px-5 py-4 text-center shadow-lg shadow-amber-500/10">
-          <div>
-            <div className="text-sm font-semibold text-amber-700 dark:text-amber-200">
-              {t("未经过本地网关的请求不可统计")}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {t("请求经过 CodexManager 本地网关后可统计请求日志、Token 和费用")}
-            </div>
-          </div>
-          <a
-            href={buildStaticRouteUrl("/platform-mode")}
-            className="inline-flex h-8 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            {t("去切换为本地网关")}
-          </a>
-        </div>
       </div>
     </div>
   );
@@ -1021,10 +980,6 @@ function AdminUsageAnalyticsCard({
 
 function AdminDashboard() {
   const { t } = useI18n();
-  const { isDirectAccountMode } = useCodexProfileModeStatus({
-    enabled: true,
-    refetchIntervalMs: 10_000,
-  });
   const localDayRange = useLocalDayRange();
   const [adminUsageRangePreset, setAdminUsageRangePreset] =
     useState<AdminUsageRangePreset>("7d");
@@ -1151,24 +1106,6 @@ function AdminDashboard() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
-      {isDirectAccountMode ? (
-        <Alert className="border-amber-500/30 bg-amber-500/10">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>{t("当前为账号直连模式")}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <span>
-              {t("当前 CLI 直连 OpenAI，未经过 CodexManager 的请求不会产生请求日志、Token 和费用统计。")}
-            </span>
-            <a
-              href={buildStaticRouteUrl("/platform-mode")}
-              className="inline-flex h-7 w-fit items-center justify-center rounded-md border border-amber-500/40 bg-background/70 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-background"
-            >
-              {t("去切换为本地网关")}
-            </a>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {isOverviewLoading ? (
           Array.from({ length: 4 }).map((_, index) => (
@@ -1182,11 +1119,7 @@ function AdminDashboard() {
               icon={Users}
               color="text-blue-500"
               sub={t("池中所有配置账号")}
-              badge={
-                isDirectAccountMode
-                  ? t("未经过本地网关的请求不可统计")
-                  : `${t("最近日志")} ${requestLogs.length} ${t("条")}`
-              }
+              badge={`${t("最近日志")} ${requestLogs.length} ${t("条")}`}
             />
 
             <StatProgressCard
@@ -1241,8 +1174,7 @@ function AdminDashboard() {
         )}
       </div>
 
-      <DirectModeUnavailable active={isDirectAccountMode}>
-        <AdminUsageAnalyticsCard
+      <AdminUsageAnalyticsCard
           summary={adminUsageSummary}
           isLoading={isAdminUsageLoading}
           isError={isAdminUsageError}
@@ -1279,8 +1211,7 @@ function AdminDashboard() {
             });
           }}
           isCustomRangeInvalid={isCustomAdminUsageRangeInvalid}
-        />
-      </DirectModeUnavailable>
+      />
 
       <Card className="glass-card overflow-hidden shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -1367,8 +1298,7 @@ function AdminDashboard() {
         </CardContent>
       </Card>
 
-      <DirectModeUnavailable active={isDirectAccountMode}>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {[
             {
               title: t("今日Token"),
@@ -1405,12 +1335,10 @@ function AdminDashboard() {
               <MetricCard key={card.title} {...card} />
             ),
           )}
-        </div>
-      </DirectModeUnavailable>
+      </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        <DirectModeUnavailable active={isDirectAccountMode}>
-          <Card className="glass-card min-h-[300px] shadow-sm">
+        <Card className="glass-card min-h-[300px] shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base font-semibold">{t("当前活跃账号")}</CardTitle>
             </CardHeader>
@@ -1465,8 +1393,7 @@ function AdminDashboard() {
                 </div>
               )}
             </CardContent>
-          </Card>
-        </DirectModeUnavailable>
+        </Card>
 
         <Card className="glass-card min-h-[300px] shadow-sm">
           <CardHeader>

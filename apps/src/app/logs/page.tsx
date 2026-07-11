@@ -23,7 +23,6 @@ import {
 import { useLocalDayRange } from "@/hooks/useLocalDayRange";
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
-import { useCodexProfileModeStatus } from "@/hooks/useCodexProfileModeStatus";
 import { useI18n } from "@/lib/i18n/provider";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { RequestLogsTabContent } from "./page-sections";
@@ -50,10 +49,6 @@ function LogsPageContent() {
   const role = resolveSessionRole(session, isSessionLoading, isDesktopRuntime);
   const isAdminMode = isAdminRole(role);
   const isPageActive = useDesktopPageActive("/logs/");
-  const { isDirectAccountMode } = useCodexProfileModeStatus({
-    enabled: isAdminMode && isPageActive,
-    refetchIntervalMs: 10_000,
-  });
   const queryClient = useQueryClient();
   const areLogQueriesEnabled = useDeferredDesktopActivation(serviceStatus.connected);
   const routeQuery = searchParams.get("query") || "";
@@ -414,7 +409,6 @@ function LogsPageContent() {
         <TabsContent value="requests" className="space-y-5">
           <RequestLogsTabContent
             t={t}
-            isDirectAccountMode={isDirectAccountMode}
             isAdminMode={isAdminMode}
             serviceConnected={serviceStatus.connected}
             search={search}

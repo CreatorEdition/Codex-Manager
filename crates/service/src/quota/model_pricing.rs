@@ -1,6 +1,6 @@
 use codexmanager_core::storage::{now_ts, ModelPriceRule, Storage};
 
-pub(crate) const PRICE_SEED_VERSION: &str = "2026-05-11";
+pub(crate) const PRICE_SEED_VERSION: &str = "2026-07-11";
 
 #[derive(Debug, Clone, Copy)]
 struct PriceSeed {
@@ -36,6 +36,42 @@ const ANTHROPIC_PRICE_SOURCE: &str = "https://docs.claude.com/en/docs/about-clau
 const GEMINI_PRICE_SOURCE: &str = "https://ai.google.dev/gemini-api/docs/pricing";
 
 const PRICE_SEEDS: &[PriceSeed] = &[
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.6-sol",
+        input_price_per_1m: 5.0,
+        cached_input_price_per_1m: Some(0.5),
+        output_price_per_1m: 30.0,
+        long_context_threshold_tokens: Some(272_000),
+        long_context_input_price_per_1m: Some(10.0),
+        long_context_cached_input_price_per_1m: Some(1.0),
+        long_context_output_price_per_1m: Some(45.0),
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.6-terra",
+        input_price_per_1m: 2.5,
+        cached_input_price_per_1m: Some(0.25),
+        output_price_per_1m: 15.0,
+        long_context_threshold_tokens: Some(272_000),
+        long_context_input_price_per_1m: Some(5.0),
+        long_context_cached_input_price_per_1m: Some(0.5),
+        long_context_output_price_per_1m: Some(22.5),
+        source_url: OPENAI_PRICE_SOURCE,
+    },
+    PriceSeed {
+        provider: "openai",
+        model_pattern: "gpt-5.6-luna",
+        input_price_per_1m: 1.0,
+        cached_input_price_per_1m: Some(0.1),
+        output_price_per_1m: 6.0,
+        long_context_threshold_tokens: Some(272_000),
+        long_context_input_price_per_1m: Some(2.0),
+        long_context_cached_input_price_per_1m: Some(0.2),
+        long_context_output_price_per_1m: Some(9.0),
+        source_url: OPENAI_PRICE_SOURCE,
+    },
     PriceSeed {
         provider: "openai",
         model_pattern: "gpt-5.5-pro",
@@ -385,7 +421,12 @@ pub(crate) fn ensure_official_price_seed(storage: &Storage) -> Result<(), String
                 cached_input_price_per_1m: seed.cached_input_price_per_1m,
                 output_price_per_1m: Some(seed.output_price_per_1m),
                 reasoning_output_price_per_1m: None,
-                cache_write_5m_price_per_1m: None,
+                cache_write_5m_price_per_1m: match seed.model_pattern {
+                    "gpt-5.6-sol" => Some(6.25),
+                    "gpt-5.6-terra" => Some(3.125),
+                    "gpt-5.6-luna" => Some(1.25),
+                    _ => None,
+                },
                 cache_write_1h_price_per_1m: None,
                 cache_hit_price_per_1m: None,
                 long_context_threshold_tokens: seed.long_context_threshold_tokens,
@@ -744,6 +785,26 @@ mod tests {
         let snapshot = resolve_model_price("gpt-5.4-mini-2026-03-17", 0).expect("snapshot price");
         assert_close(snapshot.input_price_per_1m, 0.75);
         assert_close(snapshot.output_price_per_1m, 4.5);
+    }
+
+    #[test]
+    fn resolves_gpt_5_6_standard_and_long_context_prices() {
+        let sol = resolve_model_price("gpt-5.6-sol", 0).expect("sol standard price");
+        assert_close(sol.input_price_per_1m, 5.0);
+        assert_close(sol.cached_input_price_per_1m, 0.5);
+        assert_close(sol.output_price_per_1m, 30.0);
+
+        let terra =
+            resolve_model_price("gpt-5.6-terra", 272_000).expect("terra long-context price");
+        assert_close(terra.input_price_per_1m, 5.0);
+        assert_close(terra.cached_input_price_per_1m, 0.5);
+        assert_close(terra.output_price_per_1m, 22.5);
+
+        let luna = resolve_model_price("gpt-5.6-luna-2026-07-01", 272_000)
+            .expect("luna snapshot long-context price");
+        assert_close(luna.input_price_per_1m, 2.0);
+        assert_close(luna.cached_input_price_per_1m, 0.2);
+        assert_close(luna.output_price_per_1m, 9.0);
     }
 
     #[test]

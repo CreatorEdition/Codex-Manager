@@ -1,6 +1,7 @@
 use super::{
-    build_callback_error_page, build_callback_success_page, ensure_login_server_with_addr,
-    html_response, oauth_callback_error_message, resolve_redirect_uri, LOGIN_SERVER_STATE,
+    bind_login_server_with_fallback, build_callback_error_page, build_callback_success_page,
+    ensure_login_server_with_addr, html_response, oauth_callback_error_message,
+    resolve_redirect_uri, DEFAULT_LOGIN_ADDR, EPHEMERAL_LOGIN_ADDR, LOGIN_SERVER_STATE,
 };
 use std::net::TcpListener;
 use url::Url;
@@ -26,6 +27,36 @@ fn reset_login_server_state() {
             *guard = None;
         }
     }
+}
+
+#[test]
+fn default_login_addr_falls_back_to_ephemeral_port() {
+    let mut attempts = Vec::new();
+    let selected = bind_login_server_with_fallback(DEFAULT_LOGIN_ADDR, true, |addr| {
+        attempts.push(addr.to_string());
+        if addr == DEFAULT_LOGIN_ADDR {
+            Err("os error 10013".to_string())
+        } else {
+            Ok(43123u16)
+        }
+    })
+    .expect("fallback should succeed");
+
+    assert_eq!(selected, 43123);
+    assert_eq!(attempts, vec![DEFAULT_LOGIN_ADDR, EPHEMERAL_LOGIN_ADDR]);
+}
+
+#[test]
+fn explicit_login_addr_does_not_fallback() {
+    let mut attempts = Vec::new();
+    let err = bind_login_server_with_fallback("localhost:1455", false, |addr| {
+        attempts.push(addr.to_string());
+        Err::<(), _>("os error 10013".to_string())
+    })
+    .expect_err("explicit address should fail");
+
+    assert_eq!(err, "os error 10013");
+    assert_eq!(attempts, vec!["localhost:1455"]);
 }
 
 /// 函数 `resolve_redirect_uri_prefers_login_server`

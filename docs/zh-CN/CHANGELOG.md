@@ -6,6 +6,8 @@
 ## [Unreleased]
 
 ### Changed
+- Dashboard 与请求日志页不再按“账号直连模式”遮挡统计、追加“仅网关流量”标签或引导切换模式；CodexManager 的账号与聚合 API 可混合路由，页面统一展示服务实际记录的数据。
+- 官方价格种子新增 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna` 的标准与长上下文价格，并记录标准上下文 Cache writes 单价；已有数据库会通过新版种子自动补齐规则。
 - README 恢复保留 Linux.do 认可社区入口，清理策略只排除作者赞助、远程 author content 与发行推广内容，不再误删社区来源说明。
 - 网关本地校验阶段会复用同一次请求 JSON 解析结果生成 service tier 诊断、请求 metadata 与最终文本长度校验；多候选上游尝试也会缓存原始 `prompt_cache_key` 提取结果，降低大请求体重复 parse 开销。
 - 网关候选账号快照缓存新增 single-flight 重建协调，同一缓存窗口 miss 时只允许一个线程重建候选池，其余请求等待后复用新快照，降低并发 miss 下的 DB 与 usage snapshot 查询放大。
@@ -23,6 +25,7 @@
 - 补齐账号排序、模型目录自动拉取与 Web RPC 超时提示的英/韩/俄翻译，并让首页启动快照显式声明完整模型目录需求，恢复 `test:runtime` 全量门禁。
 
 ### Fixed
+- Windows 默认登录回调端口 `1455` 被系统 TCP 排除区间或安全策略拒绝时，会自动回退到系统分配的 loopback 动态端口；显式配置 `CODEXMANAGER_LOGIN_ADDR` 时仍严格使用配置值。
 - 请求日志和失败 trace 会统一移除上游 URL 的 query 与 fragment，避免聚合 API `query-secret` 或 `username/password query pair` 密钥进入 DB、UI 或磁盘日志。
 - 流式用量采集器遇到 `Mutex` 锁中毒时会记录告警并恢复已有 collector 状态，避免上游 SSE/Responses 转换路径静默丢失 usage、终止事件或错误信息。
 

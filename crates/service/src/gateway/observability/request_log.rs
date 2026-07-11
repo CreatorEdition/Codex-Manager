@@ -41,6 +41,9 @@ pub(crate) struct RequestLogTraceContext<'a> {
 #[allow(dead_code)]
 const MODEL_PRICE_PER_1K_TOKENS: &[(&str, f64, f64, f64)] = &[
     // OpenAI 官方价格（单位：USD / 1K tokens）。按模型前缀匹配，越具体越靠前。
+    ("gpt-5.6-sol", 0.005, 0.0005, 0.03),
+    ("gpt-5.6-terra", 0.0025, 0.00025, 0.015),
+    ("gpt-5.6-luna", 0.001, 0.0001, 0.006),
     // GPT-5.5 官方价格。
     ("gpt-5.5-pro", 0.03, 0.03, 0.18),
     ("gpt-5.5", 0.005, 0.0005, 0.03),
@@ -127,7 +130,28 @@ fn resolve_model_price_per_1k(
     normalized: &str,
     input_tokens_total: i64,
 ) -> Option<(f64, f64, f64)> {
-    // OpenAI 官方定价：gpt-5.5 / gpt-5.4 在输入达到 270K 时切换到更高档位。
+    // OpenAI 官方定价：GPT-5.6 / GPT-5.5 / GPT-5.4 在长上下文阈值切换档位。
+    if normalized == "gpt-5.6-sol" {
+        return if input_tokens_total >= 272_000 {
+            Some((0.01, 0.001, 0.045))
+        } else {
+            Some((0.005, 0.0005, 0.03))
+        };
+    }
+    if normalized == "gpt-5.6-terra" {
+        return if input_tokens_total >= 272_000 {
+            Some((0.005, 0.0005, 0.0225))
+        } else {
+            Some((0.0025, 0.00025, 0.015))
+        };
+    }
+    if normalized == "gpt-5.6-luna" {
+        return if input_tokens_total >= 272_000 {
+            Some((0.002, 0.0002, 0.009))
+        } else {
+            Some((0.001, 0.0001, 0.006))
+        };
+    }
     if normalized.starts_with("gpt-5.5-pro") {
         if input_tokens_total >= 270_000 {
             return Some((0.06, 0.06, 0.27));

@@ -245,6 +245,9 @@ pub(crate) struct LoginServerInfo {
 static LOGIN_SERVER_STATE: std::sync::OnceLock<std::sync::Mutex<Option<LoginServerInfo>>> =
     std::sync::OnceLock::new();
 
+const DEFAULT_LOGIN_ADDR: &str = "localhost:1455";
+const EPHEMERAL_LOGIN_ADDR: &str = "localhost:0";
+
 /// 函数 `ensure_login_server`
 ///
 /// 作者: gaohongshun
@@ -257,9 +260,10 @@ static LOGIN_SERVER_STATE: std::sync::OnceLock<std::sync::Mutex<Option<LoginServ
 /// # 返回
 /// 返回函数执行结果
 pub(crate) fn ensure_login_server() -> Result<LoginServerInfo, String> {
-    let addr =
-        std::env::var("CODEXMANAGER_LOGIN_ADDR").unwrap_or_else(|_| "localhost:1455".to_string());
-    ensure_login_server_with_addr(&addr)
+    match std::env::var("CODEXMANAGER_LOGIN_ADDR") {
+        Ok(addr) => ensure_login_server_with_addr(&addr),
+        Err(_) => ensure_login_server_with_addr_mode(DEFAULT_LOGIN_ADDR, true),
+    }
 }
 
 /// 函数 `ensure_login_server_with_addr`
@@ -274,17 +278,52 @@ pub(crate) fn ensure_login_server() -> Result<LoginServerInfo, String> {
 /// # 返回
 /// 返回函数执行结果
 fn ensure_login_server_with_addr(addr: &str) -> Result<LoginServerInfo, String> {
+    ensure_login_server_with_addr_mode(addr, false)
+}
+
+fn ensure_login_server_with_addr_mode(
+    addr: &str,
+    allow_ephemeral_fallback: bool,
+) -> Result<LoginServerInfo, String> {
     let cell = LOGIN_SERVER_STATE.get_or_init(|| std::sync::Mutex::new(None));
     let mut guard = crate::lock_utils::lock_recover(cell, "login_server_state");
     if let Some(info) = guard.as_ref() {
         return Ok(info.clone());
     }
-    let (servers, info) = bind_login_server(addr)?;
+    let (servers, info) =
+        bind_login_server_with_fallback(addr, allow_ephemeral_fallback, bind_login_server)?;
     for server in servers {
         let _ = std::thread::spawn(move || run_login_server(server));
     }
     *guard = Some(info.clone());
     Ok(info)
+}
+
+fn bind_login_server_with_fallback<T, F>(
+    addr: &str,
+    allow_ephemeral_fallback: bool,
+    mut bind: F,
+) -> Result<T, String>
+where
+    F: FnMut(&str) -> Result<T, String>,
+{
+    match bind(addr) {
+        Ok(result) => Ok(result),
+        Err(primary_err) if allow_ephemeral_fallback => {
+            log::warn!(
+                "event=login_callback_bind_fallback configured_addr={} fallback_addr={} error={}",
+                addr,
+                EPHEMERAL_LOGIN_ADDR,
+                primary_err
+            );
+            bind(EPHEMERAL_LOGIN_ADDR).map_err(|fallback_err| {
+                format!(
+                    "默认登录回调地址 {addr} 绑定失败: {primary_err}; 动态回调端口绑定失败: {fallback_err}"
+                )
+            })
+        }
+        Err(err) => Err(err),
+    }
 }
 
 /// 函数 `is_loopback_host`
