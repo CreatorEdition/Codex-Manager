@@ -4,7 +4,13 @@
 
 ## 当前待处理（2026-07-07）
 
-1. P2 上游差异巡检
+1. P0 审计问题修复与独立复核（🔄 进行中）
+   - 前端/Web：补齐 Web command 映射、移除错误重复 RPC、恢复 direct-mode 门禁、修正桌面构建陈旧产物判断。
+   - 后端：修复账号删除后的候选缓存失效、成员账号池权限边界、OAuth 日志脱敏及多模式候选缓存隔离。
+   - 发布/工具：修正 CE GHCR 镜像归属，移除数据库工具的本机硬编码与默认破坏性行为。
+   - 主代理负责逐提交审计、独立测试、集成分支和 PR，不直接采纳子代理完成声明。
+
+2. P2 上游差异巡检
    - 当前上游基准：`upstream/main = a614b559 docs: tidy repository links in readme`。
    - 已确认：`09223f6f` / `f3efb3a2` 不能整包移植，只能拆成页面或组件级小项；`a614b559` 为 README 链接整理但包含 AtomGit / Gitee / 官网 / 赞助入口，不按 CE 当前 README 直接移植。
    - 已完成拆分小项：模型页搜索框 focus 反馈、Codex CLI 引导弹窗密度压缩、开发态 Web runtime rewrites、Switch 对比度。
@@ -12,11 +18,11 @@
    - 禁止项：作者页、赞助、远程 author content、AtomGit 推广、上游整包 README/docs 推广内容。
    - 保留项：README 中的 Linux.do 认可社区入口需要保留，不能按作者/赞助推广残留误删。
 
-2. P2 分支 / PR 治理
+3. P2 分支 / PR 治理
    - 当前 fork 与 upstream 分叉较大，对外 PR 应从干净分支 cherry-pick 关键提交。
    - 不建议整包提交当前 CE 主线到 upstream；先按主题拆分，确保每个 PR 都能独立审计。
 
-3. P2 低优先级性能观察
+4. P2 低优先级性能观察
    - 候选缓存 stale-while-revalidate 可选评估：single-flight 已完成，SWR 还需确认是否会延长低额度 / 封禁账号的旧快照使用窗口。
    - 请求体 JSON parse 深水区继续观察：本地校验、多候选 `prompt_cache_key` 提取、compact transport、非原生 Responses 默认 `stream=true` 后文本长度校验复用、Official Responses 标准化后 Value 复用、request rewrite 输出 Value 旁路已收敛；local count tokens、WebSocket 包装等路径仍需按风险继续拆小项评估。
 
