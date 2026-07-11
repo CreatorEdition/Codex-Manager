@@ -25,6 +25,8 @@
 - 补齐账号排序、模型目录自动拉取与 Web RPC 超时提示的英/韩/俄翻译，并让首页启动快照显式声明完整模型目录需求，恢复 `test:runtime` 全量门禁。
 
 ### Fixed
+- 账号页状态筛选新增“不可用”，可直接筛出 Refresh Token 撤销/过期、401/403 等 `unavailable` 账号；`unknown` 或空状态不再被“可用”查询误收录。
+- 账号额度卡片的重置绝对时间与相对倒计时改为上下两行，避免窄列中日期和“后刷新”文本互相叠加。
 - Windows 默认登录回调端口 `1455` 被系统 TCP 排除区间或安全策略拒绝时，会自动回退到系统分配的 loopback 动态端口；显式配置 `CODEXMANAGER_LOGIN_ADDR` 时仍严格使用配置值。
 - 请求日志和失败 trace 会统一移除上游 URL 的 query 与 fragment，避免聚合 API `query-secret` 或 `username/password query pair` 密钥进入 DB、UI 或磁盘日志。
 - 流式用量采集器遇到 `Mutex` 锁中毒时会记录告警并恢复已有 collector 状态，避免上游 SSE/Responses 转换路径静默丢失 usage、终止事件或错误信息。

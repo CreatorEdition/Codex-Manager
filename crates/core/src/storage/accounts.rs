@@ -970,10 +970,9 @@ fn account_usage_filter_clause(
             let available_usage = available_usage_clause(usage_alias);
             let stale_exhausted = stale_exhausted_usage_clause(usage_alias);
             format!(
-                "{status_expr} NOT IN ('inactive', 'disabled', 'unavailable', 'banned')
-                 AND (
+                "(
                     (
-                      {status_expr} <> 'limited'
+                      {status_expr} IN ('active', 'available', 'healthy')
                       AND ({usage_alias}.account_id IS NULL OR ({available_usage}))
                     )
                     OR (

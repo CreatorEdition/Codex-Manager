@@ -48,6 +48,47 @@ fn storage_can_insert_account_and_token() {
     assert_eq!(storage.token_count().expect("count tokens"), 1);
 }
 
+#[test]
+fn active_available_accounts_exclude_unknown_status() {
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init schema");
+
+    for (id, status) in [
+        ("acc-active", "active"),
+        ("acc-healthy", "healthy"),
+        ("acc-unknown", "unknown"),
+        ("acc-unrecognized", "future-status"),
+    ] {
+        storage
+            .insert_account(&Account {
+                id: id.to_string(),
+                label: id.to_string(),
+                issuer: "https://auth.openai.com".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort: 0,
+                status: status.to_string(),
+                created_at: now_ts(),
+                updated_at: now_ts(),
+            })
+            .expect("insert account");
+    }
+
+    let accounts = storage
+        .list_accounts_active_available(None, None, None)
+        .expect("list active available accounts");
+    assert_eq!(accounts.len(), 2);
+    assert_eq!(accounts[0].id, "acc-active");
+    assert_eq!(accounts[1].id, "acc-healthy");
+    assert_eq!(
+        storage
+            .account_count_active_available(None, None)
+            .expect("count active available accounts"),
+        2
+    );
+}
+
 /// 函数 `storage_can_find_token_and_account_by_account_id`
 ///
 /// 作者: gaohongshun

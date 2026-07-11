@@ -22,7 +22,13 @@ import {
 } from "@/components/ui/tooltip";
 import type { Account } from "@/types";
 
-export type StatusFilter = "all" | "available" | "low_quota" | "limited" | "banned";
+export type StatusFilter =
+  | "all"
+  | "available"
+  | "low_quota"
+  | "limited"
+  | "unavailable"
+  | "banned";
 export type AccountExportMode = "single" | "multiple";
 export type AccountSizeSortMode = "large-first" | "small-first";
 
@@ -108,6 +114,8 @@ export function formatStatusFilterLabel(value: string, t: TranslateFn) {
       return t("低配额");
     case "limited":
       return t("限流");
+    case "unavailable":
+      return t("不可用");
     case "banned":
       return t("封禁");
     case "all":
@@ -268,7 +276,7 @@ export function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
             {summaryItems.map((item) => (
               <div
                 key={`${item.id}-reset`}
-                className="flex min-w-0 items-center justify-between gap-2"
+                className="grid min-w-0 gap-0.5"
               >
                 <span
                   className={fitLongTextClassName(
@@ -276,7 +284,7 @@ export function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
                       item.resetsAt,
                       item.emptyResetText ?? t("未知"),
                     ),
-                    "min-w-0 break-words [overflow-wrap:anywhere]",
+                    "min-w-0 truncate",
                     "text-[10px]",
                   )}
                 >
@@ -285,7 +293,7 @@ export function QuotaOverviewCell({ items }: { items: QuotaSummaryItem[] }) {
                     item.emptyResetText ?? t("未知"),
                   )}
                 </span>
-                <span className="shrink-0 whitespace-nowrap">
+                <span className="min-w-0 truncate whitespace-nowrap text-foreground/70">
                   {formatRemainingDurationFromSeconds(
                     item.resetsAt,
                     item.id.endsWith("-primary") ? "hours" : "days",

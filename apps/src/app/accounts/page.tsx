@@ -172,6 +172,7 @@ export default function AccountsPage() {
       { id: "available" as const, label: t("可用") },
       { id: "low_quota" as const, label: t("低配额") },
       { id: "limited" as const, label: t("限流") },
+      { id: "unavailable" as const, label: t("不可用") },
       { id: "banned" as const, label: t("封禁") },
     ],
     [t, totalAccounts],
