@@ -1,5 +1,8 @@
 use chrono::{Duration as ChronoDuration, Local, LocalResult, NaiveDate, TimeZone, Timelike};
-use codexmanager_core::storage::{DatabasePageStats, Storage};
+use codexmanager_core::storage::{
+    observability_maintenance_batch_limit, DatabasePageStats, Storage,
+};
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -308,31 +311,34 @@ fn local_closed_day_ranges(
     storage: &Storage,
     today_start_ts: i64,
 ) -> Result<Vec<(i64, i64)>, String> {
-    let Some(oldest_ts) = storage
-        .oldest_pending_daily_rollup_ts_before(today_start_ts)
-        .map_err(|err| format!("load oldest pending daily rollup failed: {err}"))?
-    else {
-        return Ok(Vec::new());
-    };
-    let oldest_local = Local
-        .timestamp_opt(oldest_ts, 0)
-        .single()
-        .ok_or_else(|| "resolve oldest pending local day failed".to_string())?;
-    let today_local = Local
-        .timestamp_opt(today_start_ts, 0)
-        .single()
-        .ok_or_else(|| "resolve current local day failed".to_string())?;
-    let mut date = oldest_local.date_naive();
-    let today = today_local.date_naive();
+    let pending_timestamps = storage
+        .pending_daily_rollup_timestamps_before_limited(
+            today_start_ts,
+            observability_maintenance_batch_limit(),
+        )
+        .map_err(|err| format!("load pending daily rollup timestamps failed: {err}"))?;
+    local_closed_day_ranges_from_timestamps(&pending_timestamps)
+}
+
+fn local_closed_day_ranges_from_timestamps(
+    pending_timestamps: &[i64],
+) -> Result<Vec<(i64, i64)>, String> {
+    let mut dates = BTreeSet::new();
+    for &timestamp in pending_timestamps {
+        let local = Local
+            .timestamp_opt(timestamp, 0)
+            .single()
+            .ok_or_else(|| format!("resolve pending local day failed: {timestamp}"))?;
+        dates.insert(local.date_naive());
+    }
     let mut ranges = Vec::new();
-    while date < today {
+    for date in dates {
         let day_start = local_midnight_ts(date, false)?;
         let day_end = local_midnight_ts(date + ChronoDuration::days(1), true)?;
         if day_end <= day_start {
             return Err(format!("invalid local day range: {day_start}..{day_end}"));
         }
         ranges.push((day_start, day_end));
-        date += ChronoDuration::days(1);
     }
     Ok(ranges)
 }
@@ -539,12 +545,23 @@ fn run_idle_db_auto_vacuum(storage: &Storage, before: DatabasePageStats) -> Resu
 mod tests {
     use super::{
         db_compaction_busy_response, finish_observability_maintenance_slot_with_state,
-        hour_inside_window, should_run_db_auto_vacuum,
+        hour_inside_window, local_closed_day_ranges_from_timestamps, should_run_db_auto_vacuum,
         try_reserve_observability_maintenance_slot_with_state, DbAutoVacuumConfig,
         DbAutoVacuumDecision,
     };
     use codexmanager_core::storage::DatabasePageStats;
     use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+
+    #[test]
+    fn sparse_pending_history_only_builds_ranges_for_dates_with_rows() {
+        // 两批明细相隔 25 年，中间没有数据时只应生成两个本地日区间。
+        let ranges =
+            local_closed_day_ranges_from_timestamps(&[946_728_000, 946_731_600, 1_735_732_800])
+                .expect("build sparse local day ranges");
+
+        assert_eq!(ranges.len(), 2);
+        assert!(ranges.iter().all(|(start, end)| end > start));
+    }
 
     #[test]
     fn reserves_first_maintenance_slot() {

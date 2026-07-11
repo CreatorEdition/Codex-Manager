@@ -34,7 +34,7 @@ fn observability_maintenance_interval_secs() -> i64 {
         .unwrap_or(DEFAULT_OBSERVABILITY_MAINTENANCE_INTERVAL_SECS)
 }
 
-pub(super) fn observability_maintenance_batch_limit() -> usize {
+pub fn observability_maintenance_batch_limit() -> usize {
     std::env::var(OBSERVABILITY_MAINTENANCE_BATCH_LIMIT_ENV)
         .ok()
         .and_then(|raw| raw.trim().parse::<usize>().ok())
@@ -498,6 +498,31 @@ impl Storage {
             [cutoff_ts],
             |row| row.get(0),
         )
+    }
+
+    /// 按创建时间读取指定边界前尚未日级固化的明细时间戳。
+    ///
+    /// 返回行数受 limit 限制，供服务层只解析本批次真实存在数据的本地日期，
+    /// 避免稀疏历史数据按日历跨度枚举大量空日期。
+    pub fn pending_daily_rollup_timestamps_before_limited(
+        &self,
+        cutoff_ts: i64,
+        limit: usize,
+    ) -> Result<Vec<i64>> {
+        if cutoff_ts <= 0 || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        let mut stmt = self.conn.prepare(
+            "SELECT created_at
+             FROM request_token_stats
+             WHERE created_at < ?1
+               AND daily_rolled_at IS NULL
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map((cutoff_ts, limit_i64), |row| row.get(0))?;
+        rows.collect()
     }
 
     fn has_pending_daily_rollup_before(&self, cutoff_ts: i64) -> Result<bool> {
