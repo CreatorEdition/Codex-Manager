@@ -542,6 +542,9 @@ fn tokens_due_for_refresh_include_other_unavailable_accounts_but_skip_deactivate
         ("acc-region-blocked-refresh", "unavailable"),
         ("acc-unavailable-refresh", "unavailable"),
         ("acc-deactivated-refresh", "banned"),
+        ("acc-disabled-refresh", "disabled"),
+        ("acc-banned-refresh", "banned"),
+        ("acc-expired-refresh", "unavailable"),
     ] {
         storage
             .insert_account(&Account {
@@ -587,6 +590,15 @@ fn tokens_due_for_refresh_include_other_unavailable_accounts_but_skip_deactivate
             created_at: now + 1,
         })
         .expect("insert region blocked event");
+    storage
+        .insert_event(&Event {
+            account_id: Some("acc-expired-refresh".to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=refresh_token_invalid:refresh_token_expired"
+                .to_string(),
+            created_at: now + 1,
+        })
+        .expect("insert expired refresh event");
 
     let due = storage
         .list_tokens_due_for_refresh(4_102_444_300, 4_102_444_900, 10)
@@ -599,6 +611,7 @@ fn tokens_due_for_refresh_include_other_unavailable_accounts_but_skip_deactivate
         account_ids,
         vec![
             "acc-active-refresh".to_string(),
+            "acc-expired-refresh".to_string(),
             "acc-region-blocked-refresh".to_string(),
             "acc-unavailable-refresh".to_string()
         ]

@@ -1,6 +1,7 @@
 use super::{
     clear_pending_usage_refresh_tasks_for_tests, enqueue_usage_refresh_with_worker,
-    next_usage_poll_cursor, notify_usage_refresh_completed, reset_usage_poll_cursor_for_tests,
+    enqueue_usage_validation_after_token_refresh_with, next_usage_poll_cursor,
+    notify_usage_refresh_completed, reset_usage_poll_cursor_for_tests,
     resolve_token_refresh_issuer, run_token_refresh_task, schedule_token_refresh_failure_retry,
     set_usage_refresh_completed_handler, should_retry_usage_refresh_with_token,
     sleep_startup_stagger_with, subscribe_usage_refresh_completed, token_refresh_access_exp_cutoff,
@@ -10,7 +11,7 @@ use super::{
     USAGE_POLLING_STARTUP_STAGGER_SECS, WARMUP_CRON_STARTUP_STAGGER_SECS,
 };
 use crate::usage_scheduler::DEFAULT_USAGE_POLL_INTERVAL_SECS;
-use codexmanager_core::storage::{now_ts, Account, Storage, Token};
+use codexmanager_core::storage::{now_ts, Account, Event, Storage, Token};
 use std::collections::HashSet;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -180,6 +181,119 @@ fn enqueue_usage_refresh_for_different_accounts_keeps_queue_progress() {
 
     std::thread::sleep(Duration::from_millis(20));
     clear_pending_usage_refresh_tasks_for_tests();
+}
+
+/// Token 刷新成功后的恢复验证直接进入单账号队列，并绕过轮询冷却；同账号并发仍去重。
+#[test]
+fn token_refresh_success_validation_bypasses_stale_cooldown_and_deduplicates() {
+    let _guard = crate::test_env_guard();
+    clear_pending_usage_refresh_tasks_for_tests();
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init");
+    let now = now_ts();
+    let account_id = "acc-token-recovery-queue";
+    insert_account_and_token(&storage, account_id, now);
+    storage
+        .update_account_status_if_changed(account_id, "unavailable")
+        .expect("mark unavailable");
+    storage
+        .insert_event(&Event {
+            account_id: Some(account_id.to_string()),
+            event_type: "account_status_update".to_string(),
+            message: "status=unavailable reason=usage_http_401".to_string(),
+            created_at: now,
+        })
+        .expect("insert status reason");
+    storage
+        .insert_event(&Event {
+            account_id: Some(account_id.to_string()),
+            event_type: "usage_refresh_failed".to_string(),
+            message: "usage endpoint failed: status=401".to_string(),
+            created_at: now,
+        })
+        .expect("insert stale cooldown event");
+
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let first =
+        enqueue_usage_validation_after_token_refresh_with(&storage, account_id, move |id| {
+            enqueue_usage_refresh_with_worker(id, move |_| {
+                let _ = started_tx.send(());
+                let _ = release_rx.recv_timeout(Duration::from_secs(1));
+            })
+        });
+    assert!(
+        first,
+        "陈旧 usage_refresh_failed 冷却不得阻塞 Token 成功后的验证"
+    );
+    started_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("validation worker started");
+
+    let duplicate = enqueue_usage_validation_after_token_refresh_with(&storage, account_id, |id| {
+        enqueue_usage_refresh_with_worker(id, |_| {})
+    });
+    assert!(
+        !duplicate,
+        "同账号恢复验证必须复用队列去重，避免递归并发刷新"
+    );
+
+    let _ = release_tx.send(());
+    std::thread::sleep(Duration::from_millis(20));
+    clear_pending_usage_refresh_tasks_for_tests();
+}
+
+/// 后台恢复验证只处理认证/用量鉴权类原因，且不会覆盖并发发生的禁用或封禁。
+#[test]
+fn token_refresh_success_validation_respects_reason_and_current_status() {
+    for (account_id, status, reason, expected) in [
+        (
+            "acc-refresh-invalid",
+            "unavailable",
+            "refresh_token_invalid:refresh_token_unknown_401",
+            true,
+        ),
+        (
+            "acc-region-blocked",
+            "unavailable",
+            "refresh_token_region_blocked",
+            true,
+        ),
+        ("acc-usage-403", "unavailable", "usage_http_403", true),
+        ("acc-active", "active", "usage_ok", false),
+        (
+            "acc-disabled-race",
+            "disabled",
+            "refresh_token_invalid:refresh_token_unknown_401",
+            false,
+        ),
+        ("acc-banned-race", "banned", "usage_http_401", false),
+    ] {
+        let storage = Storage::open_in_memory().expect("open in memory");
+        storage.init().expect("init");
+        let now = now_ts();
+        insert_account_and_token(&storage, account_id, now);
+        storage
+            .update_account_status_if_changed(account_id, status)
+            .expect("update status");
+        storage
+            .insert_event(&Event {
+                account_id: Some(account_id.to_string()),
+                event_type: "account_status_update".to_string(),
+                message: format!("status={status} reason={reason}"),
+                created_at: now,
+            })
+            .expect("insert status reason");
+
+        let called = std::cell::Cell::new(false);
+        let queued =
+            enqueue_usage_validation_after_token_refresh_with(&storage, account_id, |_| {
+                called.set(true);
+                true
+            });
+        assert_eq!(queued, expected, "account_id={account_id}");
+        assert_eq!(called.get(), expected, "account_id={account_id}");
+    }
 }
 
 /// 函数 `schedule_prefers_exp_minus_ahead`
@@ -506,6 +620,36 @@ fn schedule_failure_retry_permanent_uses_long_cooldown() {
             .expect("read count"),
         0,
         "永久失败应清零连续失败计数"
+    );
+}
+
+/// refresh_token_expired 可能误判：使用长冷却抑制请求，但不应永久退出候选。
+#[test]
+fn schedule_failure_retry_expired_uses_long_recoverable_cooldown() {
+    let _guard = crate::test_env_guard();
+    std::env::remove_var("CODEXMANAGER_TOKEN_REFRESH_FAILURE_COOLDOWN_SECS");
+    let storage = Storage::open_in_memory().expect("open in memory");
+    storage.init().expect("init");
+    let now = now_ts();
+    let account_id = "acc-expired-recheck";
+    insert_account_and_token(&storage, account_id, now);
+
+    schedule_token_refresh_failure_retry(
+        &storage,
+        account_id,
+        now,
+        "refresh token failed with status 401 Unauthorized: Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.",
+    );
+
+    assert_eq!(
+        read_next_refresh_at(&storage, account_id),
+        Some(now + token_refresh_failure_cooldown_secs() as i64)
+    );
+    assert_eq!(
+        storage
+            .token_consecutive_failure_count(account_id)
+            .expect("read count"),
+        0
     );
 }
 

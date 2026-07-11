@@ -1416,8 +1416,10 @@ mod tests {
         region_blocked.sort = 7;
         let mut invalid_refresh = sample_account("acc-invalid-refresh", "active", now);
         invalid_refresh.sort = 8;
+        let mut expired_refresh = sample_account("acc-expired-refresh", "unavailable", now);
+        expired_refresh.sort = 9;
         let mut restored = sample_account("acc-restored", "active", now);
-        restored.sort = 9;
+        restored.sort = 10;
 
         for account in [
             &active_a,
@@ -1428,6 +1430,7 @@ mod tests {
             &deactivated,
             &region_blocked,
             &invalid_refresh,
+            &expired_refresh,
             &restored,
         ] {
             storage.insert_account(account).expect("insert account");
@@ -1441,6 +1444,7 @@ mod tests {
             &deactivated,
             &region_blocked,
             &invalid_refresh,
+            &expired_refresh,
             &restored,
         ] {
             storage
@@ -1481,6 +1485,15 @@ mod tests {
             .expect("insert invalid refresh status event");
         storage
             .insert_event(&Event {
+                account_id: Some(expired_refresh.id.clone()),
+                event_type: "account_status_update".to_string(),
+                message: "status=unavailable reason=refresh_token_invalid:refresh_token_expired"
+                    .to_string(),
+                created_at: now + 10,
+            })
+            .expect("insert expired refresh status event");
+        storage
+            .insert_event(&Event {
                 account_id: Some(restored.id.clone()),
                 event_type: "account_status_update".to_string(),
                 message: "status=banned reason=workspace_deactivated".to_string(),
@@ -1500,7 +1513,7 @@ mod tests {
             storage
                 .usage_refresh_candidate_count(None)
                 .expect("candidate count"),
-            4
+            5
         );
 
         let first_page = storage
@@ -1523,7 +1536,19 @@ mod tests {
             .iter()
             .map(|(account, _)| account.id.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(second_page_ids, vec!["acc-region-blocked", "acc-restored"]);
+        assert_eq!(
+            second_page_ids,
+            vec!["acc-region-blocked", "acc-expired-refresh"]
+        );
+
+        let third_page = storage
+            .list_usage_refresh_candidates_paginated(4, 2, None)
+            .expect("third page");
+        let third_page_ids = third_page
+            .iter()
+            .map(|(account, _)| account.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(third_page_ids, vec!["acc-restored"]);
     }
 
     #[test]
