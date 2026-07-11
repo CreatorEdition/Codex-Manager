@@ -27,6 +27,7 @@
 - 补齐账号排序、模型目录自动拉取与 Web RPC 超时提示的英/韩/俄翻译，并让首页启动快照显式声明完整模型目录需求，恢复 `test:runtime` 全量门禁。
 
 ### Fixed
+- 请求费用估算改为在解析最终 `effective_service_tier` 后选择 Standard / Priority 价格，HTTP 与 Responses WebSocket 共用同一计费口径；`fast` 按 Priority，空值、`auto`、`default` 和未知 tier 保守按 Standard。模型价格规则现会实际匹配 `billingMode`，同一模型可同时维护不同服务等级价格；新版种子逐模型补齐官方 Priority 价格及 GPT-4.1/4o 特异 Standard 规则，不对历史账单自动重算。
 - 补齐 Web 运行壳遗漏的命令映射及完整性门禁，移除错误的模型价格重复 RPC 映射；Tauri 生产构建不再因旧静态产物存在而跳过重新生成，并把 `/platform-mode` 纳入根页面校验。
 - 账号单删、批删和状态清理成功后立即失效网关候选缓存；候选快照与 single-flight 按数据库和低额度模式隔离，避免交替模式互相驱逐或删除后继续选中旧凭据。
 - accounts 鉴权模式下成员不再访问全局账号池读取、更新、用量刷新和 Token 刷新 RPC；OAuth 登录成功日志不再输出数据库路径、state、workspace 或账号标识。

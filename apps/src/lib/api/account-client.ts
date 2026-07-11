@@ -181,6 +181,7 @@ export interface ModelPriceRuleEntry {
   provider: string;
   modelPattern: string;
   matchType: string;
+  billingMode: "standard" | "priority" | string;
   inputPricePer1m: number | null;
   cachedInputPricePer1m: number | null;
   outputPricePer1m: number | null;
@@ -196,6 +197,7 @@ export interface ModelPriceRuleUpsertPayload {
   provider?: string | null;
   modelPattern: string;
   matchType?: string | null;
+  billingMode?: "standard" | "priority" | string | null;
   inputPricePer1m?: number | null;
   cachedInputPricePer1m?: number | null;
   outputPricePer1m?: number | null;
@@ -995,10 +997,10 @@ export const accountClient = {
     );
     return result.items;
   },
-  readModelPriceRule: async (modelPattern: string) => {
+  readModelPriceRule: async (modelPattern: string, billingMode?: string | null) => {
     const result = await invoke<ModelPriceRuleEntry | null>(
       "service_model_price_rule_read",
-      withAddr({ modelPattern }),
+      withAddr({ modelPattern, billingMode: billingMode || null }),
     );
     return result;
   },

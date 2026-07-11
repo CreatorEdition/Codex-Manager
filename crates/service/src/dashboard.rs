@@ -702,7 +702,7 @@ fn read_available_models_with_price_summary() -> Result<Vec<ModelInfo>, String> 
         .filter(|model| model.supported_in_api && model.visibility.as_deref() != Some("hide"))
         .map(|mut model| {
             if let Some(price) =
-                model_pricing::resolve_model_price_from_rules(&price_rules, &model.slug, 0)
+                model_pricing::resolve_model_price_from_rules(&price_rules, &model.slug, 0, None)
                     .or_else(|| model_pricing::resolve_model_price(&model.slug, 0))
             {
                 model.extra.insert(

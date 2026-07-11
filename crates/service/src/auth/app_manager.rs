@@ -1063,6 +1063,12 @@ fn estimate_billing_model_cost_usd(
         input_tokens,
         cached_input_tokens,
         output_tokens,
+        usage
+            .get("effectiveServiceTier")
+            .or_else(|| usage.get("effective_service_tier"))
+            .or_else(|| usage.get("serviceTier"))
+            .or_else(|| usage.get("service_tier"))
+            .and_then(Value::as_str),
     );
     if cost > 0.0 {
         Some(cost)

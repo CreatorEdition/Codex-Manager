@@ -134,6 +134,51 @@ impl Storage {
         rows.next()?.map(model_price_rule_from_row).transpose()
     }
 
+    pub fn find_model_price_rule_by_id(&self, id: &str) -> Result<Option<ModelPriceRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                id, provider, model_pattern, match_type, billing_mode,
+                currency, unit, input_price_per_1m, cached_input_price_per_1m,
+                output_price_per_1m, reasoning_output_price_per_1m,
+                cache_write_5m_price_per_1m, cache_write_1h_price_per_1m,
+                cache_hit_price_per_1m, long_context_threshold_tokens,
+                long_context_input_price_per_1m,
+                long_context_cached_input_price_per_1m,
+                long_context_output_price_per_1m, source, source_url,
+                seed_version, enabled, priority, created_at, updated_at
+             FROM model_price_rules
+             WHERE id = ?1
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query([id])?;
+        rows.next()?.map(model_price_rule_from_row).transpose()
+    }
+
+    pub fn find_model_price_rule_by_model_pattern_and_billing_mode(
+        &self,
+        model_pattern: &str,
+        billing_mode: &str,
+    ) -> Result<Option<ModelPriceRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT
+                id, provider, model_pattern, match_type, billing_mode,
+                currency, unit, input_price_per_1m, cached_input_price_per_1m,
+                output_price_per_1m, reasoning_output_price_per_1m,
+                cache_write_5m_price_per_1m, cache_write_1h_price_per_1m,
+                cache_hit_price_per_1m, long_context_threshold_tokens,
+                long_context_input_price_per_1m,
+                long_context_cached_input_price_per_1m,
+                long_context_output_price_per_1m, source, source_url,
+                seed_version, enabled, priority, created_at, updated_at
+             FROM model_price_rules
+             WHERE model_pattern = ?1 AND lower(billing_mode) = lower(?2)
+             ORDER BY enabled DESC, priority DESC, updated_at DESC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query((model_pattern, billing_mode))?;
+        rows.next()?.map(model_price_rule_from_row).transpose()
+    }
+
     pub fn list_enabled_model_price_rules(&self) -> Result<Vec<ModelPriceRule>> {
         let mut stmt = self.conn.prepare(
             "SELECT

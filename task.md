@@ -5,12 +5,12 @@
 ## 当前待处理（2026-07-07）
 
 0. P0 定价分层与刷新状态补充修复（🔄 进行中）
-   - 定价：按请求最终 `effective_service_tier` 区分 Standard / Priority，补齐官方 Priority 种子与回归测试；历史费用重算不在本轮自动执行。
-   - 刷新：将可能误判的 `refresh_token_expired` 调整为长退避低频复检；Token 刷新成功后立即触发用量验证并缩短状态恢复延迟；明确 disabled/banned 的后台刷新边界。
+   - 定价（✅ 子项已完成）：按请求最终 `effective_service_tier` 区分 Standard / Priority，`fast` 归入 Priority，空值/`auto`/`default` 与未知值保守回退 Standard；补齐官方逐模型 Priority 种子、`billing_mode` 匹配和 HTTP/WS 回归测试。历史费用不重算。
+   - 刷新（✅ 子项已完成）：将可能误判的 `refresh_token_expired` 调整为长退避低频复检；Token 刷新成功后立即触发用量验证并缩短状态恢复延迟；后台轮询跳过 disabled/banned。
    - 区域诊断：参考 Clash Verge 多 IP 服务映射与失败切换，但仅用于出口诊断；启动检查、区域阻断事件触发检查和低频兜底均不得直接替代上游接口判定。
    - 前端：刷新完成后同步账号实体状态，并展示可验证的出口诊断信息与刷新结果。
    - 主代理负责对子代理补丁独立审计、集成测试与 PR 更新。
-   - 刷新子项：✅ 已完成独立实现与定向回归，等待主代理审计集成。
+   - 定价与刷新子项已完成主代理审计集成，等待区域诊断与前端同步收口。
 
 1. P0 审计问题修复与独立复核（✅ 已完成）
    - 前端/Web：补齐 Web command 映射、移除错误重复 RPC、恢复 direct-mode 门禁、修正桌面构建陈旧产物判断。

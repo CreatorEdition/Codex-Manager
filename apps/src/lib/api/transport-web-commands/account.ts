@@ -115,6 +115,7 @@ export function createAccountWebCommands(postWebRpc: WebRpcCaller): Record<strin
         const source = asRecord(params) ?? {};
         return {
           modelPattern: source.model_pattern ?? source.modelPattern,
+          billingMode: source.billing_mode ?? source.billingMode,
         };
       },
     },

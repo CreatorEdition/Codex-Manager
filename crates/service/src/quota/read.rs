@@ -53,6 +53,7 @@ pub(crate) struct ModelPriceRuleUpsertInput {
     pub(crate) provider: Option<String>,
     pub(crate) model_pattern: String,
     pub(crate) match_type: Option<String>,
+    pub(crate) billing_mode: Option<String>,
     pub(crate) input_price_per_1m: Option<f64>,
     pub(crate) cached_input_price_per_1m: Option<f64>,
     pub(crate) output_price_per_1m: Option<f64>,
@@ -575,6 +576,7 @@ fn model_price_rule_value(rule: ModelPriceRule) -> Value {
         "provider": rule.provider,
         "modelPattern": rule.model_pattern,
         "matchType": rule.match_type,
+        "billingMode": rule.billing_mode,
         "inputPricePer1m": rule.input_price_per_1m,
         "cachedInputPricePer1m": rule.cached_input_price_per_1m,
         "outputPricePer1m": rule.output_price_per_1m,
@@ -597,17 +599,28 @@ pub(crate) fn read_model_price_rules() -> Result<Value, String> {
     Ok(serde_json::json!({ "items": items }))
 }
 
-pub(crate) fn read_model_price_rule(model_pattern: &str) -> Result<Value, String> {
+pub(crate) fn read_model_price_rule(
+    model_pattern: &str,
+    billing_mode: Option<&str>,
+) -> Result<Value, String> {
     let model_pattern = model_pattern.trim();
     if model_pattern.is_empty() {
         return Ok(Value::Null);
     }
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
-    let value = storage
-        .find_model_price_rule_by_model_pattern(model_pattern)
-        .map_err(|err| format!("read model price rule failed: {err}"))?
-        .map(model_price_rule_value)
-        .unwrap_or(Value::Null);
+    let value = match billing_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(billing_mode) => storage.find_model_price_rule_by_model_pattern_and_billing_mode(
+            model_pattern,
+            model_pricing::normalize_service_tier_for_billing(Some(billing_mode)),
+        ),
+        None => storage.find_model_price_rule_by_model_pattern(model_pattern),
+    }
+    .map_err(|err| format!("read model price rule failed: {err}"))?
+    .map(model_price_rule_value)
+    .unwrap_or(Value::Null);
     Ok(value)
 }
 
@@ -617,9 +630,29 @@ pub(crate) fn upsert_model_price_rule(input: ModelPriceRuleUpsertInput) -> Resul
         return Err("modelPattern required".to_string());
     }
     let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
-    let existing = storage
-        .find_model_price_rule_by_model_pattern(model_pattern)
-        .map_err(|err| format!("read existing model price rule failed: {err}"))?;
+    let requested_billing_mode = input
+        .billing_mode
+        .as_deref()
+        .map(|value| model_pricing::normalize_service_tier_for_billing(Some(value)));
+    let lookup_billing_mode = requested_billing_mode.unwrap_or("standard");
+    let existing = match input
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(id) => storage.find_model_price_rule_by_id(id),
+        None => storage.find_model_price_rule_by_model_pattern_and_billing_mode(
+            model_pattern,
+            lookup_billing_mode,
+        ),
+    }
+    .map_err(|err| format!("read existing model price rule failed: {err}"))?;
+    let billing_mode = requested_billing_mode.unwrap_or_else(|| {
+        model_pricing::normalize_service_tier_for_billing(
+            existing.as_ref().map(|rule| rule.billing_mode.as_str()),
+        )
+    });
     let now = now_ts();
     let id = input
         .id
@@ -628,7 +661,7 @@ pub(crate) fn upsert_model_price_rule(input: ModelPriceRuleUpsertInput) -> Resul
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
         .or_else(|| existing.as_ref().map(|rule| rule.id.clone()))
-        .unwrap_or_else(|| format!("custom:{model_pattern}"));
+        .unwrap_or_else(|| format!("custom:{billing_mode}:{model_pattern}"));
     let provider = input
         .provider
         .as_deref()
@@ -650,10 +683,7 @@ pub(crate) fn upsert_model_price_rule(input: ModelPriceRuleUpsertInput) -> Resul
         provider,
         model_pattern: model_pattern.to_string(),
         match_type,
-        billing_mode: existing
-            .as_ref()
-            .map(|rule| rule.billing_mode.clone())
-            .unwrap_or_else(|| "tokens".to_string()),
+        billing_mode: billing_mode.to_string(),
         currency: existing
             .as_ref()
             .map(|rule| rule.currency.clone())
@@ -661,7 +691,7 @@ pub(crate) fn upsert_model_price_rule(input: ModelPriceRuleUpsertInput) -> Resul
         unit: existing
             .as_ref()
             .map(|rule| rule.unit.clone())
-            .unwrap_or_else(|| "1m_tokens".to_string()),
+            .unwrap_or_else(|| "per_1m_tokens".to_string()),
         input_price_per_1m: input
             .input_price_per_1m
             .or_else(|| existing.as_ref().and_then(|rule| rule.input_price_per_1m)),
@@ -783,6 +813,7 @@ pub(crate) fn read_quota_model_usage(
                     item.input_tokens,
                     item.cached_input_tokens,
                     item.output_tokens,
+                    None,
                 );
                 let aggregate_estimated_remaining_tokens =
                     aggregate_balance_usd.and_then(|balance| {
@@ -1311,9 +1342,13 @@ pub(crate) fn read_quota_system_pool(
             price_status: "missing".to_string(),
             ..PoolAccumulator::default()
         };
-        if let Some(price) =
-            model_pricing::resolve_model_price_from_rules(&price_rules, reference_model.as_str(), 0)
-                .or_else(|| model_pricing::resolve_model_price(reference_model.as_str(), 0))
+        if let Some(price) = model_pricing::resolve_model_price_from_rules(
+            &price_rules,
+            reference_model.as_str(),
+            0,
+            None,
+        )
+        .or_else(|| model_pricing::resolve_model_price(reference_model.as_str(), 0))
         {
             pool.provider = Some(price.provider);
             pool.price_status = "ok".to_string();
@@ -1401,7 +1436,7 @@ fn seed_model_pools(
     api_models: &[String],
 ) {
     for model in api_models {
-        let price = model_pricing::resolve_model_price_from_rules(price_rules, model, 0)
+        let price = model_pricing::resolve_model_price_from_rules(price_rules, model, 0, None)
             .or_else(|| model_pricing::resolve_model_price(model, 0));
         let entry = pools
             .entry(model.clone())
@@ -1455,9 +1490,10 @@ fn add_aggregate_api_pools(
             if model.is_empty() {
                 continue;
             }
-            let provider = model_pricing::resolve_model_price_from_rules(price_rules, &model, 0)
-                .or_else(|| model_pricing::resolve_model_price(&model, 0))
-                .map(|price| price.provider);
+            let provider =
+                model_pricing::resolve_model_price_from_rules(price_rules, &model, 0, None)
+                    .or_else(|| model_pricing::resolve_model_price(&model, 0))
+                    .map(|price| price.provider);
             let remaining_tokens = balance.remaining.and_then(|remaining| {
                 if is_usd_unit(balance_unit.as_str()) {
                     model_pricing::estimate_remaining_tokens_from_usd_with_rules(
@@ -1612,10 +1648,11 @@ fn add_account_pools(
             if model.is_empty() {
                 continue;
             }
-            let provider = model_pricing::resolve_model_price_from_rules(price_rules, &model, 0)
-                .or_else(|| model_pricing::resolve_model_price(&model, 0))
-                .map(|price| price.provider)
-                .or_else(|| Some("openai".to_string()));
+            let provider =
+                model_pricing::resolve_model_price_from_rules(price_rules, &model, 0, None)
+                    .or_else(|| model_pricing::resolve_model_price(&model, 0))
+                    .map(|price| price.provider)
+                    .or_else(|| Some("openai".to_string()));
             let entry = pools
                 .entry(model.clone())
                 .or_insert_with(|| PoolAccumulator {
@@ -1980,6 +2017,7 @@ pub(crate) fn read_quota_api_key_usage(
             item.input_tokens,
             item.cached_input_tokens,
             item.output_tokens,
+            None,
         );
         models_by_key
             .entry(item.key_id)

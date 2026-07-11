@@ -473,6 +473,76 @@ fn write_request_log_redacts_query_secret_urls() {
 }
 
 #[test]
+fn request_log_uses_final_effective_tier_for_http_and_ws_costs() {
+    let storage = Storage::open_in_memory().expect("open storage");
+    storage.init().expect("init storage");
+    let usage = RequestLogUsage {
+        input_tokens: Some(1_000_000),
+        cached_input_tokens: Some(0),
+        output_tokens: Some(0),
+        total_tokens: Some(1_000_000),
+        ..Default::default()
+    };
+
+    write_request_log(
+        &storage,
+        RequestLogTraceContext {
+            trace_id: Some("trc_http_standard"),
+            request_type: Some("http"),
+            service_tier: Some("priority"),
+            effective_service_tier: Some("default"),
+            ..Default::default()
+        },
+        None,
+        None,
+        "/v1/responses",
+        "POST",
+        Some("gpt-5-mini"),
+        None,
+        None,
+        Some(200),
+        usage,
+        None,
+        Some(10),
+    );
+    write_request_log(
+        &storage,
+        RequestLogTraceContext {
+            trace_id: Some("trc_ws_priority"),
+            request_type: Some("ws"),
+            service_tier: Some("standard"),
+            effective_service_tier: Some("fast"),
+            ..Default::default()
+        },
+        None,
+        None,
+        "/v1/responses",
+        "GET",
+        Some("gpt-5-mini"),
+        None,
+        None,
+        Some(200),
+        usage,
+        None,
+        Some(10),
+    );
+
+    let logs = storage.list_request_logs(None, 10).expect("list logs");
+    let http = logs
+        .iter()
+        .find(|item| item.trace_id.as_deref() == Some("trc_http_standard"))
+        .expect("http log");
+    let ws = logs
+        .iter()
+        .find(|item| item.trace_id.as_deref() == Some("trc_ws_priority"))
+        .expect("ws log");
+    assert_eq!(http.request_type.as_deref(), Some("http"));
+    assert_eq!(ws.request_type.as_deref(), Some("ws"));
+    assert_close(http.estimated_cost_usd.expect("http cost"), 0.25);
+    assert_close(ws.estimated_cost_usd.expect("ws cost"), 0.45);
+}
+
+#[test]
 fn keeps_failed_or_non_model_list_request_logs() {
     let _guard = crate::test_env_guard();
     std::env::remove_var("CODEXMANAGER_SKIP_SUCCESS_MODEL_LIST_REQUEST_LOGS");
