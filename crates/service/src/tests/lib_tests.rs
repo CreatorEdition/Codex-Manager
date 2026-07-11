@@ -1,7 +1,7 @@
 use super::*;
 use codexmanager_core::rpc::types::{JsonRpcMessage, JsonRpcResponse};
 use codexmanager_core::storage::{
-    ModelCatalogModelRecord, ModelGroupModel, RequestLog, RequestTokenStat,
+    Account, ModelCatalogModelRecord, ModelGroupModel, RequestLog, RequestTokenStat, Storage,
 };
 
 /// 函数 `response_result`
@@ -135,6 +135,87 @@ fn member_actor_cannot_call_admin_only_rpc() {
             .unwrap_or("");
         assert!(err.contains("permission_denied"), "{method}: {err}");
     }
+}
+
+/// 验证成员无法访问全局账号池，且被拒绝的更新不会改变账号数据。
+#[test]
+fn member_actor_cannot_access_global_account_pool_and_data_stays_unchanged() {
+    let _guard = test_env_guard();
+    let db_path = setup_dashboard_test_db("codexmanager-member-account-pool-denied");
+    set_web_auth_mode("accounts").expect("enable accounts mode");
+    let storage = Storage::open(&db_path).expect("open storage");
+    storage
+        .insert_account(&Account {
+            id: "acc-member-denied".to_string(),
+            label: "原始账号".to_string(),
+            issuer: "chatgpt".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: 1,
+            updated_at: 1,
+        })
+        .expect("insert account");
+    let actor = RpcActor::from_parts(Some(ROLE_MEMBER), Some("member-account-pool"));
+
+    for (method, params) in [
+        ("account/list", serde_json::json!({})),
+        (
+            "account/read",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/update",
+            serde_json::json!({
+                "accountId": "acc-member-denied",
+                "label": "越权修改",
+                "status": "disabled"
+            }),
+        ),
+        ("account/usage/aggregate", serde_json::json!({})),
+        ("account/usage/list", serde_json::json!({})),
+        (
+            "account/usage/read",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/usage/refresh",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/warmup",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/chatgptAuthTokens/refresh",
+            serde_json::json!({ "accountId": "acc-member-denied" }),
+        ),
+        (
+            "account/chatgptAuthTokens/refreshAll",
+            serde_json::json!({}),
+        ),
+    ] {
+        let resp = response_result(handle_request_with_actor(
+            rpc_request(method, params),
+            actor.clone(),
+        ));
+        assert!(
+            rpc_error(&resp).contains("permission_denied"),
+            "{method} 应拒绝成员访问全局账号池: {:?}",
+            resp.result
+        );
+    }
+
+    let unchanged = storage
+        .find_account_by_id("acc-member-denied")
+        .expect("find account")
+        .expect("account exists");
+    assert_eq!(unchanged.label, "原始账号");
+    assert_eq!(unchanged.status, "active");
+    drop(storage);
+    let _ = std::fs::remove_file(db_path);
 }
 
 #[test]

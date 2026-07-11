@@ -119,6 +119,154 @@ fn candidate_snapshot_cache_reuses_recent_snapshot() {
     super::reload_from_env();
 }
 
+/// 验证单账号删除成功后立即清除候选缓存。
+#[test]
+fn deleting_account_invalidates_cached_candidate_snapshot() {
+    let _guard = crate::test_env_guard();
+    let previous_ttl = std::env::var(CANDIDATE_CACHE_TTL_ENV).ok();
+    let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+    let db_path = std::env::temp_dir().join(format!(
+        "selection-delete-cache-{}-{}.sqlite",
+        std::process::id(),
+        now_ts()
+    ));
+    let _ = std::fs::remove_file(&db_path);
+    std::env::set_var(CANDIDATE_CACHE_TTL_ENV, "2000");
+    std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+    super::reload_from_env();
+    clear_candidate_cache_for_tests();
+
+    let storage = Storage::open(&db_path).expect("open");
+    storage.init().expect("init");
+    let now = now_ts();
+    storage
+        .insert_account(&Account {
+            id: "acc-delete-cache".to_string(),
+            label: "delete cache".to_string(),
+            issuer: "issuer".to_string(),
+            chatgpt_account_id: None,
+            workspace_id: None,
+            group_name: None,
+            sort: 0,
+            status: "active".to_string(),
+            created_at: now,
+            updated_at: now,
+        })
+        .expect("insert account");
+    storage
+        .insert_token(&Token {
+            account_id: "acc-delete-cache".to_string(),
+            id_token: "id".to_string(),
+            access_token: "access".to_string(),
+            refresh_token: "refresh".to_string(),
+            api_key_access_token: None,
+            last_refresh: now,
+        })
+        .expect("insert token");
+
+    assert_eq!(
+        collect_gateway_candidates(&storage)
+            .expect("cached candidates")
+            .len(),
+        1
+    );
+    crate::account_delete::delete_account("acc-delete-cache").expect("delete account");
+    assert!(
+        collect_gateway_candidates(&storage)
+            .expect("candidates after deletion")
+            .is_empty(),
+        "单删成功后不能继续返回缓存中的旧账号凭据"
+    );
+
+    clear_candidate_cache_for_tests();
+    let _ = std::fs::remove_file(&db_path);
+    if let Some(value) = previous_ttl {
+        std::env::set_var(CANDIDATE_CACHE_TTL_ENV, value);
+    } else {
+        std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
+    }
+    if let Some(value) = previous_db_path {
+        std::env::set_var("CODEXMANAGER_DB_PATH", value);
+    } else {
+        std::env::remove_var("CODEXMANAGER_DB_PATH");
+    }
+    super::reload_from_env();
+}
+
+/// 验证批量删除成功后不会继续返回已删除账号的候选快照。
+#[test]
+fn deleting_many_accounts_invalidates_cached_candidate_snapshot() {
+    let _guard = crate::test_env_guard();
+    let previous_ttl = std::env::var(CANDIDATE_CACHE_TTL_ENV).ok();
+    let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+    let db_path = std::env::temp_dir().join(format!(
+        "selection-delete-many-cache-{}-{}.sqlite",
+        std::process::id(),
+        now_ts()
+    ));
+    let _ = std::fs::remove_file(&db_path);
+    std::env::set_var(CANDIDATE_CACHE_TTL_ENV, "2000");
+    std::env::set_var("CODEXMANAGER_DB_PATH", &db_path);
+    super::reload_from_env();
+    clear_candidate_cache_for_tests();
+
+    let storage = Storage::open(&db_path).expect("open");
+    storage.init().expect("init");
+    let now = now_ts();
+    for (id, sort) in [("acc-delete-many-a", 0_i64), ("acc-delete-many-b", 1_i64)] {
+        storage
+            .insert_account(&Account {
+                id: id.to_string(),
+                label: id.to_string(),
+                issuer: "issuer".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert account");
+        storage
+            .insert_token(&Token {
+                account_id: id.to_string(),
+                id_token: "id".to_string(),
+                access_token: "access".to_string(),
+                refresh_token: "refresh".to_string(),
+                api_key_access_token: None,
+                last_refresh: now,
+            })
+            .expect("insert token");
+    }
+
+    assert_eq!(
+        collect_gateway_candidates(&storage)
+            .expect("cached candidates")
+            .len(),
+        2
+    );
+    crate::account_delete_many::delete_accounts(vec!["acc-delete-many-a".to_string()])
+        .expect("delete accounts");
+    let remaining = collect_gateway_candidates(&storage).expect("candidates after bulk deletion");
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].0.id, "acc-delete-many-b");
+
+    clear_candidate_cache_for_tests();
+    let _ = std::fs::remove_file(&db_path);
+    if let Some(value) = previous_ttl {
+        std::env::set_var(CANDIDATE_CACHE_TTL_ENV, value);
+    } else {
+        std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
+    }
+    if let Some(value) = previous_db_path {
+        std::env::set_var("CODEXMANAGER_DB_PATH", value);
+    } else {
+        std::env::remove_var("CODEXMANAGER_DB_PATH");
+    }
+    super::reload_from_env();
+}
+
 #[test]
 fn candidate_cache_refresh_is_single_flight_per_cache_window() {
     let _guard = crate::test_env_guard();
@@ -163,6 +311,142 @@ fn candidate_cache_refresh_is_single_flight_per_cache_window() {
         std::env::set_var("CODEXMANAGER_DB_PATH", value);
     } else {
         std::env::remove_var("CODEXMANAGER_DB_PATH");
+    }
+    super::reload_from_env();
+}
+
+/// 验证不同低额度候选模式可以并行刷新，不共享全局串行锁。
+#[test]
+fn candidate_cache_refresh_allows_different_modes_in_parallel() {
+    let _guard = crate::test_env_guard();
+    let previous_ttl = std::env::var(CANDIDATE_CACHE_TTL_ENV).ok();
+    let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+    std::env::set_var(CANDIDATE_CACHE_TTL_ENV, "2000");
+    std::env::set_var(
+        "CODEXMANAGER_DB_PATH",
+        "selection-cache-mode-parallel-refresh",
+    );
+    super::reload_from_env();
+    clear_candidate_cache_for_tests();
+
+    let normal_guard = super::acquire_candidate_cache_refresh(LowQuotaCandidateMode::NormalOnly)
+        .expect("normal refresh guard");
+    let (tx, rx) = mpsc::channel();
+    let fallback_worker = thread::spawn(move || {
+        let _fallback_guard =
+            super::acquire_candidate_cache_refresh(LowQuotaCandidateMode::AppendFallback)
+                .expect("fallback refresh guard");
+        tx.send(()).expect("send fallback completion");
+    });
+
+    rx.recv_timeout(Duration::from_secs(2))
+        .expect("不同候选模式不应共用全局 single-flight 锁");
+    drop(normal_guard);
+    fallback_worker.join().expect("fallback worker");
+
+    clear_candidate_cache_for_tests();
+    if let Some(value) = previous_ttl {
+        std::env::set_var(CANDIDATE_CACHE_TTL_ENV, value);
+    } else {
+        std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
+    }
+    if let Some(value) = previous_db_path {
+        std::env::set_var("CODEXMANAGER_DB_PATH", value);
+    } else {
+        std::env::remove_var("CODEXMANAGER_DB_PATH");
+    }
+    super::reload_from_env();
+}
+
+/// 验证交替读取两种候选模式时，各自缓存不会相互驱逐。
+#[test]
+fn alternating_candidate_modes_keep_independent_cached_snapshots() {
+    let _guard = crate::test_env_guard();
+    let previous_ttl = std::env::var(CANDIDATE_CACHE_TTL_ENV).ok();
+    let previous_db_path = std::env::var("CODEXMANAGER_DB_PATH").ok();
+    let previous_threshold = std::env::var(LOW_QUOTA_THRESHOLD_ENV).ok();
+    std::env::set_var(CANDIDATE_CACHE_TTL_ENV, "2000");
+    std::env::set_var("CODEXMANAGER_DB_PATH", "selection-cache-alternating-modes");
+    std::env::set_var(LOW_QUOTA_THRESHOLD_ENV, "95");
+    super::reload_from_env();
+    clear_candidate_cache_for_tests();
+
+    let storage = Storage::open_in_memory().expect("open");
+    storage.init().expect("init");
+    let now = now_ts();
+    for (id, sort, used_percent) in [
+        ("acc-healthy-cache", 0_i64, 10.0),
+        ("acc-low-cache", 1_i64, 99.0),
+    ] {
+        storage
+            .insert_account(&Account {
+                id: id.to_string(),
+                label: id.to_string(),
+                issuer: "issuer".to_string(),
+                chatgpt_account_id: None,
+                workspace_id: None,
+                group_name: None,
+                sort,
+                status: "active".to_string(),
+                created_at: now,
+                updated_at: now,
+            })
+            .expect("insert account");
+        storage
+            .insert_token(&Token {
+                account_id: id.to_string(),
+                id_token: "id".to_string(),
+                access_token: "access".to_string(),
+                refresh_token: "refresh".to_string(),
+                api_key_access_token: None,
+                last_refresh: now,
+            })
+            .expect("insert token");
+        storage
+            .insert_usage_snapshot(&UsageSnapshotRecord {
+                account_id: id.to_string(),
+                used_percent: Some(used_percent),
+                window_minutes: Some(300),
+                resets_at: None,
+                secondary_used_percent: None,
+                secondary_window_minutes: None,
+                secondary_resets_at: None,
+                credits_json: None,
+                captured_at: now,
+            })
+            .expect("insert snapshot");
+    }
+
+    let normal_first = collect_gateway_candidates(&storage).expect("normal candidates");
+    let fallback = collect_gateway_candidates_with_low_quota_mode(
+        &storage,
+        LowQuotaCandidateMode::AppendFallback,
+    )
+    .expect("fallback candidates");
+    let normal_second = collect_gateway_candidates(&storage).expect("normal cached candidates");
+
+    assert_eq!(normal_first.len(), 1);
+    assert_eq!(fallback.len(), 2);
+    assert!(
+        Arc::ptr_eq(&normal_first, &normal_second),
+        "交替读取不同模式时不应驱逐另一个模式的候选快照"
+    );
+
+    clear_candidate_cache_for_tests();
+    if let Some(value) = previous_ttl {
+        std::env::set_var(CANDIDATE_CACHE_TTL_ENV, value);
+    } else {
+        std::env::remove_var(CANDIDATE_CACHE_TTL_ENV);
+    }
+    if let Some(value) = previous_db_path {
+        std::env::set_var("CODEXMANAGER_DB_PATH", value);
+    } else {
+        std::env::remove_var("CODEXMANAGER_DB_PATH");
+    }
+    if let Some(value) = previous_threshold {
+        std::env::set_var(LOW_QUOTA_THRESHOLD_ENV, value);
+    } else {
+        std::env::remove_var(LOW_QUOTA_THRESHOLD_ENV);
     }
     super::reload_from_env();
 }

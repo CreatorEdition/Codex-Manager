@@ -127,6 +127,7 @@ pub(crate) fn delete_unavailable_free_accounts() -> Result<DeleteUnavailableFree
         storage
             .delete_account(&account.id)
             .map_err(|err| err.to_string())?;
+        crate::gateway::invalidate_candidate_cache();
 
         let event_message = match plan_label_for_event(resolved_plan.as_ref()) {
             Some(plan) => format!("bulk delete unavailable free account: plan={plan}"),
@@ -185,6 +186,7 @@ pub(crate) fn delete_banned_accounts() -> Result<DeleteBannedResult, String> {
         storage
             .delete_account(&account.id)
             .map_err(|err| err.to_string())?;
+        crate::gateway::invalidate_candidate_cache();
         let _ = storage.insert_event(&Event {
             account_id: Some(account.id.clone()),
             event_type: "account_bulk_delete_banned".to_string(),
@@ -237,6 +239,7 @@ pub(crate) fn delete_accounts_by_statuses(
         storage
             .delete_account(&account.id)
             .map_err(|err| err.to_string())?;
+        crate::gateway::invalidate_candidate_cache();
         let _ = storage.insert_event(&Event {
             account_id: Some(account.id.clone()),
             event_type: "account_bulk_delete_by_status".to_string(),

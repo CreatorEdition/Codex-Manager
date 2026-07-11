@@ -76,6 +76,8 @@ pub(crate) fn delete_accounts(account_ids: Vec<String>) -> Result<DeleteManyResu
 
         match storage.delete_account(&account_id) {
             Ok(_) => {
+                // 每个账号删除成功后立即失效快照，避免大批量操作期间继续选中已删除凭据。
+                crate::gateway::invalidate_candidate_cache();
                 let _ = storage.insert_event(&Event {
                     account_id: Some(account_id.clone()),
                     event_type: "account_delete_many".to_string(),
