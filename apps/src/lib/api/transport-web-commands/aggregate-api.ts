@@ -8,6 +8,7 @@ import {
 export function createAggregateApiWebCommands(): Record<string, WebCommandDescriptor> {
   return {
     service_aggregate_api_list: { rpcMethod: "aggregateApi/list" },
+    service_aggregate_api_lookup: { rpcMethod: "aggregateApi/lookup" },
     service_aggregate_api_create: { rpcMethod: "aggregateApi/create" },
     service_aggregate_api_update: { rpcMethod: "aggregateApi/update" },
     service_aggregate_api_delete: { rpcMethod: "aggregateApi/delete" },

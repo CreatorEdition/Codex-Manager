@@ -22,10 +22,6 @@ function hasFrontendPackage(dir) {
   return existsSync(resolve(dir, "package.json"));
 }
 
-function hasBuiltFrontendDist(dir) {
-  return existsSync(resolve(dir, "out", "index.html"));
-}
-
 function canConnect(host, port, timeoutMs = 1000) {
   return new Promise((resolvePromise) => {
     const socket = new net.Socket();
@@ -287,11 +283,6 @@ const frontendDir = candidates.find(hasFrontendPackage);
 if (!frontendDir) {
   console.error(`前端项目目录不存在，当前工作目录: ${cwd}`);
   process.exit(1);
-}
-
-if (task === "build:desktop" && hasBuiltFrontendDist(frontendDir)) {
-  console.log(`前端产物已存在，跳过重复构建: ${resolve(frontendDir, "out", "index.html")}`);
-  process.exit(0);
 }
 
 if (task === "dev:desktop") {

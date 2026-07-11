@@ -55,3 +55,12 @@ test("前端静态调用的 Tauri commands 都已注册", async () => {
     );
   }
 });
+
+test("Tauri 生产构建始终重新生成前端静态产物", async () => {
+  const source = await readSource("src-tauri/scripts/before-build.mjs");
+
+  assert.doesNotMatch(source, /hasBuiltFrontendDist/);
+  assert.doesNotMatch(source, /前端产物已存在，跳过重复构建/);
+  assert.match(source, /const packageManager = resolvePnpmCommand\(\)/);
+  assert.match(source, /spawnSync\(packageManager\.command, packageManager\.args/);
+});

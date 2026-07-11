@@ -13,38 +13,23 @@ async function readSource(relativePath) {
   return fs.readFile(path.join(appsRoot, relativePath), "utf8");
 }
 
-test("账号直连模式下会遮罩依赖网关请求日志的仪表盘区域", async () => {
+test("账号直连与混合模式均展示已经写入 CodexManager 的统计数据", async () => {
   const source = await readDashboardSource();
-  assert.match(source, /useCodexProfileModeStatus/);
-  assert.match(source, /function DirectModeUnavailable/);
-  assert.match(source, /未经过本地网关的请求不可统计/);
-  assert.match(source, /请求经过 CodexManager 本地网关后可统计请求日志、Token 和费用/);
-  assert.match(source, /buildStaticRouteUrl\("\/platform-mode"\)/);
-  assert.match(source, /当前为账号直连模式/);
-  assert.match(
-    source,
-    /当前 CLI 直连 OpenAI，未经过 CodexManager 的请求不会产生请求日志、Token 和费用统计。/,
-  );
-  assert.match(
-    source,
-    /<DirectModeUnavailable active=\{isDirectAccountMode\}>\s*<AdminUsageAnalyticsCard/s,
-  );
-  assert.match(
-    source,
-    /<DirectModeUnavailable active=\{isDirectAccountMode\}>\s*<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">/s,
-  );
-  assert.match(
-    source,
-    /<DirectModeUnavailable active=\{isDirectAccountMode\}>\s*<Card className="glass-card min-h-\[300px\] shadow-sm">/s,
-  );
+  assert.doesNotMatch(source, /useCodexProfileModeStatus/);
+  assert.doesNotMatch(source, /DirectModeUnavailable/);
+  assert.doesNotMatch(source, /未经过本地网关的请求不可统计/);
+  assert.match(source, /<AdminUsageAnalyticsCard\s+summary=\{adminUsageSummary\}/s);
+  assert.match(source, /title: t\("今日Token"\)/);
+  assert.match(source, /<CardTitle className="text-base font-semibold">\{t\("当前活跃账号"\)\}<\/CardTitle>/);
 });
 
-test("日志页 direct 模式只提示日志口径不遮罩历史日志", async () => {
+test("日志页不按当前路由模式隐藏已记录的历史日志", async () => {
   const source = await readSource("src/app/logs/page.tsx");
   const sectionsSource = await readSource("src/app/logs/page-sections.tsx");
-  assert.match(source, /useCodexProfileModeStatus/);
-  assert.match(sectionsSource, /未经过本地网关的请求不会产生新的 CodexManager 请求日志/);
-  assert.match(sectionsSource, /本地网关或包含本地网关的混合路由才会记录/);
+  assert.doesNotMatch(source, /useCodexProfileModeStatus/);
+  assert.match(source, /<RequestLogsTabContent/);
+  assert.doesNotMatch(sectionsSource, /未经过本地网关的请求不会产生新的 CodexManager 请求日志/);
+  assert.doesNotMatch(sectionsSource, /本地网关或包含本地网关的混合路由才会记录/);
   assert.doesNotMatch(sectionsSource, /DirectModeUnavailable/);
 });
 
